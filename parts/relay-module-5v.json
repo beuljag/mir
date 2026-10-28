@@ -4,7 +4,6 @@
   "category": "module",
   "color": "#1565c0",
   "description": "코일 5V 릴레이 모듈(트랜지스터·다이오드 내장). IN이 HIGH면 COM-NO 연결. 제품에 따라 LOW 트리거도 있으니 확인 필요.",
-  "image": "relay-module-5v.svg",
   "behavior": {
     "kind": "relay",
     "vcc": "VCC",

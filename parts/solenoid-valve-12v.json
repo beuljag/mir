@@ -4,7 +4,6 @@
   "category": "actuator",
   "color": "#6c757d",
   "description": "DC 12V, 약 0.5A. 전원을 넣으면 열림. 코일이라 역기전력 보호 다이오드 권장.",
-  "image": "solenoid-valve-12v.svg",
   "behavior": {
     "kind": "load",
     "plus": "V+",

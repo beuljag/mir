@@ -4,7 +4,6 @@
   "category": "input",
   "color": "#555b6e",
   "description": "누르는 동안 1-2가 연결되는 버튼. 가상 전원 ON 상태에서 클릭하면 눌림.",
-  "image": "push-button.svg",
   "behavior": {
     "kind": "button",
     "a": "P1",

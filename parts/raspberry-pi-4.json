@@ -3,7 +3,6 @@
   "name": "Raspberry Pi 4 (40핀 헤더)",
   "category": "board",
   "description": "라즈베리파이 40핀 GPIO 헤더. 로직 3.3V이며 GPIO는 5V를 견디지 못함. 왼쪽=홀수 핀, 오른쪽=짝수 핀.",
-  "image": "raspberry-pi-4.svg",
   "logicVoltage": 3.3,
   "color": "#7a1f3d",
   "behavior": {

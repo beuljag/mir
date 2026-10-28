@@ -3,7 +3,6 @@
   "name": "ESP32 DevKitC V4",
   "category": "board",
   "description": "ESP32-WROOM-32 개발 보드. 로직 3.3V, USB 5V 전원. GPIO는 5V를 견디지 못함.",
-  "image": "esp32-devkitc.svg",
   "logicVoltage": 3.3,
   "color": "#1d3557",
   "behavior": { "kind": "board" },

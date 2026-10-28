@@ -4,7 +4,6 @@
   "category": "power",
   "color": "#212529",
   "description": "외부 전원. 출력 12V 2A.",
-  "image": "dc-12v-adapter.svg",
   "behavior": {
     "kind": "supply"
   },
