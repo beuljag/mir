@@ -12,17 +12,48 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 let client = null;
 let catalogSentFor = null;
 
+// ---------- .env (COPILOT_DIRECT_LINE_SECRET=키, 큰따옴표 없이) ----------
+// 개발 중에는 프로젝트 폴더, .exe로 실행하면 .exe가 있는 폴더의 .env를 읽는다
+function readEnvSecret() {
+  const dir = app.isPackaged
+    ? process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath)
+    : __dirname;
+  try {
+    for (const line of fs.readFileSync(path.join(dir, '.env'), 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*COPILOT_DIRECT_LINE_SECRET\s*=(.*)$/);
+      if (m) return m[1].trim();
+    }
+  } catch {}
+  return '';
+}
+
+// ---------- 배포용 서버 주소 (app-config.json의 serverUrl, 예: https://내서버 — /token 은 자동으로 붙음) ----------
+function readServerUrl() {
+  try {
+    return String(JSON.parse(fs.readFileSync(path.join(__dirname, 'app-config.json'), 'utf8')).serverUrl || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 // ---------- 설정 (비밀 키는 Windows 자격 증명으로 암호화해 저장) ----------
-function loadSettings() {
+// ⚙에서 저장한 키가 없으면 .env의 키를 쓴다.
+// 설정을 한 번도 저장하지 않았으면 .env 키 → app-config.json 서버 → 데모 모드 순서로 고른다.
+function loadSettings(withEnv = true) {
+  const envSecret = withEnv ? readEnvSecret() : '';
   try {
     const raw = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
     if (raw.secretEnc && safeStorage.isEncryptionAvailable()) {
       raw.secret = safeStorage.decryptString(Buffer.from(raw.secretEnc, 'base64'));
     }
     delete raw.secretEnc;
+    raw.secret = raw.secret || envSecret;
+    raw.tokenEndpoint = raw.tokenEndpoint || readServerUrl();
     return raw;
   } catch {
-    return { mode: 'demo', secret: '', tokenEndpoint: '' };
+    if (envSecret) return { mode: 'secret', secret: envSecret, tokenEndpoint: '' };
+    const serverUrl = readServerUrl();
+    return { mode: serverUrl ? 'token' : 'demo', secret: '', tokenEndpoint: serverUrl };
   }
 }
 
@@ -153,7 +184,7 @@ ipcMain.handle('settings:get', () => {
 });
 
 ipcMain.handle('settings:set', (_e, s) => {
-  const prev = loadSettings();
+  const prev = loadSettings(false); // .env 키는 settings.json에 복사하지 않는다
   saveSettings({ ...s, secret: s.secret || (s.mode === 'secret' ? prev.secret : '') });
   return true;
 });
