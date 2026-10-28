@@ -4,6 +4,7 @@
   "category": "sensor",
   "color": "#e9edf2",
   "description": "3핀 DHT22 모듈(풀업 저항 내장). 단일 데이터선 통신. 3.3~5.5V 동작.",
+  "image": "dht22-module.svg",
   "behavior": {
     "kind": "sensor",
     "vcc": "VCC",

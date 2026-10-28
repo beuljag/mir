@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="259" height="130" viewBox="0 0 259 130">
+  <rect x="42" y="30" width="175" height="70" rx="5" fill="#176b45" stroke="#0c4f31" stroke-width="1.5"/>
+  <rect x="98" y="43" width="60" height="43" rx="3" fill="#111820" stroke="#53616a"/>
+  <rect x="105" y="50" width="46" height="29" rx="2" fill="#222d34"/>
+  <path d="M109 55h38M109 60h38M109 65h38M109 70h38" stroke="#43515a" stroke-width=".8"/>
+  <rect x="62" y="42" width="20" height="10" rx="1" fill="#d6b96f"/><rect x="62" y="58" width="20" height="10" rx="1" fill="#d6b96f"/><rect x="62" y="74" width="20" height="10" rx="1" fill="#d6b96f"/>
+  <circle cx="192" cy="46" r="3" fill="#e3c47d"/><circle cx="192" cy="84" r="3" fill="#e3c47d"/>
+  <g fill="#d9b96d" stroke="#f1d697" stroke-width=".6">
+    <rect x="3" y="33" width="45" height="12" rx="1"/><rect x="3" y="51" width="45" height="12" rx="1"/><rect x="3" y="69" width="45" height="12" rx="1"/><rect x="3" y="87" width="45" height="12" rx="1"/>
+  </g>
+  <path d="M48 39h12M48 57h12M48 75h12M48 93h12" stroke="#c5a65b" stroke-width="1.5"/>
+</svg>
