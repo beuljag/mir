@@ -1,6 +1,7 @@
 import { WiringCanvas, layoutPart } from './canvas.js';
 import { drawArt, lookOf, BARE } from './art.js';
 import { simulate, splitKey } from './sim.js';
+import { defFor, cleanProps, editableKind, LED_COLORS, RESISTOR_PRESETS, formatOhms, parseOhms } from './props.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
   buildDiagnoseRequest, buildPartRequest, parseReply, demoReply
@@ -38,7 +39,7 @@ const tooltip = {
   showPin(key, e) {
     const [ref, pid] = splitKey(key);
     const inst = state.instances.find((i) => i.ref === ref);
-    const def = inst && state.defs.get(inst.part);
+    const def = defFor(state.defs, inst);
     const pin = def?.pins.find((p) => p.id === pid);
     if (!pin) return;
     const conns = state.wires.filter((w) => w.from === key || w.to === key).map((w) => (w.from === key ? w.to : w.from));
@@ -98,7 +99,7 @@ const canvas = new WiringCanvas($('canvas'), {
   onPartClick: (ref) => {
     // 가상 전원이 켜져 있을 때 버튼을 클릭하면 눌림/떼기
     const inst = state.instances.find((i) => i.ref === ref);
-    const def = inst && state.defs.get(inst.part);
+    const def = defFor(state.defs, inst);
     if (state.power && def?.behavior?.kind === 'button') {
       state.pressed.has(ref) ? state.pressed.delete(ref) : state.pressed.add(ref);
       refresh();
@@ -398,13 +399,15 @@ function showSelection(sel) {
   box.classList.remove('hidden');
   if (sel.type === 'part') {
     const inst = state.instances.find((i) => i.ref === sel.ref);
-    const def = state.defs.get(inst?.part);
+    const def = defFor(state.defs, inst);
     if (!def) return box.classList.add('hidden');
     box.innerHTML = `<h4>${inst.ref} · ${escapeHtml(def.name)}</h4>
       <div>${escapeHtml(def.description || '')}</div>
       ${inst.label ? `<div class="muted">역할: ${escapeHtml(inst.label)}</div>` : ''}
       ${def.sources?.length ? `<div class="muted">근거: ${escapeHtml(def.sources.join(', '))}</div>` : ''}
+      ${propsEditorHtml(inst, def)}
       <div class="row"><button id="selDelete">부품 삭제</button></div>`;
+    bindPropsEditor(inst, def, sel);
   } else {
     const w = state.wires.find((x) => x.id === sel.id);
     if (!w) return box.classList.add('hidden');
@@ -414,6 +417,59 @@ function showSelection(sel) {
       <div class="row"><button id="selDelete">선 삭제</button></div>`;
   }
   $('selDelete').onclick = () => canvas.deleteSelected();
+}
+
+// ---------- 부품 값 바꾸기 (LED 색, 저항값) ----------
+function propsEditorHtml(inst, def) {
+  const kind = editableKind(def);
+  if (!kind) return '';
+  const reset = inst.props ? '<button class="ghost small" id="propReset">원래 값으로</button>' : '';
+  if (kind === 'led') {
+    const cur = def.behavior.color;
+    const sw = LED_COLORS.map((c) => `<button class="swatch ${cur === c.hex ? 'on' : ''}" data-color="${c.id}" title="${c.label} (약 ${c.vf}V)" style="--sw:${c.hex}"></button>`).join('');
+    return `<div class="prop-edit"><div class="prop-head">LED 색 ${reset}</div>
+      <div class="swatches">${sw}<label class="swatch custom" title="직접 고르기"><input type="color" id="propColor" value="${cur || '#ff3b30'}"></label></div>
+      <div class="muted">켜지는 전압(순방향 전압) 약 ${def.behavior.forwardVoltage || 2}V</div></div>`;
+  }
+  const quick = [220, 330, 1000, 10000].map((o) => `<button class="chip ${def.behavior.ohms === o ? 'on' : ''}" data-ohms="${o}">${formatOhms(o)}</button>`).join('');
+  return `<div class="prop-edit"><div class="prop-head">저항값 ${reset}</div>
+    <div class="prop-row"><input id="propOhms" list="ohmPresets" value="${formatOhms(def.behavior.ohms || 0)}" placeholder="예: 220, 4.7k, 1M"><button id="propOhmsApply">바꾸기</button></div>
+    <datalist id="ohmPresets">${RESISTOR_PRESETS.map((o) => `<option value="${formatOhms(o)}">`).join('')}</datalist>
+    <div class="chips">${quick}</div>
+    <div class="muted" id="propMsg">숫자 뒤에 k(천), M(백만)을 붙일 수 있어요. 색띠는 값에 맞게 바뀝니다.</div></div>`;
+}
+
+function bindPropsEditor(inst, def, sel) {
+  const kind = editableKind(def);
+  if (!kind) return;
+  const base = state.defs.get(inst.part);
+  const commit = (props) => {
+    const clean = cleanProps(base, props);
+    if (clean) inst.props = clean; else delete inst.props;
+    pushHistory();
+    refresh();
+    showSelection(sel);
+  };
+  const box = $('selInfo');
+  const reset = $('propReset');
+  if (reset) reset.onclick = () => commit(null);
+  if (kind === 'led') {
+    box.querySelectorAll('.swatch[data-color]').forEach((b) => { b.onclick = () => commit({ color: b.dataset.color }); });
+    $('propColor').onchange = (e) => commit({ color: e.target.value });
+    return;
+  }
+  const apply = (v) => {
+    const ohms = parseOhms(v);
+    if (ohms == null) {
+      $('propMsg').textContent = `"${v}"은(는) 저항값으로 읽을 수 없어요. 예: 220, 4.7k, 1M`;
+      $('propMsg').classList.add('error');
+      return;
+    }
+    commit({ ohms });
+  };
+  $('propOhmsApply').onclick = () => apply($('propOhms').value);
+  $('propOhms').onkeydown = (e) => { if (e.key === 'Enter') apply(e.target.value); };
+  box.querySelectorAll('.chip[data-ohms]').forEach((b) => { b.onclick = () => commit({ ohms: +b.dataset.ohms }); });
 }
 
 // ---------- 가상 전원 / GPIO ----------
@@ -492,7 +548,7 @@ function normalizeWiring(wiring) {
   for (const p of wiring.parts || []) {
     if (!p.ref || !p.part) continue;
     if (!state.defs.has(p.part)) { warnings.push(`부품함에 없는 부품: ${p.part} (${p.ref}) — 부품 JSON을 추가해야 그릴 수 있어요`); continue; }
-    parts.push({ ref: String(p.ref), part: p.part, label: p.label });
+    parts.push({ ref: String(p.ref), part: p.part, label: p.label, props: cleanProps(state.defs.get(p.part), p.props) });
   }
   const conns = [];
   for (const c of wiring.connections || []) {
@@ -529,8 +585,9 @@ function proposeWiring(wiring) {
   const addedParts = parts.filter((p) => !state.instances.some((i) => i.ref === p.ref && i.part === p.part)).map((p) => ({ ...p }));
   const removedParts = state.instances.filter((i) => !parts.some((p) => p.ref === i.ref && p.part === i.part));
   placeNew(addedParts, state.instances);
+  const changedProps = parts.filter((p) => p.props && state.instances.some((i) => i.ref === p.ref && i.part === p.part && JSON.stringify(i.props) !== JSON.stringify(p.props)));
 
-  if (!removed.size && !added.length && !addedParts.length && !removedParts.length) {
+  if (!removed.size && !added.length && !addedParts.length && !removedParts.length && !changedProps.length) {
     addMessage('system', '제안된 배선이 현재 배선과 같습니다.');
     return;
   }
@@ -540,6 +597,7 @@ function proposeWiring(wiring) {
   if (added.length) desc.push(`<span class="add">+ 선 ${added.length}개</span>`);
   if (removed.size) desc.push(`<span class="del">− 선 ${removed.size}개</span>`);
   if (addedParts.length) desc.push(`<span class="add">+ 부품 ${addedParts.map((p) => p.ref).join(', ')}</span>`);
+  if (changedProps.length) desc.push(`<span class="add">값 변경 ${changedProps.map((p) => p.ref).join(', ')}</span>`);
   if (removedParts.length) desc.push(`<span class="del">− 부품 ${removedParts.map((p) => p.ref).join(', ')}</span>`);
   $('previewText').innerHTML = `<b>AI 수정안 미리보기</b> — ${desc.join(' · ')}<br><span class="muted">초록 점선=추가, 빨간 점선=삭제. 적용하기 전에 확인하세요.</span>`;
   $('previewBar').classList.remove('hidden');
@@ -551,7 +609,7 @@ function applyProposal({ parts, conns, title, addedParts = [] }) {
   const placed = new Map(addedParts.map((p) => [`${p.ref}|${p.part}`, p]));
   const instances = parts.map((p) => {
     const old = keep.get(`${p.ref}|${p.part}`) || placed.get(`${p.ref}|${p.part}`);
-    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y };
+    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y, ...((p.props || old?.props) ? { props: p.props || old.props } : {}) };
   });
   placeNew(instances, instances.filter((i) => i.x != null));
   state.instances = instances;

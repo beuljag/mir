@@ -80,12 +80,14 @@ function twoLeads(g, { pos, w }, bodyHalf) {
 }
 
 const BAND = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'gray', 'white'];
+// 4색 띠: 앞 두 자리 + 곱하는 수(10의 몇 제곱, 1Ω~9.9Ω은 금색=×0.1) + 오차(금색)
 function resistorBands(ohms) {
-  let exp = 0;
-  let v = Math.round(ohms);
-  while (v >= 100) { v = Math.round(v / 10); exp++; }
+  if (!(ohms >= 1)) return ['black', 'black', 'black', 'gold'];
+  let exp = Math.max(-1, Math.floor(Math.log10(ohms)) - 1);
+  let v = Math.round(ohms / 10 ** exp);
+  if (v >= 100) { v = Math.round(v / 10); exp++; }
   const digits = String(v).padStart(2, '0');
-  return [BAND[+digits[0]], BAND[+digits[1]], BAND[exp] || 'black', 'gold'];
+  return [BAND[+digits[0]], BAND[+digits[1]], exp < 0 ? 'gold' : BAND[exp] || 'white', 'gold'];
 }
 
 // ---------- 부품별 그림 ----------

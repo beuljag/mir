@@ -1,6 +1,7 @@
 // 2D 가상 실습 화면 (SVG). 부품 배치, 배선 그리기/삭제, 핀 정보, 가상 전원 표시를 담당한다.
 import { pinKey, splitKey } from './sim.js';
 import { drawArt, lookOf, BARE, labelInset } from './art.js';
+import { defFor } from './props.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const PIN_GAP = 18;
@@ -88,13 +89,13 @@ export class WiringCanvas {
 
   defOf(ref) {
     const i = this.instances.find((x) => x.ref === ref);
-    return i && this.getDefs().get(i.part);
+    return i && defFor(this.getDefs(), i);
   }
 
   pinPos(key) {
     const [ref, pid] = splitKey(key);
     const i = this.instances.find((x) => x.ref === ref);
-    const def = i && this.getDefs().get(i.part);
+    const def = i && defFor(this.getDefs(), i);
     if (!def) return null;
     const p = layoutPart(def).pos[pid];
     return p && { x: i.x + p.x, y: i.y + p.y, side: p.side, def: p.def };
@@ -113,7 +114,7 @@ export class WiringCanvas {
     if (!this.instances.length) return;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const i of this.instances) {
-      const def = this.getDefs().get(i.part);
+      const def = defFor(this.getDefs(), i);
       if (!def) continue;
       const { w, h } = layoutPart(def);
       x0 = Math.min(x0, i.x - 60); y0 = Math.min(y0, i.y - 40);
@@ -314,7 +315,7 @@ export class WiringCanvas {
     // 부품
     const shown = [...this.instances, ...(this.preview?.addedParts || [])];
     for (const i of shown) {
-      const def = defs.get(i.part);
+      const def = defFor(defs, i);
       const isPreview = this.preview?.addedParts?.includes(i);
       const g = el('g', { transform: `translate(${i.x} ${i.y})`, 'data-kind': isPreview ? null : 'part', 'data-ref': i.ref }, this.partLayer);
       if (!def) {
