@@ -1,0 +1,446 @@
+{
+  "id": "raspberry-pi-4",
+  "name": "Raspberry Pi 4 (40핀 헤더)",
+  "category": "board",
+  "description": "라즈베리파이 40핀 GPIO 헤더. 로직 3.3V이며 GPIO는 5V를 견디지 못함. 왼쪽=홀수 핀, 오른쪽=짝수 핀.",
+  "logicVoltage": 3.3,
+  "color": "#7a1f3d",
+  "behavior": {
+    "kind": "board"
+  },
+  "pins": [
+    {
+      "id": "3V3_1",
+      "label": "1 3V3",
+      "side": "left",
+      "type": "power_out",
+      "voltage": 3.3,
+      "functions": [
+        "3.3V 출력"
+      ]
+    },
+    {
+      "id": "5V_2",
+      "label": "2 5V",
+      "side": "right",
+      "type": "power_out",
+      "voltage": 5,
+      "functions": [
+        "5V 출력"
+      ]
+    },
+    {
+      "id": "GPIO2",
+      "label": "3 GPIO2",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "I2C1 SDA"
+      ],
+      "note": "1.8kΩ 풀업 내장"
+    },
+    {
+      "id": "5V_4",
+      "label": "4 5V",
+      "side": "right",
+      "type": "power_out",
+      "voltage": 5,
+      "functions": [
+        "5V 출력"
+      ]
+    },
+    {
+      "id": "GPIO3",
+      "label": "5 GPIO3",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "I2C1 SCL"
+      ],
+      "note": "1.8kΩ 풀업 내장"
+    },
+    {
+      "id": "GND_6",
+      "label": "6 GND",
+      "side": "right",
+      "type": "gnd"
+    },
+    {
+      "id": "GPIO4",
+      "label": "7 GPIO4",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "GPCLK0",
+        "1-Wire 기본"
+      ]
+    },
+    {
+      "id": "GPIO14",
+      "label": "8 GPIO14",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "UART TXD"
+      ]
+    },
+    {
+      "id": "GND_9",
+      "label": "9 GND",
+      "side": "left",
+      "type": "gnd"
+    },
+    {
+      "id": "GPIO15",
+      "label": "10 GPIO15",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "UART RXD"
+      ]
+    },
+    {
+      "id": "GPIO17",
+      "label": "11 GPIO17",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GPIO18",
+      "label": "12 GPIO18",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "PWM0",
+        "PCM CLK"
+      ]
+    },
+    {
+      "id": "GPIO27",
+      "label": "13 GPIO27",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GND_14",
+      "label": "14 GND",
+      "side": "right",
+      "type": "gnd"
+    },
+    {
+      "id": "GPIO22",
+      "label": "15 GPIO22",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GPIO23",
+      "label": "16 GPIO23",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "3V3_17",
+      "label": "17 3V3",
+      "side": "left",
+      "type": "power_out",
+      "voltage": 3.3,
+      "functions": [
+        "3.3V 출력"
+      ]
+    },
+    {
+      "id": "GPIO24",
+      "label": "18 GPIO24",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GPIO10",
+      "label": "19 GPIO10",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "SPI0 MOSI"
+      ]
+    },
+    {
+      "id": "GND_20",
+      "label": "20 GND",
+      "side": "right",
+      "type": "gnd"
+    },
+    {
+      "id": "GPIO9",
+      "label": "21 GPIO9",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "SPI0 MISO"
+      ]
+    },
+    {
+      "id": "GPIO25",
+      "label": "22 GPIO25",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GPIO11",
+      "label": "23 GPIO11",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "SPI0 SCLK"
+      ]
+    },
+    {
+      "id": "GPIO8",
+      "label": "24 GPIO8",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "SPI0 CE0"
+      ]
+    },
+    {
+      "id": "GND_25",
+      "label": "25 GND",
+      "side": "left",
+      "type": "gnd"
+    },
+    {
+      "id": "GPIO7",
+      "label": "26 GPIO7",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "SPI0 CE1"
+      ]
+    },
+    {
+      "id": "ID_SD",
+      "label": "27 ID_SD",
+      "side": "left",
+      "type": "nc",
+      "note": "HAT EEPROM 전용 - 사용 금지"
+    },
+    {
+      "id": "ID_SC",
+      "label": "28 ID_SC",
+      "side": "right",
+      "type": "nc",
+      "note": "HAT EEPROM 전용 - 사용 금지"
+    },
+    {
+      "id": "GPIO5",
+      "label": "29 GPIO5",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GND_30",
+      "label": "30 GND",
+      "side": "right",
+      "type": "gnd"
+    },
+    {
+      "id": "GPIO6",
+      "label": "31 GPIO6",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GPIO12",
+      "label": "32 GPIO12",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "PWM0"
+      ]
+    },
+    {
+      "id": "GPIO13",
+      "label": "33 GPIO13",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "PWM1"
+      ]
+    },
+    {
+      "id": "GND_34",
+      "label": "34 GND",
+      "side": "right",
+      "type": "gnd"
+    },
+    {
+      "id": "GPIO19",
+      "label": "35 GPIO19",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "PWM1",
+        "PCM FS"
+      ]
+    },
+    {
+      "id": "GPIO16",
+      "label": "36 GPIO16",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GPIO26",
+      "label": "37 GPIO26",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO"
+      ]
+    },
+    {
+      "id": "GPIO20",
+      "label": "38 GPIO20",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "PCM DIN"
+      ]
+    },
+    {
+      "id": "GND_39",
+      "label": "39 GND",
+      "side": "left",
+      "type": "gnd"
+    },
+    {
+      "id": "GPIO21",
+      "label": "40 GPIO21",
+      "side": "right",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.3,
+      "functions": [
+        "GPIO",
+        "PCM DOUT"
+      ]
+    }
+  ],
+  "internalNets": [
+    [
+      "GND_6",
+      "GND_9",
+      "GND_14",
+      "GND_20",
+      "GND_25",
+      "GND_30",
+      "GND_34",
+      "GND_39"
+    ],
+    [
+      "3V3_1",
+      "3V3_17"
+    ],
+    [
+      "5V_2",
+      "5V_4"
+    ]
+  ],
+  "sources": [
+    "Raspberry Pi Documentation - GPIO and the 40-pin header",
+    "pinout.xyz"
+  ]
+}

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>미르</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span id="logo" class="logo">⚡</span>
+      <div>
+        <div class="brand-name">미르</div>
+        <div class="brand-sub">배선 추천 · 2D 가상 실습 · 오류 진단</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="btnNew" class="ghost" title="새 배선">새로 만들기</button>
+      <button id="btnOpen" class="ghost" title="저장한 배선 열기">열기</button>
+      <button id="btnSave" class="ghost" title="배선 파일로 저장">저장</button>
+      <span class="sep"></span>
+      <span id="connPill" class="badge b-mute">데모 모드</span>
+      <button id="btnTheme" title="화이트/블랙 모드 전환">☾ 블랙 모드</button>
+      <button id="btnSettings" title="에이전트 연결 설정">⚙ 연결 설정</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 부품함 -->
+    <aside class="palette">
+      <div class="panel-head">
+        <span class="label">부품함</span>
+        <div class="head-actions">
+          <button id="btnImportPart" class="small" title="양식에 맞춘 부품 JSON 파일 추가">+ 파일</button>
+          <button id="btnPartMenu" class="small" title="부품 메뉴">⋯</button>
+        </div>
+      </div>
+      <div id="partMenu" class="menu hidden">
+        <button data-act="template">부품 양식 파일 저장</button>
+        <button data-act="folder">내 부품 폴더 열기</button>
+        <button data-act="datasheet">데이터시트로 부품 만들기 (AI)</button>
+        <button data-act="guide">부품 JSON 양식 안내</button>
+        <button data-act="reload">부품 다시 불러오기</button>
+      </div>
+      <input id="partSearch" type="search" placeholder="부품 검색 (예: 릴레이, I2C, 5V)">
+      <div id="partCats" class="chips" role="toolbar" aria-label="부품 분류"></div>
+      <div id="partList" class="part-list"></div>
+      <div id="partErrors" class="part-errors"></div>
+    </aside>
+    <div class="resizer" data-side="left" title="드래그해서 너비 조절 (더블클릭: 원래대로)"></div>
+
+    <!-- 2D 가상 실습 화면 -->
+    <section class="stage">
+      <div class="stage-toolbar">
+        <button id="btnPower" class="power" title="가상 전원 켜기/끄기">가상 전원 OFF</button>
+        <span class="sep"></span>
+        <button id="btnUndo" title="되돌리기 (Ctrl+Z)">↶ 되돌리기</button>
+        <button id="btnRedo" title="다시 하기 (Ctrl+Y)" aria-label="다시 하기">↷</button>
+        <button id="btnDelete" title="선택한 선/부품 삭제 (Delete)">삭제</button>
+        <span class="sep"></span>
+        <button id="btnZoomOut" title="축소" aria-label="축소">－</button>
+        <button id="btnZoomIn" title="확대" aria-label="확대">＋</button>
+        <button id="btnFit" title="화면에 맞추기">맞춤</button>
+        <div class="grow"></div>
+        <span id="stageTitle" class="stage-title"></span>
+      </div>
+      <div class="stage-body">
+        <svg id="canvas" class="canvas"></svg>
+        <div id="emptyHint" class="empty-hint">
+          <h3>무엇을 만들고 싶나요?</h3>
+          <p>오른쪽 채팅에 목표를 말하면 AI가 배선을 추천해 여기에 그려 줍니다.<br>
+            왼쪽 부품함에서 부품을 눌러 직접 놓고, 핀을 차례로 클릭해 선을 이을 수도 있어요.</p>
+          <div class="examples">
+            <button data-example="ESP32를 사용해서 외부 전력으로 밸브를 켜는 회로 짜줘">ESP32로 12V 밸브 켜기</button>
+            <button data-example="온도 센서를 읽어서 화면에 띄우고 싶어">온도를 읽어 화면에 띄우기</button>
+            <button data-example="라즈베리파이로 LED 깜빡이고 싶어">라즈베리파이 LED</button>
+          </div>
+        </div>
+        <div id="previewBar" class="preview-bar hidden">
+          <div id="previewText"></div>
+          <div class="preview-actions">
+            <button id="btnPreviewApply" class="primary">수정안 적용</button>
+            <button id="btnPreviewCancel">취소</button>
+          </div>
+        </div>
+        <div id="gpioPanel" class="gpio-panel hidden">
+          <div class="gpio-head label">보드 핀 출력 (코드 대신 직접 설정)</div>
+          <div id="gpioList"></div>
+        </div>
+        <div id="selInfo" class="sel-info hidden"></div>
+        <div id="tooltip" class="tooltip hidden"></div>
+      </div>
+      <div class="legend">
+        <span><i class="l-power"></i>전원</span>
+        <span><i class="l-gnd"></i>GND</span>
+        <span><i class="l-sda"></i>SDA</span>
+        <span><i class="l-scl"></i>SCL</span>
+        <span><i class="l-signal"></i>신호</span>
+        <span><i class="l-contact"></i>릴레이 접점</span>
+        <span class="legend-hint">핀 클릭 → 다른 핀 클릭: 선 연결 · 선/부품 클릭 후 Delete: 삭제 · 빈 곳 드래그: 이동 · 휠: 확대</span>
+      </div>
+    </section>
+
+    <div class="resizer" data-side="right" title="드래그해서 너비 조절 (더블클릭: 원래대로)"></div>
+
+    <!-- AI 에이전트 채팅 -->
+    <aside class="side">
+      <div class="panel-head"><span class="label">AI 에이전트</span></div>
+
+      <div id="tab-chat" class="tab-body">
+        <div id="messages" class="messages"></div>
+        <div class="composer">
+          <label class="attach"><input id="attachWiring" type="checkbox" checked> 현재 배선 함께 보내기</label>
+          <div class="composer-row">
+            <textarea id="chatInput" rows="2" placeholder="예) ESP32로 외부 전원을 써서 밸브를 켜고 싶어 / 이 선을 GPIO18로 바꿔줘"></textarea>
+            <div class="composer-btns">
+              <button id="btnSend" class="primary">보내기</button>
+              <button id="btnDiagnose" title="가상 전원 측정값과 현재 배선을 보내 원인과 수정안을 받습니다">진단 요청</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- 설정 -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Copilot Studio 에이전트 연결</h2>
+      <p class="muted">Copilot Studio에서 만든 에이전트를 Direct Line으로 연결합니다. 방법을 모르면 <a href="#" id="linkConnectGuide">연결 안내 문서</a>를 열어 보세요.</p>
+      <div class="radio-group">
+        <label><input type="radio" name="mode" value="demo"> 데모 모드 (연결 없이 예시로 체험)</label>
+        <label><input type="radio" name="mode" value="secret"> Direct Line 비밀 키 (웹 채널 보안)</label>
+        <label><input type="radio" name="mode" value="token"> 토큰 끝점 URL (인증 없음 에이전트)</label>
+      </div>
+      <div id="fieldSecret" class="field">
+        <label>Direct Line 비밀 키</label>
+        <input id="inSecret" type="password" placeholder="저장된 키를 바꿀 때만 입력">
+        <small>이 PC에 암호화되어 저장되며, 다른 곳으로 보내지 않습니다.</small>
+      </div>
+      <div id="fieldToken" class="field">
+        <label>토큰 끝점 URL</label>
+        <input id="inToken" type="url" placeholder="https://....environment.api.powerplatform.com/powervirtualagents/botsbyschema/.../directline/token?api-version=2022-03-01-preview">
+      </div>
+      <div id="testResult" class="test-result"></div>
+      <div class="modal-actions">
+        <button id="btnTest">연결 테스트</button>
+        <div class="grow"></div>
+        <button id="btnSettingsCancel">닫기</button>
+        <button id="btnSettingsSave" class="primary">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 데이터시트로 부품 만들기 -->
+  <div id="partModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>데이터시트로 부품 만들기</h2>
+      <p class="muted">데이터시트의 핀 배치표·전기적 특성 부분을 복사해 붙여 넣으면, AI 에이전트가 부품 JSON을 만들어 줍니다. 확인 후 저장하면 부품함에 추가됩니다. 본인이 가진 자료만 사용하세요.</p>
+      <textarea id="partSource" rows="12" placeholder="예) Pin 1 VCC 3.3-5.5V, Pin 2 DATA (open drain), Pin 3 NC, Pin 4 GND ..."></textarea>
+      <div class="modal-actions">
+        <div class="grow"></div>
+        <button id="btnPartCancel">닫기</button>
+        <button id="btnPartAsk" class="primary">AI에게 요청</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
