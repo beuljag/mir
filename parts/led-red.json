@@ -4,7 +4,6 @@
   "category": "output",
   "color": "#ffffff",
   "description": "순방향 전압 약 2.0V, 최대 20mA. 반드시 직렬 저항이 필요함.",
-  "image": "led-red.svg",
   "behavior": {
     "kind": "led",
     "anode": "A",

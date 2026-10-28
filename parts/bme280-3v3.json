@@ -4,7 +4,6 @@
   "category": "sensor",
   "color": "#5b2a86",
   "description": "레귤레이터가 없는 3.3V 전용 BME280 모듈. I2C 주소 0x76.",
-  "image": "bme280-3v3.svg",
   "behavior": {
     "kind": "i2c-device",
     "vcc": "VCC",
