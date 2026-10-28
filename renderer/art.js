@@ -1,6 +1,8 @@
 // 부품 2D 그림. 핀 좌표(layoutPart)에 맞춰 코드로 그려서, 핀 개수나 크기가 바뀌어도 그림이 어긋나지 않는다.
 // 부품 JSON에 "image"(SVG/PNG 파일)가 있으면 그 그림을 대신 쓴다. → docs/부품-그림-제작-안내.md
 
+import { resistorBands } from './props.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 const el = (tag, attrs, parent) => {
   const e = document.createElementNS(NS, tag);
@@ -46,8 +48,13 @@ export function drawArt(g, ctx) {
   (DRAW[look] || DRAW.module)(art, ctx);
 }
 
-function drawImage(g, { w, h, def }) {
-  el('image', { href: def.imageData, x: 0, y: 0, width: w, height: h, preserveAspectRatio: def.imageFit || 'none', class: 'art-image' }, g);
+function drawImage(g, { w, h, def, st = {} }) {
+  // LED 그림은 꺼져 있으면 흐리게, 켜지면 빛나게
+  const led = def.behavior?.kind === 'led';
+  el('image', {
+    href: def.imageData, x: 0, y: 0, width: w, height: h, preserveAspectRatio: def.imageFit || 'none',
+    class: `art-image${led ? (st.lit ? ' led-lit' : ' led-off') : ''}`, filter: led && st.lit ? 'url(#glow)' : null
+  }, g);
 }
 
 // ---------- 공통 조각 ----------
@@ -79,16 +86,6 @@ function twoLeads(g, { pos, w }, bodyHalf) {
   return y;
 }
 
-const BAND = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'gray', 'white'];
-// 4색 띠: 앞 두 자리 + 곱하는 수(10의 몇 제곱, 1Ω~9.9Ω은 금색=×0.1) + 오차(금색)
-function resistorBands(ohms) {
-  if (!(ohms >= 1)) return ['black', 'black', 'black', 'gold'];
-  let exp = Math.max(-1, Math.floor(Math.log10(ohms)) - 1);
-  let v = Math.round(ohms / 10 ** exp);
-  if (v >= 100) { v = Math.round(v / 10); exp++; }
-  const digits = String(v).padStart(2, '0');
-  return [BAND[+digits[0]], BAND[+digits[1]], exp < 0 ? 'gold' : BAND[exp] || 'white', 'gold'];
-}
 
 // ---------- 부품별 그림 ----------
 const DRAW = {

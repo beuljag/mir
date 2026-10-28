@@ -66,6 +66,80 @@ function displayName(base, props) {
   return base.name;
 }
 
+// 4색 띠: 앞 두 자리 + 곱하는 수(10의 몇 제곱, 1Ω~9.9Ω은 금색=×0.1) + 오차(금색)
+const BAND = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'gray', 'white'];
+export const BAND_HEX = {
+  black: '#1a1a1a', brown: '#7b4a23', red: '#d0312d', orange: '#f07f13', yellow: '#f2c200',
+  green: '#2e9e4f', blue: '#2563eb', violet: '#7c3aed', gray: '#8a8a8a', white: '#f5f5f5', gold: '#c9a43a'
+};
+export function resistorBands(ohms) {
+  if (!(ohms >= 1)) return ['black', 'black', 'black', 'gold'];
+  let exp = Math.max(-1, Math.floor(Math.log10(ohms)) - 1);
+  let v = Math.round(ohms / 10 ** exp);
+  if (v >= 100) { v = Math.round(v / 10); exp++; }
+  const digits = String(v).padStart(2, '0');
+  return [BAND[+digits[0]], BAND[+digits[1]], exp < 0 ? 'gold' : BAND[exp] || 'white', 'gold'];
+}
+
+// ---------- 부품 그림(SVG 파일) 색 바꾸기 ----------
+const SVG_PREFIX = 'data:image/svg+xml;base64,';
+function editSvg(dataUrl, fn) {
+  if (!dataUrl?.startsWith(SVG_PREFIX)) return dataUrl;
+  const bin = atob(dataUrl.slice(SVG_PREFIX.length));
+  const text = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+  const bytes = new TextEncoder().encode(fn(text));
+  let out = '';
+  for (const b of bytes) out += String.fromCharCode(b);
+  return SVG_PREFIX + btoa(out);
+}
+
+function toHsl(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  if (!d) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [(h * 60 + 360) % 360, s, l];
+}
+function toHex([h, s, l]) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return '#' + [r, g, b].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')).join('');
+}
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+// LED 그림: 원래 LED 색과 비슷한 색(다리·회색은 그대로)만 새 색으로 옮긴다. 밝고 어두운 차이는 유지.
+function recolorLed(svg, fromHex, toHexColor) {
+  const [fh, fs, fl] = toHsl(fromHex);
+  const [th, ts, tl] = toHsl(toHexColor);
+  return svg.replace(/#[0-9a-f]{6}\b/gi, (hex) => {
+    const [h, s, l] = toHsl(hex);
+    const dh = Math.min(Math.abs(h - fh), 360 - Math.abs(h - fh));
+    if (s < 0.3 || dh > 40) return hex;
+    return toHex([th, clamp(ts * (s / (fs || 1)), 0, 1), clamp(l + (tl - fl), 0.05, 0.97)]);
+  });
+}
+
+// 저항 그림: 세로로 긴 좁은 사각형을 색띠로 보고 앞에서부터 새 색띠로 바꾼다.
+function recolorBands(svg, ohms) {
+  const bands = resistorBands(ohms).map((c) => BAND_HEX[c]);
+  let k = 0;
+  return svg.replace(/<rect\b[^>]*>/g, (tag) => {
+    const num = (a) => parseFloat((tag.match(new RegExp(`\\s${a}="([\\d.]+)"`)) || [])[1]);
+    const w = num('width'), h = num('height');
+    if (!(w > 0 && h >= w * 2.5) || k >= bands.length) return tag;
+    const c = bands[k++];
+    return /\sfill="[^"]*"/.test(tag) ? tag.replace(/\sfill="[^"]*"/, ` fill="${c}"`) : tag.replace('<rect', `<rect fill="${c}"`);
+  });
+}
+
+function recolorImage(base, props) {
+  if (!base.imageData) return undefined;
+  if (props.color && base.behavior.color) return editSvg(base.imageData, (s) => recolorLed(s, base.behavior.color, props.color));
+  if (props.ohms != null) return editSvg(base.imageData, (s) => recolorBands(s, props.ohms));
+  return base.imageData;
+}
+
 // 배치된 부품에 맞는 부품 정의. props가 없으면 원래 정의를 그대로 돌려준다.
 const cache = new WeakMap();
 export function defFor(defs, inst) {
@@ -75,7 +149,12 @@ export function defFor(defs, inst) {
   let byKey = cache.get(base);
   if (!byKey) cache.set(base, (byKey = new Map()));
   if (!byKey.has(key)) {
-    byKey.set(key, { ...base, name: displayName(base, inst.props), behavior: { ...base.behavior, ...inst.props } });
+    byKey.set(key, {
+      ...base,
+      name: displayName(base, inst.props),
+      behavior: { ...base.behavior, ...inst.props },
+      ...(base.imageData ? { imageData: recolorImage(base, inst.props) } : {})
+    });
   }
   return byKey.get(key);
 }
