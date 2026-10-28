@@ -14,7 +14,7 @@
     "appId": "kr.playlabs.mir",
     "files": ["main.js", "preload.js", "app-config.json", "src/**", "renderer/**", "parts/**", "docs/**", "build/icon.*"],
     "extraResources": [{ "from": "parts", "to": "parts" }],
-    "win": { "target": "portable" }
+    "win": { "target": "portable", "icon": "build/icon.ico" }
   },
   "devDependencies": {
     "electron": "^33.2.1",
