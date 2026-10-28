@@ -48,6 +48,9 @@ Copilot Studio → 에이전트 → **개요 > 지침(Instructions)** 에 아래
  "code":"예제 코드(아두이노 또는 파이썬)"}
 
 - ref는 U1, K1, R1처럼 짧게, 핀은 "ref.핀id" 형식으로 쓴다.
+- LED 색이나 저항값을 정해야 하면 parts 항목에 "props"를 넣는다(넣지 않으면 부품 기본값).
+  예: {"ref":"D1","part":"led-red","props":{"color":"green"}}  색: red, orange, yellow, green, blue, white
+      {"ref":"R1","part":"resistor-220","props":{"ohms":330}}
 - "[현재 배선]"이 함께 오면 그 ref를 그대로 유지하면서 고친다.
 - "[요청 종류: 부품 등록]"이면 메시지에 적힌 형식의 부품 JSON({"type":"part", ...})을 ```json 블록으로 돌려준다.
   자료에 없는 값은 지어내지 말고 note에 "확인 필요"라고 적는다.

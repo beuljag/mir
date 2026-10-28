@@ -3,7 +3,7 @@
 
 export const FORMAT_REMINDER = `[응답 형식] 설명은 자유롭게 쓰되, 배선을 제안할 때는 마지막에 \`\`\`json 코드블록 하나로
 {"type":"wiring","title":"...","parts":[{"ref":"U1","part":"부품id","label":"역할"}],"connections":[{"from":"U1.핀id","to":"R1.핀id","note":"이유"}],"steps":["..."],"warnings":["..."],"code":"아두이노/파이썬 코드"}
-를 넣어 주세요. 부품id와 핀id는 [부품 목록]에 있는 것만 쓰고, 수정안일 때도 전체 배선을 다시 보내 주세요.`;
+를 넣어 주세요. LED 색은 parts에 "props":{"color":"green"}(red/orange/yellow/green/blue/white), 저항값은 "props":{"ohms":330}처럼 바꿀 수 있습니다. 부품id와 핀id는 [부품 목록]에 있는 것만 쓰고, 수정안일 때도 전체 배선을 다시 보내 주세요.`;
 
 export function buildCatalog(defs) {
   const lines = ['[부품 목록] 형식: 부품id | 이름 | 핀id:종류:전압(허용범위)[기능]'];
@@ -26,7 +26,7 @@ export function wiringSnapshot(state, defs) {
   return {
     type: 'wiring',
     title: state.title || '',
-    parts: state.instances.map((i) => ({ ref: i.ref, part: i.part, ...(i.label ? { label: i.label } : {}) })),
+    parts: state.instances.map((i) => ({ ref: i.ref, part: i.part, ...(i.label ? { label: i.label } : {}), ...(i.props ? { props: i.props } : {}) })),
     connections: state.wires.map((w) => ({ from: w.from, to: w.to, ...(w.note ? { note: w.note } : {}) }))
   };
 }

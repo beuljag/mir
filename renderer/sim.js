@@ -1,6 +1,7 @@
 // 간이 가상 전원 시뮬레이터.
 // 실제 회로 해석(SPICE)이 아니라 "어느 선에 몇 V가 걸리는지"와 부품의 눈에 보이는 반응만 계산한다.
 // 문제인지 아닌지의 판정은 하지 않는다. 판정은 학생이 가상 전원을 켜고 측정해 보며 직접 한다.
+import { defFor } from './props.js';
 
 class UnionFind {
   constructor() { this.p = new Map(); }
@@ -29,7 +30,7 @@ function resolvePinVoltage(pinDef, ref, def, netVoltage) {
 }
 
 export function simulate({ instances, wires, defs, gpio = {}, pressed = new Set() }) {
-  const inst = instances.filter((i) => defs.get(i.part));
+  const inst = instances.filter((i) => defFor(defs, i));
   const relayState = {};
   let result = null;
 
@@ -38,7 +39,7 @@ export function simulate({ instances, wires, defs, gpio = {}, pressed = new Set(
     result = solve({ inst, wires, defs, gpio, pressed, relayState });
     let changed = false;
     for (const i of inst) {
-      const def = defs.get(i.part);
+      const def = defFor(defs, i);
       if (def.behavior?.kind !== 'relay') continue;
       const on = result.parts[i.ref].energized;
       if ((relayState[i.ref] || false) !== on) { relayState[i.ref] = on; changed = true; }
@@ -52,7 +53,7 @@ function solve({ inst, wires, defs, gpio, pressed, relayState }) {
   const uf = new UnionFind();
   const allPins = [];
   for (const i of inst) {
-    const def = defs.get(i.part);
+    const def = defFor(defs, i);
     for (const p of def.pins) { const k = pinKey(i.ref, p.id); uf.find(k); allPins.push([k, i, def, p]); }
     for (const group of def.internalNets || []) {
       for (let n = 1; n < group.length; n++) uf.union(pinKey(i.ref, group[0]), pinKey(i.ref, group[n]));
@@ -109,7 +110,7 @@ function solve({ inst, wires, defs, gpio, pressed, relayState }) {
   // 전원이 들어온 센서/모듈의 풀업 출력을 공급원으로 추가
   const parts = {};
   for (const i of inst) {
-    const def = defs.get(i.part);
+    const def = defFor(defs, i);
     const b = def.behavior || {};
     if (b.kind === 'sensor' || b.kind === 'i2c-device') {
       const vcc = vOf(pinKey(i.ref, b.vcc));
@@ -130,7 +131,7 @@ function solve({ inst, wires, defs, gpio, pressed, relayState }) {
   // 저항을 통해 전압이 비어 있는 쪽으로 전달된다(전류 제한됨 표시).
   for (let pass = 0; pass < 6; pass++) {
     for (const i of inst) {
-      const def = defs.get(i.part);
+      const def = defFor(defs, i);
       if (def.behavior?.kind !== 'resistor') continue;
       const [a, b] = def.pins.map((p) => net(pinKey(i.ref, p.id)));
       for (const [from, to] of [[a, b], [b, a]]) {
@@ -146,7 +147,7 @@ function solve({ inst, wires, defs, gpio, pressed, relayState }) {
 
   // 부품별 상태
   for (const i of inst) {
-    const def = defs.get(i.part);
+    const def = defFor(defs, i);
     const b = def.behavior || {};
     const st = parts[i.ref] || {};
     if (b.kind === 'board' || b.kind === 'supply') st.powered = true;
