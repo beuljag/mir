@@ -19,7 +19,7 @@ npm install
 npm start
 ```
 
-윈도우용 실행 파일(.exe) 만들기:
+윈도우용 실행 파일(.exe) 만들기 (다른 사람에게 배포할 때는 먼저 `server/README.md`대로 토큰 서버를 준비하고 `app-config.json`에 주소를 넣으세요):
 
 ```bash
 npm run dist
@@ -57,6 +57,7 @@ npm run dist
 
 ```
 main.js            Electron 메인 (설정 저장, 부품 파일, Direct Line 호출)
+app-config.json    배포용 토큰 서버 주소 (serverUrl)
 src/directline.js  Copilot Studio Direct Line 클라이언트
 renderer/
   app.js           화면 동작 (채팅, 진단 요청, 미리보기, 부품함, 패널 크기 조절)
@@ -66,6 +67,7 @@ renderer/
   agent.js         에이전트 메시지 형식, 응답 해석, 데모 응답
 parts/*.json       기본 부품
 docs/              지침·연결·부품 양식 문서
+server/            토큰 서버 (비밀 키는 여기에만, .exe에는 들어가지 않음)
 ```
 
 ---

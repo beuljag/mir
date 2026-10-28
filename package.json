@@ -12,7 +12,7 @@
   },
   "build": {
     "appId": "kr.playlabs.mir",
-    "files": ["main.js", "preload.js", "src/**", "renderer/**", "parts/**", "docs/**", "build/icon.*"],
+    "files": ["main.js", "preload.js", "app-config.json", "src/**", "renderer/**", "parts/**", "docs/**", "build/icon.*"],
     "extraResources": [{ "from": "parts", "to": "parts" }],
     "win": { "target": "portable" }
   },

@@ -1,0 +1,14 @@
+{
+  "name": "mir-token-server",
+  "version": "0.1.0",
+  "description": "미르 앱용 Direct Line 토큰 서버 (비밀 키는 서버에만 보관)",
+  "main": "index.js",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

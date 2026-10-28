@@ -1,9 +1,21 @@
 // Copilot Studio 에이전트와 Direct Line(v3) REST API로 대화한다.
 // 연결 방법은 두 가지:
 //   1) secret        : Copilot Studio > 설정 > 보안 > 웹 채널 보안 의 비밀 키
-//   2) tokenEndpoint : Copilot Studio > 채널 > 모바일 앱 의 토큰 끝점 URL (인증 없음 설정일 때)
+//   2) tokenEndpoint : 미르 토큰 서버 주소(https://내서버, /token 자동), 또는
+//                      Copilot Studio > 채널 > 모바일 앱 의 토큰 끝점 URL (인증 없음 설정일 때)
 
 const DEFAULT_DOMAIN = 'https://directline.botframework.com/v3/directline';
+
+// 미르 서버 주소만 적었으면(https://내서버) 뒤에 /token 을 붙인다. 경로가 있는 주소는 그대로 쓴다.
+function withTokenPath(url) {
+  try {
+    const u = new URL(url);
+    if (u.pathname === '/' || u.pathname === '') u.pathname = '/token';
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
 const USER = { id: 'mir-user', name: '학생' };
 
 class DirectLineClient {
@@ -22,7 +34,17 @@ class DirectLineClient {
       return secret;
     }
     if (!tokenEndpoint) throw new Error('토큰 끝점 URL이 설정되지 않았습니다.');
-    // 토큰 끝점이 알려주는 지역(Direct Line 도메인)을 그대로 쓴다.
+    const r = await fetch(withTokenPath(tokenEndpoint));
+    if (!r.ok) throw new Error(`토큰 발급 실패 (${r.status})`);
+    const data = await r.json();
+    if (!data.token) throw new Error('토큰 끝점 응답에 token이 없습니다.');
+    // 미르 토큰 서버는 domain을 함께 알려준다. Copilot Studio 토큰 끝점이면 지역 설정을 물어본다.
+    if (data.domain) this.domain = data.domain.replace(/\/$/, '') + '/v3/directline';
+    else await this.useRegionalDomain(tokenEndpoint);
+    return data.token;
+  }
+
+  async useRegionalDomain(tokenEndpoint) {
     try {
       const u = new URL(tokenEndpoint);
       const settingsUrl = `${u.origin}/powervirtualagents/regionalchannelsettings?api-version=2022-03-01-preview`;
@@ -33,11 +55,6 @@ class DirectLineClient {
         if (dl) this.domain = dl.replace(/\/$/, '') + '/v3/directline';
       }
     } catch { /* 기본 도메인 사용 */ }
-    const r = await fetch(tokenEndpoint);
-    if (!r.ok) throw new Error(`토큰 발급 실패 (${r.status})`);
-    const data = await r.json();
-    if (!data.token) throw new Error('토큰 끝점 응답에 token이 없습니다.');
-    return data.token;
   }
 
   async request(path, options = {}) {
