@@ -1,0 +1,9 @@
+@echo off
+setlocal
+title MIR - Circuit editor
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_services.ps1" -NoTunnel
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
+start "" "http://127.0.0.1:8000/mir/"

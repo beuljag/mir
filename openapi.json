@@ -1,0 +1,1806 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Circuit Agent API",
+    "description": "회로 API와 공식 자료 조사·문서 분석·사람 검토. 기본 샘플은 가상 테스트 전용입니다.",
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Health",
+        "operationId": "Health",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/components/search": {
+      "get": {
+        "tags": [
+          "components"
+        ],
+        "summary": "Search",
+        "description": "DB에서 모델/제조사/ID를 검색합니다. 빈 검색어는 전체 샘플 목록을 반환합니다.",
+        "operationId": "SearchComponents",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ComponentDefinition"
+                  },
+                  "title": "Response Searchcomponents"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/components/{component_id}": {
+      "get": {
+        "tags": [
+          "components"
+        ],
+        "summary": "Details",
+        "operationId": "GetComponentDetails",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "component_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Component Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentDefinition"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/components/research": {
+      "post": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Research",
+        "operationId": "ResearchComponent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/datasheets/analyze": {
+      "post": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Analyze",
+        "operationId": "AnalyzeDatasheet",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasheetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Job Status",
+        "operationId": "GetJobStatus",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/component-candidates": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Candidates",
+        "operationId": "ListComponentCandidates",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CandidateRecord"
+                  },
+                  "title": "Response Listcomponentcandidates"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/component-candidates/{candidate_id}": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Candidate Detail",
+        "operationId": "GetComponentCandidate",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/component-candidates/{candidate_id}/review": {
+      "post": {
+        "tags": [
+          "human-review"
+        ],
+        "summary": "Review Candidate",
+        "operationId": "ReviewComponentCandidate",
+        "security": [
+          {
+            "APIKeyHeader": [],
+            "HumanReviewKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/circuits": {
+      "post": {
+        "tags": [
+          "circuits"
+        ],
+        "summary": "Create",
+        "operationId": "CreateCircuitDraft",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CircuitDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CircuitRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/circuits/{circuit_id}": {
+      "get": {
+        "tags": [
+          "circuits"
+        ],
+        "summary": "Get",
+        "operationId": "GetCircuitStatus",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "circuit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Circuit Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CircuitRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "circuits"
+        ],
+        "summary": "Update",
+        "description": "전체 회로 교체. expected_version 필수. 변경 시 검증 결과와 반영 상태를 초기화합니다.",
+        "operationId": "UpdateCircuit",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "circuit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Circuit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CircuitUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CircuitRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/circuits/{circuit_id}/validate": {
+      "post": {
+        "tags": [
+          "circuits"
+        ],
+        "summary": "Check",
+        "operationId": "ValidateCircuit",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "circuit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Circuit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/circuits/{circuit_id}/apply": {
+      "post": {
+        "tags": [
+          "circuits"
+        ],
+        "summary": "Apply",
+        "description": "현재 회로를 내장 편집기에 반영합니다. passed 이외에는 명시적 초안 반영 옵션이 필요합니다.",
+        "operationId": "ApplyCircuitLayout",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "circuit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Circuit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/circuits/{circuit_id}/simulate": {
+      "post": {
+        "tags": [
+          "future"
+        ],
+        "summary": "Simulate",
+        "operationId": "SimulateCircuit",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "circuit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Circuit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "501": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApplyRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "allow_unvalidated_draft": {
+            "type": "boolean",
+            "title": "Allow Unvalidated Draft",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version"
+        ],
+        "title": "ApplyRequest"
+      },
+      "ApplyResult": {
+        "properties": {
+          "circuit_id": {
+            "type": "string",
+            "title": "Circuit Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "editor_url": {
+            "type": "string",
+            "title": "Editor Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "circuit_id",
+          "version",
+          "status",
+          "editor_url"
+        ],
+        "title": "ApplyResult"
+      },
+      "CandidateRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
+          "requested_model": {
+            "type": "string",
+            "title": "Requested Model"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "default": "pending_review"
+          },
+          "analyses": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Analyses"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "requested_model",
+          "analyses"
+        ],
+        "title": "CandidateRecord"
+      },
+      "CircuitDraft": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "requirements": {
+            "type": "string",
+            "maxLength": 10000,
+            "title": "Requirements",
+            "default": ""
+          },
+          "component_instances": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentInstance"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Component Instances"
+          },
+          "nets": {
+            "items": {
+              "$ref": "#/components/schemas/Net"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Nets"
+          },
+          "layout": {
+            "items": {
+              "$ref": "#/components/schemas/Placement"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Layout"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "component_instances"
+        ],
+        "title": "CircuitDraft"
+      },
+      "CircuitRecord": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "requirements": {
+            "type": "string",
+            "maxLength": 10000,
+            "title": "Requirements",
+            "default": ""
+          },
+          "component_instances": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentInstance"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Component Instances"
+          },
+          "nets": {
+            "items": {
+              "$ref": "#/components/schemas/Net"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Nets"
+          },
+          "layout": {
+            "items": {
+              "$ref": "#/components/schemas/Placement"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Layout"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "passed",
+              "failed",
+              "unknown"
+            ],
+            "title": "Status",
+            "default": "draft"
+          },
+          "validation_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "applied_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "component_instances",
+          "id",
+          "version"
+        ],
+        "title": "CircuitRecord"
+      },
+      "CircuitUpdate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "requirements": {
+            "type": "string",
+            "maxLength": 10000,
+            "title": "Requirements",
+            "default": ""
+          },
+          "component_instances": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentInstance"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Component Instances"
+          },
+          "nets": {
+            "items": {
+              "$ref": "#/components/schemas/Net"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Nets"
+          },
+          "layout": {
+            "items": {
+              "$ref": "#/components/schemas/Placement"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Layout"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "component_instances",
+          "expected_version"
+        ],
+        "title": "CircuitUpdate"
+      },
+      "ComponentDefinition": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "manufacturer": {
+            "type": "string",
+            "title": "Manufacturer"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "is_virtual": {
+            "type": "boolean",
+            "title": "Is Virtual",
+            "default": true
+          },
+          "verification_status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "partial",
+              "unverified"
+            ],
+            "title": "Verification Status"
+          },
+          "pins": {
+            "items": {
+              "$ref": "#/components/schemas/Pin"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Pins"
+          },
+          "source_references": {
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "type": "array",
+            "title": "Source References"
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "manufacturer",
+          "model",
+          "revision",
+          "category",
+          "verification_status",
+          "pins"
+        ],
+        "title": "ComponentDefinition"
+      },
+      "ComponentInstance": {
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Instance Id"
+          },
+          "component_definition_id": {
+            "type": "string",
+            "title": "Component Definition Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "instance_id",
+          "component_definition_id"
+        ],
+        "title": "ComponentInstance"
+      },
+      "DatasheetRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Url"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "url",
+          "model"
+        ],
+        "title": "DatasheetRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Issue": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning",
+              "unknown"
+            ],
+            "title": "Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "affected_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Affected Refs"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "Issue"
+      },
+      "JobRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "research",
+              "datasheet"
+            ],
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobRecord"
+      },
+      "Net": {
+        "properties": {
+          "net_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Net Id"
+          },
+          "connected_pin_refs": {
+            "items": {
+              "$ref": "#/components/schemas/PinRef"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 2,
+            "title": "Connected Pin Refs"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "net_id",
+          "connected_pin_refs"
+        ],
+        "title": "Net"
+      },
+      "Pin": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "input",
+              "output",
+              "bidirectional",
+              "passive",
+              "power_in",
+              "power_out",
+              "ground"
+            ],
+            "title": "Direction"
+          },
+          "signal_type": {
+            "type": "string",
+            "enum": [
+              "power",
+              "ground",
+              "digital",
+              "analog",
+              "passive"
+            ],
+            "title": "Signal Type"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": false
+          },
+          "voltage_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voltage Min"
+          },
+          "voltage_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voltage Max"
+          },
+          "output_voltage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Voltage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "direction",
+          "signal_type"
+        ],
+        "title": "Pin"
+      },
+      "PinRef": {
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          },
+          "pin_id": {
+            "type": "string",
+            "title": "Pin Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "instance_id",
+          "pin_id"
+        ],
+        "title": "PinRef"
+      },
+      "Placement": {
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          },
+          "x": {
+            "type": "number",
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "X"
+          },
+          "y": {
+            "type": "number",
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "Y"
+          },
+          "rotation": {
+            "type": "number",
+            "title": "Rotation",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "instance_id",
+          "x",
+          "y"
+        ],
+        "title": "Placement"
+      },
+      "ResearchRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Missing Fields"
+          },
+          "source_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Source Urls"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "ResearchRequest"
+      },
+      "ReviewRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision"
+          },
+          "reviewer_notes": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 10,
+            "title": "Reviewer Notes"
+          },
+          "confirmed_model_revision": {
+            "type": "boolean",
+            "title": "Confirmed Model Revision",
+            "default": false
+          },
+          "confirmed_pinout": {
+            "type": "boolean",
+            "title": "Confirmed Pinout",
+            "default": false
+          },
+          "confirmed_electrical_limits": {
+            "type": "boolean",
+            "title": "Confirmed Electrical Limits",
+            "default": false
+          },
+          "component": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComponentDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "decision",
+          "reviewer_notes"
+        ],
+        "title": "ReviewRequest"
+      },
+      "SimulationResult": {
+        "properties": {
+          "circuit_id": {
+            "type": "string",
+            "title": "Circuit Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "const": "unsupported",
+            "title": "Status",
+            "default": "unsupported"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "circuit_id",
+          "version",
+          "reason"
+        ],
+        "title": "SimulationResult"
+      },
+      "Source": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "reference": {
+            "type": "string",
+            "title": "Reference"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "retrieved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieved At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "reference"
+        ],
+        "title": "Source"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationResult": {
+        "properties": {
+          "circuit_id": {
+            "type": "string",
+            "title": "Circuit Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "ruleset_version": {
+            "type": "string",
+            "title": "Ruleset Version",
+            "default": "mvp-1"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scope"
+          },
+          "excluded_checks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Excluded Checks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "circuit_id",
+          "version",
+          "status",
+          "issues",
+          "scope",
+          "excluded_checks"
+        ],
+        "title": "ValidationResult"
+      },
+      "VersionRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version"
+        ],
+        "title": "VersionRequest"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "HumanReviewKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Review-Key"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://rqc76xf3-8000.jpe1.devtunnels.ms"
+    }
+  ]
+}

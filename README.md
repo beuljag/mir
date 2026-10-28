@@ -1,152 +1,178 @@
-# 미르 (PLAYLABS)
+# 배선 에이전트 API
 
-임베디드 입문자를 위한 배선 가이드 윈도우 프로그램입니다.
-2026 충남 직업계고 Microsoft AI 에이전톤 · 아산스마트팩토리마이스터고 PLAYLABS 팀
+Python 3.11+ / FastAPI / SQLite로 만든 실행 가능한 MVP입니다.
+AI가 계획한 회로를 저장·조회·검증하며, API 자체가 자연어로 회로를 설계하지는 않습니다.
 
-| 단계 | 누가 | 내용 |
+DB에 없는 부품을 조사한 뒤 `CreateComponent`로 미검증 정의를 저장하고 이미지 제작·적용과 회로 사용까지 이어지는 흐름을 추가했습니다.
+업로드할 에이전트 자료와 실제 검색 설정은 `COMPONENT_PIPELINE_SETUP.md`를 참고하세요. MCP 도구는 총 20개입니다.
+
+## 빠른 실행 (Windows PowerShell)
+
+현재 AI 채팅은 서버 `.env`의 **Copilot Studio Direct Line 비밀 키**를 사용하도록 설정했습니다.
+`.env`의 `COPILOT_DIRECT_LINE_SECRET=` 뒤에 키를 넣고 저장하세요.
+브라우저에서 키를 읽지 않으며, 사용 순서는 `DIRECTLINE_SETUP.md`에 있습니다.
+미르의 배선 API 키 입력도 제거했습니다. 기존 키를 `.env`로 옮겼고, 8002번 로컬 전용 연결이 자동 인증합니다.
+
+부품 이미지 제작 API와 `ComponentImageAgent` 설정 자료를 추가했습니다.
+팀의 SVG 프롬프트로 에이전트가 직접 제작·저장·적용하는 기본 경로에는 별도 이미지 서비스 키가 필요 없습니다.
+선택 기능인 서버 생성은 `.env`의 `OPENAI_API_KEY`를 사용합니다. 자세한 안내는 `IMAGE_AGENT_SETUP.md`를 참고하세요.
+
+팀원의 **미르 2D 화면**을 연결했습니다. **미르열기.bat**를 더블클릭하면
+`http://127.0.0.1:8000/mir/`를 엽니다. DB 불러오기·편집·저장·검증은 `MIR_SETUP.md`를 참고하세요.
+
+이미 설치된 이 PC에서는 **`서버켜기.bat`를 더블클릭**하면 서버와 저장된 터널을 함께 켭니다.
+이미 실행 중인 서비스는 유지합니다. 실행 확인 후 명령창을 닫아도 서비스는 백그라운드에서 계속 실행됩니다.
+고정 API 키와 MCP 주소는 바뀌지 않습니다. 실패하면 창의 오류와 `logs/`의 로그를 확인하세요.
+서버만 켜려면 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_services.ps1 -NoTunnel`을 사용합니다.
+
+이 폴더에서 실행합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+프로젝트 전용 `.venv`에 패키지를 설치합니다. 첫 설치에는 인터넷이 필요합니다.
+현재 폴더의 `.venv`에는 설치가 완료되어 있습니다. 패키지가 이미 있으면 다시 설치하지 않습니다.
+고정 키는 `config/local-api-keys.json`에 처음 한 번 생성하고 이후 유지합니다.
+JSON의 왼쪽 속성 이름(긴 문자열)을 API 키로 사용합니다. 오른쪽 `local-user`는 소유자 ID입니다.
+키를 다른 사람에게 공유하지 마세요. 수동 실행한 서버의 종료는 Ctrl+C입니다.
+
+- 테스트 편집기: http://127.0.0.1:8000
+- Swagger API 문서: http://127.0.0.1:8000/docs
+- OpenAPI 3: http://127.0.0.1:8000/openapi.json
+- 상태 확인: http://127.0.0.1:8000/health
+
+편집기에서 고정 키 입력 → 샘플 초안 → 드래그 배치 → 변경 저장 + 재검증을 실행하세요.
+연결 변경은 JSON의 `nets`에서 합니다. 핀 드래그 배선 UI는 아직 없습니다.
+페이지 새로고침 시 키를 다시 입력합니다. 키를 URL/브라우저 저장소에 저장하지 않습니다.
+회로 ID를 기록하면 서버를 다시 시작해도 같은 owner로 조회할 수 있습니다.
+
+## 고정 키로 실행
+
+```powershell
+$env:CIRCUIT_API_KEYS = '{"replace-with-a-random-key-of-at-least-24-characters":"user-a"}'
+.\.venv\Scripts\python.exe run.py
+```
+
+키는 24자 이상이어야 합니다. 실제 키는 아래처럼 생성하세요.
+
+```powershell
+.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+`CIRCUIT_API_KEYS`는 키→owner 매핑 JSON입니다. 서로 다른 owner는 상대 회로에 접근할 수 없습니다.
+owner가 같은 키는 같은 회로에 접근합니다. 부품 DB는 공유 읽기 전용입니다.
+`CIRCUIT_API_KEYS` 환경 변수는 파일보다 우선합니다. 환경 변수와 키 파일이 모두 없으면 시작하지 않습니다.
+DB 경로는 `CIRCUIT_DB_PATH`로 변경할 수 있습니다.
+실제 운영에서는 환경 변수에 안전하게 키를 공급하고, HTTPS·비밀 관리·요청 제한·백업을 구성해야 합니다.
+현재 인증은 MVP용 API 키 방식이며 Entra 사용자 인증은 구현하지 않았습니다.
+
+## Windows 로그인 시 자동 실행
+
+현재 사용자 시작프로그램 폴더에 `CircuitAgentAPI.lnk`를 등록했습니다.
+Windows 로그인 후 가상환경의 `pythonw.exe`가 `run.py --background`를 실행합니다.
+PowerShell 프로필을 읽지 않으며 콘솔 창은 표시하지 않습니다.
+주소는 `http://127.0.0.1:8000`입니다. 노트북이 꺼지거나 절전 중이면 호출할 수 없습니다.
+서버가 비정상 종료된 경우 자동 재시작하는 서비스/감시자는 아직 없습니다.
+폴더 이동·삭제 시 바로가기를 다시 등록해야 합니다.
+
+- 실행 로그: `logs/server.log` (회전 보관)
+- 시작 오류: `logs/startup.log`
+- 자동 실행 해제: Win+R → `shell:startup` → `CircuitAgentAPI` 바로가기 삭제
+- 자동 실행 재등록: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1`
+- 수동 실행: `powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1`
+
+이미 8000번 포트를 사용 중이면 새 실행은 기존 프로세스를 종료하지 않고 빠져나옵니다.
+실제 Windows 재부팅 시험은 하지 않았으며, 등록한 바로가기를 직접 실행해 고정 키 인증을 확인했습니다.
+MCP 엔드포인트와 외부 고정 개발 터널을 추가했습니다. 연결 값은 `MCP_SETUP.md`를 참고하세요.
+`CircuitAgentTunnel.lnk`도 시작프로그램에 등록하며 `logs/tunnel.log`에서 실행 상태를 확인할 수 있습니다.
+
+## 구현된 API
+
+|메서드/경로|operationId|기능|
 |---|---|---|
-| 1. 배선 자동 추천 | **AI** (Copilot Studio 에이전트) | 목표·보드·센서를 말하면 핀 기능·전압·통신 방식을 따져 배선을 만들고 2D 화면에 그림 |
-| 2. 2D 가상환경 테스트 | **사람** | 가상 전원 ON, 핀 측정(멀티미터), 배선 직접 수정, 직접 판단 |
-| 3. 오류 진단과 수정 | **AI** | 학생 판정·측정값을 받아 원인(배선/코드/부품)과 수정안 제시 → 미리보기 확인 후 적용 → 다시 2단계 |
+|GET /components/search?q=|SearchComponents|부품 검색|
+|GET /components/{component_id}|GetComponentDetails|핀/전압/출처 조회|
+|POST /circuits|CreateCircuitDraft|새 초안 저장|
+|GET /circuits/{circuit_id}|GetCircuitStatus|최신 회로/검증 결과 조회|
+|PUT /circuits/{circuit_id}|UpdateCircuit|전체 회로 교체, 버전 증가|
+|POST /circuits/{circuit_id}/validate|ValidateCircuit|현재 버전 규칙 검증|
+|POST /circuits/{circuit_id}/apply|ApplyCircuitLayout|내장 편집기 반영 버전 기록|
 
-## 실행
+`PUT`, `validate`, `apply`는 `expected_version`을 필수로 받습니다.
+`PUT` 본문은 초안 필드와 `expected_version`입니다. 응답 전체를 그대로 PUT하면 안 됩니다.
+수정 시 검증 결과와 반영 상태를 초기화하고 반드시 재검증합니다.
+레이아웃 변경도 버전을 증가시키는 단순한 정책입니다. net은 부품 위치와 독립적입니다.
+DB에는 최신 상태와 버전별 스냅샷을 저장합니다. 과거 버전 조회 API는 아직 없습니다.
+생성 요청은 호출마다 새 ID를 만듭니다. idempotency key는 미구현이므로 무조건 자동 재시도하지 마세요.
 
-```bash
-npm install
+### 검증 요청 예
+
+```json
+{"expected_version": 1}
 ```
 
-```bash
-npm start
+검증을 통과하지 않은 초안을 명시적으로 반영하려면:
+
+```json
+{"expected_version": 1, "allow_unvalidated_draft": true}
 ```
 
-윈도우용 실행 파일(.exe) 만들기 (다른 사람에게 배포할 때는 먼저 `server/README.md`대로 토큰 서버를 준비하고 `app-config.json`에 주소를 넣으세요):
+`apply`는 회로를 생성하거나 배선을 설계하지 않습니다. 현재 버전의 반영 상태를 기록하고,
+미르 편집기 URL(`/mir/?circuit=...`, 서버 기준 상대 경로)을 반환합니다.
+미르에서 API 키로 연결해 회로를 불러옵니다. 다른 창에 자동으로 push하지는 않습니다.
 
-```bash
-npm run dist
+### 오류
+
+- 401: 키 누락/잘못된 키
+- 404: 없는 리소스 또는 다른 owner의 회로
+- 409 VERSION_CONFLICT: 최신 버전을 조회한 후 수정안을 재검토
+- 409 DRAFT_CONFIRMATION_REQUIRED: 초안 반영 옵션 필요
+- 422: 입력 JSON/필드 형식 오류
+- 501: 아직 연결되지 않은 기능
+
+## 검증 범위와 샘플 부품
+
+출하 샘플 3종은 **새로 만든 가상 테스트 부품**입니다. 실제 제품의 사양을 조사하거나 검증한 것이 아닙니다.
+가상 부품을 사용한 회로는 오류가 없더라도 `unknown`입니다.
+핀 참조, 필수 연결, 복수 출력, 전원/GND 단락, 신호 타입, 정적 출력 전압과 입력 허용 범위를 검사합니다.
+오류가 있으면 `failed`, 미확인 항목이 있으면 `unknown`, 구현된 검사에 문제가 없으면 `passed`입니다.
+`passed`는 구현된 검사 범위의 통과이며 실제 안전 보증이 아닙니다.
+
+전류·부하·발열, 통신 타이밍, 보호/보조 회로 적정성, MCU 펌웨어는 검사하지 않습니다.
+오픈드레인·풀업·수동소자 경로 등은 모델링하지 않았으며 출력 공유도 보수적으로 오류 처리합니다.
+실제 부품은 조사 후보를 만든 뒤 별도 사람 검토 키로 승인하여 등록할 수 있습니다. 사용법은 `RESEARCH_SETUP.md`에 있습니다.
+
+## 부품 조사와 사람 검토
+
+- `POST /components/research`: 비동기 공식 자료 조사, 검토 전 후보 저장.
+- `POST /datasheets/analyze`: PDF/HTML의 페이지별 근거 추출.
+- `GET /jobs/{job_id}`: 작업 상태·결과 조회.
+- `/component-candidates`: 후보 조회와 별도 사람 검토 키를 통한 승인/반려.
+- 사용법과 검색 API 연결 설정은 `RESEARCH_SETUP.md`를 참고하세요.
+
+## 미구현 기능
+- `POST /circuits/{id}/simulate`: HTTP 501 / unsupported. ngspice/모델 미연결.
+
+시뮬레이션은 Copilot Studio의 활성 도구로 추가하지 마세요.
+
+## 테스트
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-## 처음 설정
+인증, 사용자 격리, DB 영속성, 버전 충돌, 검증 결과 초기화, 오류 검출,
+가상 부품의 unknown, 전압 초과 및 제한된 passed 결과를 검사합니다.
+테스트는 임시 DB를 사용하며 실행용 DB를 수정하지 않습니다.
+현재 검증한 정확한 패키지 버전은 `requirements-tested.txt`에 기록했습니다.
+재현할 때는 이 파일을 설치할 수 있습니다. 운영 배포 전에는 보안 업데이트를 검토하세요.
 
-1. `docs/Copilot-Studio-지침.md` 내용을 Copilot Studio 에이전트 지침에 붙여 넣고 게시
-2. 프로그램 오른쪽 위 ⚙ → 연결 방식 선택 → 연결 테스트 (`docs/Copilot-Studio-연결-안내.md`)
-3. 연결 전에는 **데모 모드**로 예시를 체험할 수 있음
+## Copilot Studio 연결
 
-## 사용법
+구체적인 설정은 `COPILOT_SETUP.md`를 참고하세요.
+Copilot Studio의 **MCP 서버 추가** 화면을 사용하는 경우에는 `MCP_SETUP.md`를 사용하세요.
 
-- **배선 추천**: 오른쪽 채팅에 "ESP32로 외부 전원을 써서 밸브를 켜고 싶어"처럼 입력
-- **배선 편집**: 핀 클릭 → 다른 핀 클릭 = 선 연결 / 선·부품 클릭 후 Delete = 삭제 / 부품 드래그 = 이동 / Ctrl+Z 되돌리기
-- **가상 전원**: `가상 전원` 버튼 → 왼쪽 아래 패널에서 보드 GPIO를 HIGH/LOW로 설정 → 핀에 마우스를 올려 측정 전압과 허용 범위 비교
-- **진단 요청**: 테스트해 보고 이상한 점을 입력창에 적은 뒤 `진단 요청` → 측정값·배선이 함께 AI에게 전달됨
-  - 채팅으로 "GPIO23 말고 다른 핀으로 바꿔줘"처럼 직접 수정 요청도 가능
-- **AI 수정안**: 이미 배선이 있으면 초록(추가)/빨강(삭제) 점선으로 미리보기 → `수정안 적용`을 눌러야 바뀜
-- **화면**: 양쪽 패널 경계를 드래그해 너비 조절(더블클릭하면 원래대로), 오른쪽 위 버튼으로 화이트/블랙 모드 전환
-
-## 부품 추가
-
-기본 부품: ESP32 DevKitC, Raspberry Pi 4, DHT22, BME280, SSD1306 OLED, LED, 저항(220Ω/10kΩ), 버튼, 5V 릴레이, 12V 솔레노이드 밸브, 12V 어댑터, 1N4007
-
-- 부품함 `⋯ → 부품 양식 파일 저장` → 채우기 → `+ 파일`로 추가 (`docs/부품-JSON-양식.md`)
-- 부품 그림: `docs/부품-그림-제작-안내.md`를 다른 AI에게 주고 SVG를 받아 `parts/`에 넣은 뒤 부품 JSON에 `"image": "파일이름.svg"` 추가 (그림이 없으면 기본 그림으로 표시)
-- 또는 `⋯ → 데이터시트로 부품 만들기`: 데이터시트 내용을 붙여 넣으면 AI가 JSON을 만들어 줌
-
-## 앱 아이콘
-
-팀에서 제공한 미르 로고를 기본으로 포함합니다.
-
-- `build/icon.ico`: 원본 256×256 로고. 창·작업 표시줄과 Windows 실행 파일(`.exe`) 아이콘에 사용합니다.
-- `build/icon.png`: 같은 로고를 PNG로 변환한 256×256 이미지. 프로그램 왼쪽 위 로고와 탭 아이콘에 사용합니다.
-
-로고를 교체할 때는 두 파일을 함께 바꾸고 `npm run dist`로 실행 파일을 다시 만드세요. 실행 파일은 `dist/`에 생성됩니다.
-
-## 구조
-
-```
-main.js            Electron 메인 (설정 저장, 부품 파일, Direct Line 호출)
-app-config.json    배포용 토큰 서버 주소 (serverUrl)
-src/directline.js  Copilot Studio Direct Line 클라이언트
-renderer/
-  app.js           화면 동작 (채팅, 진단 요청, 미리보기, 부품함, 패널 크기 조절)
-  canvas.js        2D 배선 캔버스 (SVG)
-  art.js           부품 2D 그림 (기본 그림 / 부품 JSON의 image 파일)
-  sim.js           간이 가상 전원 (네트 전압, 릴레이·LED·밸브 반응)
-  agent.js         에이전트 메시지 형식, 응답 해석, 데모 응답
-parts/*.json       기본 부품
-docs/              지침·연결·부품 양식 문서
-server/            토큰 서버 (비밀 키는 여기에만, .exe에는 들어가지 않음)
-```
-
----
-
-## 팀 협업 방법 (Copilot)
-
-
-코드를 잘 몰라도 괜찮아요. **할 일을 적고 → Copilot과 만들고 → 직접 확인하는 순서**로 시작해 보세요.
-이 저장소에는 협업 안내와 양식이 준비되어 있어요. 실제 앱과 실행 방법은 아직 없어요.
-
-### 1. 할 일을 하나 적어요
-
-GitHub의 **Issues → New issue**에서 양식을 고르세요.
-
-- **기능 요청**: 새로 만들고 싶은 것. 예: “완료한 할 일만 보고 싶어요.”
-- **버그 신고**: 잘못 동작하는 것. 예: “저장을 한 번 눌렀는데 두 개가 생겨요.”
-
-한 번에 작은 일 하나만 적고, **어떻게 되면 완료인지** 써 주세요.
-팀에서 담당자 한 명을 정해 **Assignees(담당자)**에 지정하세요.
-이슈가 만들어지면 붙는 번호(예: `#3`)를 기억하세요.
-
-### 2. Copilot에게 만들어 달라고 해요
-
-담당자는 Copilot 앱에서 저장소를 열고, 그 이슈를 위한 **별도 작업 공간**을 준비하세요.
-**브랜치**는 팀의 원본과 섞이지 않게 작업을 나누는 방법이에요. 원본인 `main`에서 바로 작업하지 마세요.
-분리 방법을 모르겠다면 변경하기 전에 Copilot에게 물어보세요.
-
-아래 문장의 `#3`을 내 이슈 번호로 바꿔 요청하세요.
-
-> 이슈 #3을 확인해줘. 현재 브랜치와 작업 공간이 다른 작업과 분리되어 있는지 확인하고, 작업 범위와 검증 방법을 쉽게 설명한 뒤 구현해줘.
-
-설명을 읽고 원하는 방향인지 확인하세요. 요청과 다른 내용이 있으면 바로 알려 주세요.
-
-### 3. 검토를 요청해요
-
-작업이 끝나면 Copilot에게 **“이 변경으로 PR을 만들어줘”**라고 요청하세요.
-**PR**은 “제가 만든 내용을 팀의 원본에 합쳐도 될까요?”라는 검토 요청이에요.
-
-**PR을 만들기만 하면 리뷰가 자동으로 시작되지는 않아요.**
-PR 생성 후 안내에 따라 앱에서 리뷰용 에이전트인 **`student-reviewer`**를 직접 선택하고 요청하세요.
-
-> PR #5를 이슈 #3의 완료 조건에 맞춰 검토해줘.
-
-`#5`는 내 PR 번호, `#3`은 연결 이슈 번호로 바꾸세요. 이슈가 없다면 PR 번호만 적어도 돼요.
-이 문장은 요청 예시이며, 실제 에이전트 선택 방법은 앱에서 확인하세요. 검토 결과는 앱에 표시되며 GitHub에 자동으로 게시되지는 않아요.
-검토에서 문제가 나오면 개발을 맡은 에이전트에게 수정을 요청하고, 필요한 검사를 다시 한 뒤 리뷰를 다시 요청하세요.
-리뷰어가 보이지 않거나 이슈·코드를 읽지 못하면 팀 관리자에게 알려 주세요.
-
-### 4. 내가 직접 써 보고 합쳐요
-
-PR에 적힌 **확인 순서와 기대 결과**를 따라 직접 사용해 보세요. 방법이 없으면 Copilot에게 설명을 요청하세요.
-원하는 대로 동작하는지 확인한 뒤 **학생 확인란은 본인이** 체크하세요.
-
-**Copilot이 “검사 통과”라고 해도 직접 확인한 것은 아니에요.**
-문제가 없고, GitHub에서 요구하는 검사와 팀원의 승인이 끝나면 권한 있는 사람이 **머지(팀의 원본에 합치기)**해요.
-버튼이 막혀 있으면 우회하지 말고 관리자에게 물어보세요.
-
-### 이것만은 기억해요
-
-- 비밀번호·API 키(서비스 접속용 비밀값)·개인정보는 채팅, 코드, 이슈, 화면 캡처에 넣지 않아요.
-- 다른 사람의 작업을 지우지 않아요. 로그인·권한·결제·데이터 삭제 같은 중요한 변경은 팀과 먼저 상의해요.
-- 모르는 내용은 “초보자도 이해할 수 있게 설명해줘”라고 요청해도 괜찮아요.
-
-<details>
-<summary>팀 관리자: 처음 한 번 준비할 것</summary>
-
-- 템플릿으로 만든 저장소에서는 팀원에게 필요한 작업 권한을 주세요.
-- 기본 브랜치에 워크플로우가 있는지 확인한 뒤 **Actions → 협업 라벨 생성 → Run workflow**를 실행하세요. 없는 `버그`(빨강)·`기능추가`(파랑) 라벨을 만들고 기존 라벨은 보존해요. 기존 색상을 바꾸려면 라벨을 직접 편집하세요.
-- 라벨이 준비되면 각 이슈 양식으로 만든 새 이슈에 해당 라벨이 붙어요. 기존 이슈에는 소급 적용되지 않아요.
-- 조직에서 Actions와 `issues: write` 권한을 제한하면 관리자 허용이 필요해요. 실행 실패 이유는 Actions 기록에서 확인하세요.
-- 앱에서 `student-reviewer`가 보이고 읽기·검색만 허용되는지 확인하세요. 실제 앱 동작과 GitHub 양식 표시는 아직 확인하지 못했어요.
-- 사람 승인·필수 검사·브랜치 보호·Copilot 자동 리뷰는 별도로 설정하세요. **리뷰어 파일만으로 자동 리뷰·머지 차단·자동 머지가 켜지지 않아요.** 리뷰어 판정과 학생 체크박스도 공식 승인이나 머지 허가를 대신하지 않아요.
-- 라벨 생성은 코드 검사가 아니에요. 앱 코드가 생기면 실제 실행·검사 방법을 안내하고 필요한 자동 검사를 준비하세요.
-
-템플릿은 파일만 복사해요. 원본의 권한·보호 규칙은 복사되지 않고, 이후 원본 파일 변경도 자동 반영되지 않아요.
-
-</details>
+공식 참고: [FastAPI 테스트](https://fastapi.tiangolo.com/tutorial/testing/),
+[Microsoft 커스텀 커넥터](https://learn.microsoft.com/microsoft-copilot-studio/advanced-connectors).

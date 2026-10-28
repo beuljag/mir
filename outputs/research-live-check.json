@@ -1,0 +1,126 @@
+{
+  "mcp_url": "https://rqc76xf3-8000.jpe1.devtunnels.ms/mcp",
+  "job": {
+    "id": "baa6c7d0-7a09-4350-bf08-a872bbaccc4c",
+    "kind": "research",
+    "status": "completed",
+    "created_at": "2026-10-27T15:16:18.543489+00:00",
+    "updated_at": "2026-10-27T15:16:25.337303+00:00",
+    "result": {
+      "candidate_id": "30cd4a7a-1374-4c4d-bcb2-61088b95432d",
+      "candidate_status": "pending_review",
+      "methods": [
+        "official_ti_document_probe"
+      ],
+      "sources_analyzed": 1,
+      "failures": []
+    },
+    "error": null
+  },
+  "candidate": {
+    "id": "30cd4a7a-1374-4c4d-bcb2-61088b95432d",
+    "job_id": "baa6c7d0-7a09-4350-bf08-a872bbaccc4c",
+    "version": 1,
+    "requested_model": "LM358",
+    "manufacturer": "Texas Instruments",
+    "status": "pending_review",
+    "analyses": [
+      {
+        "source": {
+          "title": "Industry-Standard Dual Operational Amplifiers datasheet (Rev. AB)",
+          "reference": "https://www.ti.com/lit/ds/symlink/lm358.pdf",
+          "revision": null,
+          "page": null,
+          "sha256": "8277dff7b89138c63b3582d37f378065a1dea3cae5ed1e2926ddc2779eb7e3a2",
+          "retrieved_at": "2026-10-27T15:16:25.322500+00:00"
+        },
+        "requested_model": "LM358",
+        "model_match": true,
+        "official_domain_match": true,
+        "document_date_raw": "D:20261015003748-05'00'",
+        "total_pages": 68,
+        "analyzed_pages": 40,
+        "evidence": [
+          {
+            "category": "pin_information",
+            "page": 2,
+            "excerpt": "3 Description.......................................................................1             7.2 Functional Block Diagram: LM358B, LM358BA,\n4 Pin Configuration and Functions...................................3                                LM2904B, LM2904BA.................................................           25\n5 Specifications..................................................................4               7.3 Feature Description...................................................26\n    5.1 Absolute Maximum Ratings........................................4                         7"
+          },
+          {
+            "category": "pin_information",
+            "page": 3,
+            "excerpt": "4 Pin Configuration and Functions"
+          },
+          {
+            "category": "pin_information",
+            "page": 3,
+            "excerpt": "Package\n    8-Pin SOIC, SOT23-8, VSSOP, PDIP, SO, TSSOP,\n                              and CDIP\n                               Top View"
+          },
+          {
+            "category": "recommended_operation",
+            "page": 1,
+            "excerpt": "LM358BA         LM2904BA        LM358A                    LM2904AV       LM258A        LM158A\nSupply voltage                             3 to 36          3 to 36        3 to 30       3 to 26      3 to 30       3 to 30       3 to 30       V\nOffset voltage (max, 25°C)                   ± 3             ± 3             ± 7          ± 7           ± 7           ± 5           ± 5        mV\n                                             ± 2             ± 2             ± 3                        ± 2           ± 3           ± 2"
+          },
+          {
+            "category": "recommended_operation",
+            "page": 2,
+            "excerpt": "5.2 ESD Ratings...............................................................    4        8 Application and Implementation..................................27\n    5.3 Recommended Operating Conditions.........................5                                8.1 Application Information.............................................        27\n    5.4 Thermal Information....................................................5                  8.2 Typical Application....................................................     27\n    5.5 Electrical Characteristics: LM358B and LM358BA.....                   "
+          },
+          {
+            "category": "recommended_operation",
+            "page": 4,
+            "excerpt": "LM2904B, LM2904BA\n Supply voltage, V     = ([V+] – [V–])                                    LM158, LM258, LM358,                                                       V\n                    S                                                     LM158A, LM258A, LM358A,                                  ±16 or 32\n                                                                          LM2904V"
+          },
+          {
+            "category": "absolute_maximum",
+            "page": 2,
+            "excerpt": "5 Specifications..................................................................4               7.3 Feature Description...................................................26\n    5.1 Absolute Maximum Ratings........................................4                         7.4 Device Functional Modes..........................................26\n    5.2 ESD Ratings...............................................................    4        8 Application and Implementation..................................27\n    5.3 Recommended Operating Conditions.........................5                         "
+          },
+          {
+            "category": "absolute_maximum",
+            "page": 4,
+            "excerpt": "5 Specifications\n5.1 Absolute Maximum Ratings\nover operating ambient temperature range (unless otherwise noted)(1)\n                                                                                                                    MIN              MAX           UNIT"
+          },
+          {
+            "category": "absolute_maximum",
+            "page": 4,
+            "excerpt": "(1)    Stresses beyond those listed under Absolute Maximum Ratings may cause permanent damage to the device. These are stress ratings\n       only, and do not imply functional operation of the device at these or any other conditions beyond those indicated under Recommended\n       Operating Conditions. Exposure to absolute-maximum-rated conditions for extended periods may affect device reliability."
+          },
+          {
+            "category": "current_or_interface",
+            "page": 1,
+            "excerpt": "•   Wide supply range of 3V to 36V (B, BA versions)                          applications, with features including low offset (300µV,\n•   Quiescent current: 300µA/ch (B, BA versions)                             typical),  common-mode  input  range  to  ground,  and\n•   Unity-gain bandwidth of 1.2MHz (B, BA versions)                          high differential input voltage capability.\n•   Common-mode input voltage range includes                                 The  LM358B  and  LM2904B  op  amps  simplify  circuit"
+          },
+          {
+            "category": "current_or_interface",
+            "page": 1,
+            "excerpt": "version)                                                                 maximum  for  LM358BA  and  LM2904BA),  and  lower\n•   3mV input offset voltage maximum at 25°C (A, B                           quiescent  current  of  300µA  per  amplifier  (typical).\n    versions)                                                                High  ESD  (2kV,  HBM)  and  integrated  EMI  and  RF\n•   Internal RF and EMI filter (B, BA versions)                              filters enable the LM358B and LM2904B devices to be"
+          },
+          {
+            "category": "current_or_interface",
+            "page": 1,
+            "excerpt": "± 2             ± 2             ± 3                        ± 2           ± 3           ± 2\nInput bias current (typ / max)             10 / 35          10 / 35       20 / 250      20 / 250      20 / 250      20 / 150     20 / 150      nA\n                                                                          15 / 100                                  15 / 80       15 / 50\nGain bandwidth product                       1.2             1.2             0.7          0.7           0.7           0.7           0.7       MHz"
+          }
+        ],
+        "verification_status": "unverified",
+        "warnings": [
+          "자동 추출한 근거 발췌이며 핀 배치·전압 수치를 확정한 부품 정의가 아닙니다.",
+          "DOCUMENT_TRUNCATED: 페이지/텍스트 제한으로 일부만 분석했습니다."
+        ],
+        "unresolved_fields": [
+          "exact_model_and_revision",
+          "package_and_pin_numbers",
+          "pin_directions",
+          "recommended_voltage_and_current",
+          "logic_levels",
+          "required_auxiliary_parts"
+        ]
+      }
+    ],
+    "warnings": [
+      "검토 전 후보입니다. 부품 DB에 아직 등록되지 않았습니다."
+    ],
+    "review": null
+  },
+  "approved": false
+}

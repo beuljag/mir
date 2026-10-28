@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>배선 에이전트 · API 테스트 편집기</title>
+<style>
+body{margin:24px;background:#101724;color:#e4edf7;font:15px system-ui}h1{font-size:24px}button,input,textarea{font:inherit;border:1px solid #435775;border-radius:6px;padding:9px;background:#19263a;color:inherit}button{cursor:pointer;margin:4px}input{width:360px}textarea{width:100%;height:290px;box-sizing:border-box;font:13px monospace}svg{width:100%;height:420px;background:#152033;border:1px solid #435775;border-radius:10px;touch-action:none}pre{white-space:pre-wrap;max-height:400px;overflow:auto}.warning{color:#ffcb75}.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.card{cursor:move}circle{fill:#9ad8ef}line{stroke:#74cbbc;stroke-width:2}text{fill:#e4edf7;font:12px system-ui}
+</style>
+<h1>배선 에이전트 · API 테스트 편집기</h1>
+<p class="warning">기본 부품은 가상 테스트 전용입니다. 실제 배선에 사용하지 마세요. JSON에서 부품·net을 편집하고 저장하면 재검증합니다.</p>
+<div class="bar"><input id="key" type="password" placeholder="X-API-Key (메모리에만 보관)"><button id="sample">샘플 초안</button><input id="circuitId" placeholder="회로 ID"><button id="load">불러오기</button></div>
+<p id="state">API Key를 입력하고 샘플 초안을 생성하세요.</p>
+<svg id="canvas" viewBox="0 0 1000 420"></svg>
+<p>부품을 드래그해 배치할 수 있습니다. 이동은 로컬 변경이며 저장 버튼으로 서버에 저장합니다. 연결은 아래 JSON의 nets에서 수정합니다.</p>
+<textarea id="body" spellcheck="false" aria-label="회로 JSON"></textarea>
+<div><button id="save">변경 저장 + 재검증</button><button id="validate">현재 서버 버전 검증</button><button id="apply">상태를 표시한 초안 반영</button><a href="/docs" style="color:#9ad8ef">API 문서</a></div>
+<pre id="result"></pre>
+<script>
+const $=id=>document.getElementById(id);let current=null,defs={},local=null,drag=null;
+async function api(path,method='GET',body){const response=await fetch(path,{method,headers:{'X-API-Key':$('key').value,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw Error(JSON.stringify(data));return data}
+function editable(c){return {name:c.name,requirements:c.requirements,component_instances:c.component_instances,nets:c.nets,layout:c.layout}}
+function show(c){current=c;local=editable(c);$('circuitId').value=c.id;$('body').value=JSON.stringify(local,null,2);$('state').textContent=`회로 ${c.id} · 버전 ${c.version} · ${c.status} · 반영 버전 ${c.applied_version??'없음'}`;draw()}
+async function loadDefs(){defs=Object.fromEntries((await api('/components/search?limit=100')).map(c=>[c.id,c]))}
+function node(tag,attrs,text){const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);if(text!==undefined)n.textContent=text;return n}
+function position(id,index){return local.layout.find(p=>p.instance_id===id)||{instance_id:id,x:80+index*280,y:120,rotation:0}}
+function geometry(inst,index){const p=position(inst.instance_id,index),pins=defs[inst.component_definition_id]?.pins||[];return {p,pins,height:50+pins.length*26}}
+function anchor(ref){const index=local.component_instances.findIndex(i=>i.instance_id===ref.instance_id);if(index<0)return null;const inst=local.component_instances[index],{p,pins}=geometry(inst,index),pinIndex=pins.findIndex(pin=>pin.id===ref.pin_id);if(pinIndex<0)return null;const radians=(p.rotation||0)*Math.PI/180,dy=48+pinIndex*26;return {x:p.x-Math.sin(radians)*dy,y:p.y+Math.cos(radians)*dy}}
+function draw(){const svg=$('canvas');svg.replaceChildren();if(!local)return;for(const net of local.nets){const points=net.connected_pin_refs.map(anchor).filter(Boolean);for(let i=1;i<points.length;i++)svg.append(node('line',{x1:points[0].x,y1:points[0].y,x2:points[i].x,y2:points[i].y}))}
+local.component_instances.forEach((inst,index)=>{const {p,pins,height}=geometry(inst,index),g=node('g',{transform:`translate(${p.x},${p.y}) rotate(${p.rotation||0})`,class:'card'});g.append(node('rect',{x:0,y:0,width:210,height,rx:8,fill:'#263a54',stroke:'#7a9aba'}));g.append(node('text',{x:12,y:23},inst.instance_id));pins.forEach((pin,i)=>{g.append(node('circle',{cx:0,cy:48+i*26,r:5}));g.append(node('text',{x:12,y:52+i*26},pin.label))});g.addEventListener('pointerdown',e=>{const point=svgPoint(e);drag={id:inst.instance_id,dx:point.x-p.x,dy:point.y-p.y};svg.setPointerCapture(e.pointerId)});svg.append(g)})}
+function svgPoint(e){const p=$('canvas').createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform($('canvas').getScreenCTM().inverse())}
+$('canvas').addEventListener('pointermove',e=>{if(!drag)return;const pt=svgPoint(e);let p=local.layout.find(p=>p.instance_id===drag.id);if(!p){p={instance_id:drag.id,x:0,y:0,rotation:0};local.layout.push(p)}p.x=Math.round(pt.x-drag.dx);p.y=Math.round(pt.y-drag.dy);draw();$('body').value=JSON.stringify(local,null,2)});
+for(const event of ['pointerup','pointercancel'])$('canvas').addEventListener(event,()=>{drag=null});
+async function guarded(fn){try{await fn()}catch(e){$('result').textContent=e.message}}
+$('sample').onclick=()=>guarded(async()=>{await loadDefs();const refs=(...pairs)=>pairs.map(([instance_id,pin_id])=>({instance_id,pin_id}));const draft={name:'가상 센서 연결 테스트',requirements:'소프트웨어 테스트용. 실제 배선 금지.',component_instances:[{instance_id:'P1',component_definition_id:'virtual-supply'},{instance_id:'S1',component_definition_id:'virtual-sensor'},{instance_id:'U1',component_definition_id:'virtual-controller'}],nets:[{net_id:'power',connected_pin_refs:refs(['P1','VOUT'],['S1','VCC'],['U1','VCC'])},{net_id:'ground',connected_pin_refs:refs(['P1','GND'],['S1','GND'],['U1','GND'])},{net_id:'signal',connected_pin_refs:refs(['S1','OUT'],['U1','IN'])}],layout:[{instance_id:'P1',x:70,y:100,rotation:0},{instance_id:'S1',x:380,y:100,rotation:0},{instance_id:'U1',x:700,y:100,rotation:0}]};show(await api('/circuits','POST',draft));await validateCurrent()});
+$('load').onclick=()=>guarded(async()=>{await loadDefs();show(await api('/circuits/'+encodeURIComponent($('circuitId').value)))});
+async function validateCurrent(){if(!current)throw Error('회로를 먼저 불러오세요.');const r=await api(`/circuits/${current.id}/validate`,'POST',{expected_version:current.version});show(await api(`/circuits/${current.id}`));$('result').textContent=JSON.stringify(r,null,2)}
+$('save').onclick=()=>guarded(async()=>{if(!current)throw Error('회로를 먼저 불러오세요.');const body=JSON.parse($('body').value);show(await api(`/circuits/${current.id}`,'PUT',{...body,expected_version:current.version}));await validateCurrent()});
+$('validate').onclick=()=>guarded(validateCurrent);
+$('apply').onclick=()=>guarded(async()=>{if(!current)throw Error('회로를 먼저 불러오세요.');const r=await api(`/circuits/${current.id}/apply`,'POST',{expected_version:current.version,allow_unvalidated_draft:true});show(await api(`/circuits/${current.id}`));$('result').textContent=JSON.stringify(r,null,2)});
+const requested=new URLSearchParams(location.search).get('circuit');if(requested)$('circuitId').value=requested;
+</script></html>

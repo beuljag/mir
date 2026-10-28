@@ -1,0 +1,9 @@
+{
+  "python_suite": "71 passed before final candidate-spec extension; affected 23 tests passed after extension",
+  "javascript_suite": "26 passed",
+  "local_mcp_tools": 19,
+  "native_svg_save_apply": "mock SVG / REST / MCP roundtrip verified",
+  "openai_provider": "httpx mock tested; no real paid generation performed",
+  "copilot_studio_agent": "manual setup required",
+  "public_tunnel": "Unauthorized; re-login required"
+}
