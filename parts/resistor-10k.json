@@ -4,6 +4,7 @@
   "category": "passive",
   "color": "#d9b26f",
   "description": "풀업/풀다운용 10kΩ 저항.",
+  "image": "resistor-10k.svg",
   "behavior": {
     "kind": "resistor",
     "ohms": 10000

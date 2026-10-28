@@ -4,6 +4,7 @@
   "category": "passive",
   "color": "#343a40",
   "description": "정류/역기전력 보호용 다이오드. 띠가 있는 쪽이 K(캐소드). 코일과 병렬로 반대 방향(K를 +쪽)으로 연결.",
+  "image": "diode-1n4007.svg",
   "behavior": {
     "kind": "diode",
     "anode": "A",

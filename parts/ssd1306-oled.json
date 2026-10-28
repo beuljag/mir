@@ -4,6 +4,7 @@
   "category": "display",
   "color": "#0b132b",
   "description": "128x64 I2C OLED 모듈. 3.3~5V 동작(모듈 레귤레이터 내장). I2C 주소 0x3C.",
+  "image": "ssd1306-oled.svg",
   "behavior": {
     "kind": "i2c-device",
     "display": true,
