@@ -63,6 +63,16 @@ def settings(env_file=None):
             'configured': bool(secret)}
 
 
+def is_progress_message(text, input_hint=None):
+    # Bot Framework의 ignoringInput과 명확한 진행 안내는 최종 응답이 아니다.
+    if input_hint == 'ignoringInput': return True
+    if input_hint == 'acceptingInput': return False
+    last = text.strip().split('\n')[-1].strip()
+    return bool(re.search(r'(?:조사|검색|조회|확인|분석|생성|제작|저장|등록|처리|위임|전달|요청|진행)(?:합니다|하겠습니다|할게요|하고 있습니다| 중입니다| 중이에요)[.!。…]*$', last)
+                or re.search(r'(?:하겠습니다|해드리겠습니다|할게요|드릴게요|맡깁니다|맡기겠습니다)[.!。…]*$', last)
+                or re.fullmatch(r'(?:잠시만|잠깐만) 기다려 ?(?:주세요|주십시오)[.!…]*', last))
+
+
 def activity_text(activity):
     """테キ스트 없는 카드도 읽되 링크·버튼·외부 콘텐츠는 실행하지 않는다."""
     text = activity.get('text')
@@ -110,6 +120,7 @@ class Session:
     polls: int = 0
     received: dict = field(default_factory=dict)
     sent_activity_id: str | None = None
+    awaiting_work: bool = False
 
 
 class DirectLineChat:
@@ -204,6 +215,7 @@ class DirectLineChat:
             session.request_id = uuid4().hex
             session.status = 'waiting'
             session.replies, session.seen, session.error = [], set(), None
+            session.awaiting_work = False
             session.deadline, session.last_reply = time.monotonic() + (settings(self.env_file)['reply_timeout_seconds'] or self.reply_timeout), 0
             session.sent_at, session.polls, session.received = time.monotonic(), 0, {}
             try:
@@ -254,10 +266,12 @@ class DirectLineChat:
                         attachments = activity.get('attachments')
                         self.trace('bot_activity', session_ref=sid[-8:], kind=kind,
                                    has_text=bool(activity.get('text')), has_speak=bool(activity.get('speak')),
+                                   input_hint=activity.get('inputHint') if activity.get('inputHint') in ('acceptingInput','ignoringInput','expectingInput') else None,
                                    attachment_count=len(attachments) if isinstance(attachments, list) else 0)
                         text = activity_text(activity)
                         if activity.get('type') == 'message' and isinstance(text, str) and text:
                             session.replies.append(text)
+                            session.awaiting_work = is_progress_message(text, activity.get('inputHint'))
                             session.last_reply = time.monotonic()
                             if text.lstrip().startswith('Connection Required') and 'Set up your connection' in text:
                                 session.status, session.error = 'failed', 'COPILOT_TOOL_CONNECTION_REQUIRED'
@@ -266,7 +280,7 @@ class DirectLineChat:
                             else: session.status, session.error = 'failed', 'DIRECT_LINE_ENDED_WITHOUT_REPLY'
                         elif activity.get('type') == 'typing' and session.replies:
                             session.last_reply = time.monotonic()
-                    if session.status == 'waiting' and session.replies and time.monotonic() - session.last_reply >= self.quiet_seconds:
+                    if session.status == 'waiting' and session.replies and not session.awaiting_work and time.monotonic() - session.last_reply >= self.quiet_seconds:
                         session.status = 'completed'
                     elif session.status == 'waiting' and time.monotonic() >= session.deadline:
                         session.status, session.error = 'failed', 'DIRECT_LINE_REPLY_TIMEOUT'

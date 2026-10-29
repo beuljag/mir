@@ -209,3 +209,28 @@ def test_connection_required_card_reports_actionable_error(chat):
                 {'type':'TextBlock','text':'This action requires a connection to CircuitAgent. Set up your connection, then select Retry.'}]}}]}]}))
     result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
     assert result['status']=='failed' and result['error']=='COPILOT_TOOL_CONNECTION_REQUIRED'
+
+
+def test_progress_message_does_not_end_turn_before_final_answer(chat):
+    client, service, env, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages',json={'message':'create missing board'}).json()['request_id']
+    batches = iter([
+        [{'id':'progress','type':'message','from':{'role':'bot'},'text':'DB에 부품이 없습니다. 공식 자료를 조사합니다.'}],
+        [],
+        [{'id':'final','type':'message','from':{'role':'bot'},'text':'저장했습니다. component_id: pico'}]])
+    service.transport = httpx.MockTransport(lambda request: httpx.Response(200,json={'activities':next(batches),'watermark':'x'}))
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
+    final=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert final['status']=='completed' and 'component_id: pico' in final['reply']
+
+
+def test_input_hint_marks_intermediate_reply():
+    from app.directline_chat import is_progress_message
+    assert is_progress_message('작업을 실행할 예정입니다.','ignoringInput')
+    assert is_progress_message('공식 자료를 조사합니다.')
+    assert is_progress_message('상세 정보와 기존 이미지를 확인하겠습니다.')
+    assert is_progress_message('이미지 제작 에이전트에 맡깁니다.')
+    assert not is_progress_message('부품을 저장했습니다.')
+    assert not is_progress_message('전압이 몇 V인가요?')
