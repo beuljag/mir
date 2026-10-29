@@ -153,6 +153,15 @@
         <small>Microsoft 채팅을 화면에 표시합니다. 답변 자동 해석과 현재 배선 자동 전송은 지원하지 않습니다. 회로 ID로 DB를 불러오세요.</small>
       </div>
       <div id="fieldServer" class="field">
+        <label for="serverConnectionMode">배선 서버 위치</label>
+        <select id="serverConnectionMode"><option value="local">이 PC의 서버 (.env 자동 연결)</option><option value="remote">공유 서버 (팀장 터널)</option></select>
+        <div id="remoteServerFields">
+          <label for="inServerUrl">공유 서버 주소</label>
+          <input id="inServerUrl" type="url" placeholder="https://터널주소.devtunnels.ms">
+          <label for="inServerKey">배선 API 키 (Direct Line 키 아님)</label>
+          <input id="inServerKey" type="password" autocomplete="off" placeholder="서버 관리자가 전달한 키">
+          <small>앱에서는 Windows 암호화로 저장합니다. 브라우저에서는 이 탭을 닫으면 키가 지워집니다. 공유 서버 PC가 켜져 있어야 합니다.</small>
+        </div>
         <p id="serverChatStatus"></p>
         <small>Direct Line 비밀 키는 Python 서버만 읽습니다. 브라우저에는 입력하지 않습니다. 채팅은 기존 미르 화면을 사용합니다.</small>
       </div>
@@ -192,7 +201,7 @@
   <div id="backendModal" class="modal hidden">
     <div class="modal-card">
       <h2>배선 API · DB</h2>
-      <p class="muted">Copilot Studio가 만든 회로 ID를 불러오거나 현재 배선을 저장합니다. 키는 .env에서 읽어 자동으로 연결합니다.</p>
+      <p class="muted">Copilot Studio가 만든 회로 ID를 불러오거나 현재 배선을 저장합니다. 로컬 .env 또는 연결 설정의 공유 서버를 사용합니다.</p>
       <button id="btnDbConnect">서버 다시 연결</button>
       <div class="field"><label for="dbCircuitId">회로 ID</label>
         <input id="dbCircuitId" type="text" placeholder="에이전트가 반환한 circuit_id">
@@ -231,6 +240,6 @@
       <div class="modal-actions"><button id="btnVerificationRun" class="primary">검사 실행</button><button id="btnVerificationClose">닫기</button></div>
     </div>
   </div>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=shared-server-1"></script>
 </body>
 </html>

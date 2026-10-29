@@ -1,0 +1,29 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>후보 부품 · 사람 검토</title>
+<style>body{max-width:1100px;margin:30px auto;padding:20px;background:#101724;color:#e4edf7;font:15px system-ui}input,button,textarea{padding:10px;background:#19263a;color:inherit;border:1px solid #526782;border-radius:6px;margin:5px}input[type=password]{width:360px}textarea{width:95%;height:320px;font:13px monospace}pre{white-space:pre-wrap;max-height:450px;overflow:auto;background:#19263a;padding:15px}button{cursor:pointer}.warn{color:#ffcf83}label{display:block}a{color:#9ad8ef}</style>
+<h1>조사 후보 · 사람 검토</h1>
+<p class="warn">원문 모델·리비전·패키지별 핀·전기적 제한을 직접 대조한 뒤 승인하세요. 자동 발췌는 확정 사양이 아닙니다.</p>
+<p>API 키는 config/local-api-keys.json, 별도 검토 키는 config/local-review-key.json에서 확인합니다. 검토 키를 에이전트에 등록하지 마세요.</p>
+<input id="apiKey" type="password" placeholder="X-API-Key" autocomplete="off"><input id="reviewKey" type="password" placeholder="X-Review-Key · 사람 검토 전용" autocomplete="off">
+<button id="list">내 후보 목록 조회</button><pre id="listResult"></pre>
+<input id="candidateId" placeholder="후보 ID"><button id="load">후보·근거 불러오기</button>
+<pre id="evidence"></pre>
+<h2>검토 후 작성하는 부품 정의</h2>
+<p>빈 필드를 채우고 pins에 실제 확인한 핀을 작성하세요. 새 리비전은 새 id로 등록합니다. 기존 부품은 덮어쓰지 않습니다.</p>
+<details><summary>핀 JSON 형식 보기</summary><pre>{"id":"확인한 핀 ID", "label":"확인한 핀 이름", "direction":"input/output/bidirectional/passive/power_in/power_out/ground 중 하나", "signal_type":"power/ground/digital/analog/passive 중 하나", "required":false, "voltage_min":null, "voltage_max":null, "output_voltage":null}</pre></details>
+<textarea id="definition" aria-label="검토된 부품 정의 JSON" spellcheck="false"></textarea>
+<label><input id="modelCheck" type="checkbox">정확한 모델·리비전·패키지를 원문에서 확인했습니다.</label>
+<label><input id="pinCheck" type="checkbox">핀 번호·이름·방향·필수 연결을 원문에서 확인했습니다.</label>
+<label><input id="limitCheck" type="checkbox">권장 동작 조건·논리 레벨·전기적 제한을 원문에서 확인했습니다.</label>
+<label>검토 메모(10자 이상)<textarea id="notes" style="height:65px" aria-label="검토 메모"></textarea></label>
+<button id="approve">검토 내용으로 승인·부품 DB 등록</button><button id="reject">후보 반려</button><pre id="result"></pre>
+<a href="/docs">API 문서</a>
+<script>
+const $=id=>document.getElementById(id);let candidate=null;
+async function api(path,method='GET',body){const r=await fetch(path,{method,headers:{'Content-Type':'application/json','X-API-Key':$('apiKey').value,'X-Review-Key':$('reviewKey').value},body:body===undefined?undefined:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw Error(JSON.stringify(d));return d}
+async function guard(fn){try{await fn()}catch(e){$('result').textContent=e.message}}
+$('list').onclick=()=>guard(async()=>{$('listResult').textContent=JSON.stringify(await api('/component-candidates'),null,2)});
+$('load').onclick=()=>guard(async()=>{candidate=await api('/component-candidates/'+encodeURIComponent($('candidateId').value));$('evidence').textContent=JSON.stringify(candidate,null,2);$('definition').value=JSON.stringify({id:'',manufacturer:candidate.manufacturer||'',model:candidate.requested_model,revision:'',category:'',is_virtual:false,verification_status:'verified',pins:[],source_references:candidate.analyses.map(a=>({...a.source,page:''})),notes:''},null,2);for(const id of ['modelCheck','pinCheck','limitCheck'])$(id).checked=false;});
+async function review(decision){if(!candidate)throw Error('후보를 먼저 불러오세요.');if(candidate.status!=='pending_review')throw Error('이미 처리된 후보입니다.');const body={expected_version:candidate.version,decision,reviewer_notes:$('notes').value,confirmed_model_revision:$('modelCheck').checked,confirmed_pinout:$('pinCheck').checked,confirmed_electrical_limits:$('limitCheck').checked,component:decision==='approve'?JSON.parse($('definition').value):null};candidate=await api('/component-candidates/'+encodeURIComponent(candidate.id)+'/review','POST',body);$('result').textContent=JSON.stringify(candidate,null,2)}
+$('approve').onclick=()=>guard(()=>review('approve'));$('reject').onclick=()=>guard(()=>review('reject'));
+</script></html>

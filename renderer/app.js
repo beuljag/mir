@@ -1,6 +1,6 @@
-import { runtimeApi } from './web-api.js';
-import { initBackendPanel } from './backend-panel.js';
-import { initVerificationPanel } from './verification-panel.js';
+import { runtimeApi } from './web-api.js?v=shared-server-1';
+import { initBackendPanel } from './backend-panel.js?v=shared-server-1';
+import { initVerificationPanel } from './verification-panel.js?v=shared-server-1';
 import { WiringCanvas, layoutPart } from './canvas.js';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
@@ -810,7 +810,12 @@ async function loadSettings() {
     : '현재는 AI 미연결 데모입니다. 아래 예시를 누르거나 부품함에서 직접 배선해 보세요. 자유로운 설계 요청은 연결 설정에서 실제 에이전트를 연결한 뒤 사용할 수 있습니다.';
 }
 
-function openSettings() {
+async function openSettings() {
+  const connection = await api.getServerConnection();
+  $('serverConnectionMode').value = connection.mode;
+  $('inServerUrl').value = connection.url || '';
+  $('inServerKey').value = '';
+  $('inServerKey').placeholder = connection.hasKey ? '저장된 키 있음 (바꿀 때만 입력)' : '서버 관리자가 전달한 배선 API 키';
   const s = state.settings;
   document.querySelectorAll('input[name="mode"]').forEach((r) => { r.checked = r.value === s.mode; });
   $('inSecret').value = '';
@@ -818,8 +823,8 @@ function openSettings() {
   $('inToken').value = s.tokenEndpoint || '';
   $('inWebChat').value = s.webChatUrl || '';
   $('serverChatStatus').textContent = s.serverSecretConfigured
-    ? '서버에 Direct Line 비밀 키가 설정되어 있습니다. 배선 API 키는 .env에서 읽어 자동으로 연결합니다.'
-    : '.env의 COPILOT_DIRECT_LINE_SECRET에 비밀 키를 넣으세요. 파일 저장 후 연결 테스트로 확인할 수 있습니다.';
+    ? '연결된 서버에 Direct Line 비밀 키가 설정되어 있습니다. 공유 서버는 아래 주소와 배선 API 키로 연결합니다.'
+    : '로컬 서버를 실행하거나 공유 서버 주소·배선 API 키를 입력하세요. Direct Line 비밀 키는 서버 관리자가 설정합니다.';
   $('testResult').textContent = '';
   updateSettingsFields();
   $('settingsModal').classList.remove('hidden');
@@ -831,12 +836,20 @@ function updateSettingsFields() {
   $('fieldToken').classList.toggle('hidden', mode !== 'token');
   $('fieldWeb').classList.toggle('hidden', mode !== 'web');
   $('fieldServer').classList.toggle('hidden', mode !== 'server');
+  $('remoteServerFields').classList.toggle('hidden', $('serverConnectionMode').value !== 'remote');
 }
 
 async function saveSettings() {
   const mode = document.querySelector('input[name="mode"]:checked')?.value || 'demo';
+  if (mode === 'server') {
+    await api.resetAgent();
+    await api.setServerConnection({ mode: $('serverConnectionMode').value, url: $('inServerUrl').value, key: $('inServerKey').value });
+    $('inServerKey').value = '';
+    backend.reset();
+  }
   await api.setSettings({ mode, secret: $('inSecret').value.trim(), tokenEndpoint: $('inToken').value.trim(), webChatUrl: $('inWebChat').value.trim() });
   await loadSettings();
+  if (mode === 'server') await backend.connectAutomatically();
 }
 
 // ---------- 이벤트 ----------
@@ -912,6 +925,7 @@ $('btnSettingsSave').onclick = async () => {
   catch (e) { $('testResult').textContent = `설정 실패: ${e.message}`; }
 };
 document.querySelectorAll('input[name="mode"]').forEach((r) => { r.onchange = updateSettingsFields; });
+$('serverConnectionMode').onchange = updateSettingsFields;
 $('linkConnectGuide').onclick = (e) => { e.preventDefault(); api.openDoc('Copilot-Studio-연결-안내.md'); };
 $('btnTest').onclick = async () => {
   const t = $('testResult');

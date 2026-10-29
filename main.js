@@ -13,31 +13,43 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 let client = null;
 let catalogSentFor = null;
 
+const { updateConnection, createTransport } = require('./renderer/server-connection');
+const connectionFile = () => path.join(app.getPath('userData'), 'server-connection.json');
+function readConnection() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(connectionFile(), 'utf8'));
+    return { mode: raw.mode, url: raw.url, key: raw.keyEnc && safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(raw.keyEnc, 'base64')) : '' };
+  } catch {
+    try {
+      const defaults = JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'server-defaults.json'), 'utf8'));
+      return { mode: 'remote', url: defaults.sharedServerUrl, key: '' };
+    } catch { return { mode: 'local', url: '', key: '' }; }
+  }
+}
+const requestCircuit = createTransport({ read: readConnection });
+ipcMain.handle('circuit:getConnection', () => {
+  const config = readConnection();
+  return { mode: config.mode, url: config.url, hasKey: !!config.key };
+});
+ipcMain.handle('circuit:setConnection', (_e, input) => {
+  const config = updateConnection(readConnection(), input);
+  if (config.key && !safeStorage.isEncryptionAvailable()) throw new Error('Windows 키 암호화를 사용할 수 없습니다. 이 PC의 로그인 상태를 확인하세요.');
+  const stored = { mode: config.mode, url: config.url, ...(config.key ? { keyEnc: safeStorage.encryptString(config.key).toString('base64') } : {}) };
+  fs.mkdirSync(path.dirname(connectionFile()), { recursive: true });
+  fs.writeFileSync(connectionFile(), JSON.stringify(stored, null, 2));
+  return true;
+});
 ipcMain.handle('circuit:autoStatus', async () => {
   try {
+    if (readConnection().mode === 'remote') {
+      const response = await requestCircuit('/chat/config');
+      return { ready: response.status === 200, remote: true };
+    }
     const response = await fetch('http://127.0.0.1:8002/local-connection/status', { signal: AbortSignal.timeout(4000) });
     return response.ok ? response.json() : { ready: false };
   } catch { return { ready: false }; }
 });
-
-// 키는 Python의 .env에서만 읽는다. Electron은 로컬 전용 연결을 호출한다.
-ipcMain.handle('circuit:request', async (_e, { path: route, options = {} }) => {
-  if (!/^\/(?:chat\/(?:config|diagnostics|sessions(?:\/[a-f0-9]+(?:\/messages(?:\/[a-f0-9]+)?)?)?)|verification\/(?:config|projects(?:\/[a-f0-9]{32}(?:\/verify)?)?|jobs\/[a-f0-9-]+\/artifacts\/(?:erc\.json|erc\.log|export\.cir|export\.log|run\.cir|ngspice\.log))|jobs\/[a-f0-9-]+|components\/search(?:\?limit=100(?:&offset=[0-9]{1,5})?)?|components\/[a-zA-Z0-9_.%-]+(?:\/image)?|circuits(?:\/[a-zA-Z0-9-]+(?:\/validate)?)?)$/.test(route)) {
-    throw new Error('허용되지 않은 API 경로입니다.');
-  }
-  if (!options.headers?.['X-API-Key']) {
-    const response = await fetch('http://127.0.0.1:8002/local-connection/request', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'error',
-      signal: AbortSignal.timeout(route.startsWith('/chat/') ? 45000 : 15000),
-      body: JSON.stringify({ path: route, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null })
-    });
-    return response.ok ? response.json() : { status: response.status, body: await response.json() };
-  }
-  const response = await fetch('http://127.0.0.1:8000' + route, {
-    ...options, redirect: 'error', signal: AbortSignal.timeout(route.startsWith('/chat/') ? 45000 : 15000)
-  });
-  return { status: response.status, body: await response.json() };
-});
+ipcMain.handle('circuit:request', (_e, { path: route, options = {} }) => requestCircuit(route, options));
 
 // ---------- 설정 (비밀 키는 Windows 자격 증명으로 암호화해 저장) ----------
 function loadSettings() {

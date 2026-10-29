@@ -1,12 +1,12 @@
 import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js';
-import { runtimeApi } from './web-api.js';
+import { runtimeApi } from './web-api.js?v=shared-server-1';
 
 export function initBackendPanel({ getState, replace, renderParts, message }) {
   const $ = (id) => document.getElementById(id);
   let client = null, current = null, busy = false, saved = '';
   const status = (text) => { $('dbStatus').textContent = text; };
   const draft = () => toCircuitDraft(getState(), current);
-  function reset() { current = null; saved = ''; $('dbCircuitId').value = ''; status('새 회로 · DB 저장 전'); }
+  function reset() { client = null; current = null; saved = ''; $('dbCircuitId').value = ''; status('새 회로 · DB 저장 전'); }
   async function run(action) {
     if (busy) return;
     busy = true;
@@ -19,7 +19,7 @@ export function initBackendPanel({ getState, replace, renderParts, message }) {
     }
   }
   async function connect() {
-    if (!(await runtimeApi.getAutoAuthStatus?.())?.ready) throw new Error('로컬 자동 연결이 준비되지 않았습니다. 서버켜기.bat를 실행하세요.');
+    if (!(await runtimeApi.getAutoAuthStatus?.())?.ready) throw new Error('서버 연결이 준비되지 않았습니다. 연결 설정의 공유 서버 주소·키 또는 로컬 서버 실행 상태를 확인하세요.');
     const next = new CircuitApi(runtimeApi.requestCircuit, '');
     const parts = await loadComponentCatalog(next);
     client = next;

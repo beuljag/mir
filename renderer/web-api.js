@@ -1,5 +1,6 @@
 import './web-chat.js';
-import { createServerChatApi } from './server-chat.js';
+import './server-connection.js';
+import { createServerChatApi } from './server-chat.js?v=shared-server-1';
 // Electron의 기존 연결은 유지하고, 일반 브라우저에서만 대체 연결을 만든다.
 if (!window.api) {
   const localPage = ['127.0.0.1', 'localhost'].includes(location.hostname);
@@ -9,6 +10,8 @@ if (!window.api) {
     const config = await fetch('./agent-config.json', { cache: 'no-store' });
     if (config.ok) settings = window.MirWebChat.readWebChatDefaults(await config.json());
   } catch { /* 로컬 설정이 없으면 데모를 사용한다. */ }
+  let connection = { mode: localPage ? 'local' : 'remote', url: localPage ? '' : location.origin, key: '' };
+  const requestCircuit = window.MirServerConnection.createTransport({ read: () => connection });
   let client = null;
   let catalogSentFor = null;
   const userParts = new Map();
@@ -101,7 +104,13 @@ if (!window.api) {
     openProject: async () => { const [file] = await pickFiles(); return file ? JSON.parse(await file.text()) : null; },
     openDoc: async (name) => window.open(`./docs/${encodeURIComponent(name)}`, '_blank', 'noopener'),
     getAppIcon: async () => null,
+    getServerConnection: async () => ({ mode: connection.mode, url: connection.url, hasKey: !!connection.key }),
+    setServerConnection: async (input) => { connection = window.MirServerConnection.updateConnection(connection, input); return true; },
     getAutoAuthStatus: async () => {
+      if (connection.mode === 'remote') {
+        try { return { ready: (await requestCircuit('/chat/config')).status === 200, remote: true }; }
+        catch { return { ready: false, remote: true }; }
+      }
       if (!localBase) return { ready: false };
       try {
         const response = await fetch(localBase + '/local-connection/status', { cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(4000) });
@@ -109,19 +118,7 @@ if (!window.api) {
       } catch { return { ready: false }; }
     },
     openAgentWebsite: async (url) => window.open(window.MirWebChat.validateWebChatUrl(url), '_blank', 'noopener'),
-    requestCircuit: async (path, options) => {
-      if (localBase && !options?.headers?.['X-API-Key']) {
-        const response = await fetch(localBase + '/local-connection/request', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', redirect: 'error',
-          signal: AbortSignal.timeout(path.startsWith('/chat/') ? 45000 : 20000),
-          body: JSON.stringify({ path, method: options?.method || 'GET', body: options?.body ? JSON.parse(options.body) : null })
-        });
-        if (!response.ok) return { status: response.status, body: await response.json() };
-        return response.json();
-      }
-      const response = await fetch(path, { ...options, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(path.startsWith('/chat/') ? 45000 : 20000) });
-      return { status: response.status, body: await response.json() };
-    }
+    requestCircuit
   };
 }
 export const runtimeApi = createServerChatApi(window.api);

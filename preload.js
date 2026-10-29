@@ -17,5 +17,7 @@ contextBridge.exposeInMainWorld('api', {
   openDoc: (name) => ipcRenderer.invoke('docs:open', name),
   getAppIcon: () => ipcRenderer.invoke('app:icon'),
   requestCircuit: (path, options) => ipcRenderer.invoke('circuit:request', { path, options }),
+  getServerConnection: () => ipcRenderer.invoke('circuit:getConnection'),
+  setServerConnection: (input) => ipcRenderer.invoke('circuit:setConnection', input),
   getAutoAuthStatus: () => ipcRenderer.invoke('circuit:autoStatus')
 });

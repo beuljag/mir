@@ -2,7 +2,7 @@
 export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   let apiKey = '', sessionId = null, selectedMode = null, generation = 0, inFlight = false;
   const messages = {
-    CIRCUIT_API_KEY_REQUIRED: '로컬 자동 연결을 사용할 수 없습니다. 서버켜기.bat로 서버를 실행하고 새로고침하세요. 키는 .env에서 관리합니다.',
+    CIRCUIT_API_KEY_REQUIRED: '서버에 연결되지 않았습니다. 연결 설정의 서버 주소·배선 API 키 또는 서버와 터널 실행 상태를 확인하세요.',
     COPILOT_SECRET_NOT_CONFIGURED: '서버 .env의 COPILOT_DIRECT_LINE_SECRET에 Direct Line 비밀 키를 넣으세요.',
     DIRECT_LINE_AUTH_FAILED: 'Direct Line 인증에 실패했습니다. 비밀 키와 지역별 Direct Line 주소를 확인하세요.',
     DIRECT_LINE_REPLY_TIMEOUT: '응답 대기 시간이 끝났습니다. 새 대화를 연 뒤 상태를 확인하세요. 요청은 자동 재전송하지 않습니다.',
@@ -38,7 +38,7 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
       return { ...previous, mode, serverSecretConfigured: !!config?.configured, apiKeyReady: !!apiKey || !!autoAuth?.ready };
     },
     setSettings: async (settings) => {
-      if (settings.mode !== 'server') await base.setSettings(settings);
+      await base.setSettings(settings);
       selectedMode = settings.mode;
     },
     sendToAgent: async (text, catalog, onProgress = () => {}) => {
@@ -77,7 +77,7 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
     },
     resetAgent: async () => {
       const previous = sessionId; sessionId = null; generation++;
-      if (previous && apiKey) {
+      if (previous) {
         try { await call(`/chat/sessions/${previous}`, 'DELETE'); } catch { /* 만료된 대화는 서버에서 정리한다. */ }
       }
       await base.resetAgent();
