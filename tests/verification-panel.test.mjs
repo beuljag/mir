@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../renderer/verification-panel.js', import.meta.url), 'utf8')
-  .replace("import { runtimeApi } from './web-api.js?v=shared-server-1';", 'const runtimeApi = globalThis.verificationTestApi;');
+  .replace("import { runtimeApi } from './web-api.js?v=chat-recovery-2';", 'const runtimeApi = globalThis.verificationTestApi;');
 
 test('폴더의 상대 경로를 보존하고 검사 결과·작업 ID를 키 없이 표시', async () => {
   const elements = new Map();

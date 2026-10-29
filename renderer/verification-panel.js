@@ -1,4 +1,4 @@
-import { runtimeApi } from './web-api.js?v=shared-server-1';
+import { runtimeApi } from './web-api.js?v=chat-recovery-2';
 
 // KiCad 파일은 기존 키 자동 연결을 통해 서버로 보낸다. 원본 파일을 수정하지 않는다.
 export function initVerificationPanel({ message }) {

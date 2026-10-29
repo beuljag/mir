@@ -1,6 +1,6 @@
-import { runtimeApi } from './web-api.js?v=shared-server-1';
-import { initBackendPanel } from './backend-panel.js?v=shared-server-1';
-import { initVerificationPanel } from './verification-panel.js?v=shared-server-1';
+import { runtimeApi } from './web-api.js?v=chat-recovery-2';
+import { initBackendPanel } from './backend-panel.js?v=chat-recovery-2';
+import { initVerificationPanel } from './verification-panel.js?v=chat-recovery-2';
 import { WiringCanvas, layoutPart } from './canvas.js';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';

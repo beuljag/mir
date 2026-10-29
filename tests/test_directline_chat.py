@@ -154,3 +154,58 @@ def test_uncertain_post_is_not_replayed_and_error_does_not_expose_secret(chat):
     assert SECRET not in result.text and TOKEN not in result.text
     assert client.post(f'/chat/sessions/{sid}/messages', json={'message': 'save again'}).status_code == 409
     assert len(sent) == 1
+
+
+def test_card_only_reply_is_not_lost(chat):
+    client, service, env, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages', json={'message': 'new sensor'}).json()['request_id']
+    def cards(request):
+        return httpx.Response(200, json={'watermark':'3','activities':[{'id':'card', 'type':'message',
+            'from':{'role':'bot'}, 'attachments':[{'contentType':'application/vnd.microsoft.card.adaptive',
+            'content':{'body':[{'type':'TextBlock','text':'부품 생성에 추가 정보가 필요합니다.'}],
+            'actions':[{'type':'Action.OpenUrl','url':'https://untrusted.example'}]}}]}]})
+    service.transport = httpx.MockTransport(cards)
+    result = client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status'] == 'completed'
+    assert result['reply'] == '부품 생성에 추가 정보가 필요합니다.'
+    assert 'untrusted.example' not in result['reply']
+
+
+def test_long_work_timeout_is_configurable_and_bounded(chat):
+    client, service, env, calls = chat
+    assert client.get('/chat/config').json()['reply_timeout_seconds'] == 300
+    env.write_text('COPILOT_DIRECT_LINE_SECRET=' + SECRET + '\nCOPILOT_REPLY_TIMEOUT_SECONDS=600\n', encoding='utf-8')
+    assert client.get('/chat/config').json()['reply_timeout_seconds'] == 600
+    opened = client.post('/chat/sessions').json()
+    assert opened['reply_timeout_seconds'] == 600
+    sid = opened['session_id']
+    client.post(f'/chat/sessions/{sid}/messages',json={'message':'research'})
+    session = service.sessions[sid]
+    assert 599 < session.deadline - session.sent_at <= 600
+    for invalid in ['0','901','NaN']:
+        env.write_text('COPILOT_DIRECT_LINE_SECRET=' + SECRET + '\nCOPILOT_REPLY_TIMEOUT_SECONDS=' + invalid + '\n', encoding='utf-8')
+        assert client.post('/chat/sessions').json()['detail']['code'] == 'INVALID_REPLY_TIMEOUT'
+
+
+def test_empty_end_of_conversation_fails_without_waiting_for_timeout(chat):
+    client, service, env, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages',json={'message':'one'}).json()['request_id']
+    service.transport = httpx.MockTransport(lambda request: httpx.Response(200,json={'activities':[
+        {'id':'end', 'type':'endOfConversation','from':{'role':'bot'}}]}))
+    result = client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status'] == 'failed' and result['error'] == 'DIRECT_LINE_ENDED_WITHOUT_REPLY'
+
+
+def test_connection_required_card_reports_actionable_error(chat):
+    client, service, env, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages',json={'message':'new board'}).json()['request_id']
+    service.transport = httpx.MockTransport(lambda request: httpx.Response(200,json={'activities':[
+        {'id':'connection', 'type':'message','from':{'role':'bot'},'attachments':[
+            {'contentType':'application/vnd.microsoft.card.adaptive','content':{'body':[
+                {'type':'TextBlock','text':'Connection Required'},
+                {'type':'TextBlock','text':'This action requires a connection to CircuitAgent. Set up your connection, then select Retry.'}]}}]}]}))
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='failed' and result['error']=='COPILOT_TOOL_CONNECTION_REQUIRED'

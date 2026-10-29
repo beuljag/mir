@@ -61,3 +61,41 @@ test('로컬 자동 연결이 준비되면 키 입력 없이 채팅 전송', asy
   assert.deepEqual(await api.sendToAgent('message', 'catalog'), { reply: '자동 연결 응답' });
   assert.equal(calls.length, 3);
 });
+
+
+test('시간 초과 후 실패한 대화를 정리하고 다음 요청은 새 대화로 연결', async () => {
+  const calls = []; let sessions = 0;
+  const api = createServerChatApi({
+    getAutoAuthStatus: async()=>({ready:true}), resetAgent:async()=>{},
+    requestCircuit:async(path,options)=>{
+      calls.push({path,method:options.method});
+      if(path==='/chat/sessions') return {status:201,body:{session_id:`session${++sessions}`,reply_timeout_seconds:600}};
+      if(options.method==='DELETE') return {status:200,body:{ok:true}};
+      if(options.method==='POST') return {status:202,body:{request_id:'request'}};
+      return {status:200,body:sessions===1 ? {status:'failed',error:'DIRECT_LINE_REPLY_TIMEOUT'} : {status:'completed',reply:'정상 복구'}};
+    }
+  },{sleep:async()=>{}});
+  api.selectMode('server');
+  await assert.rejects(api.sendToAgent('없는 센서',''),e=>e.code==='DIRECT_LINE_REPLY_TIMEOUT');
+  assert.ok(calls.some(c=>c.path==='/chat/sessions/session1' && c.method==='DELETE'));
+  assert.deepEqual(await api.sendToAgent('다음 요청',''),{reply:'정상 복구'});
+  assert.equal(sessions,2);
+  assert.equal(calls.filter(c=>c.path.endsWith('/messages') && c.method==='POST').length,2);
+});
+
+test('전송 수락 여부가 불명확해도 자동 재전송하지 않고 다음 호출을 복구',async()=>{
+  let sessions=0, posts=0;
+  const api=createServerChatApi({getAutoAuthStatus:async()=>({ready:true}),
+    requestCircuit:async(path,options)=>{
+      if(path==='/chat/sessions')return {status:201,body:{session_id:`s${++sessions}`}};
+      if(options.method==='DELETE')return {status:200,body:{}};
+      if(options.method==='POST') { posts++; if(posts===1) throw new Error('network'); return {status:202,body:{request_id:'r'}}; }
+      return {status:200,body:{status:'completed',reply:'ok'}};
+    }
+  },{sleep:async()=>{}});
+  api.selectMode('server');
+  await assert.rejects(api.sendToAgent('first',''),/network/);
+  assert.equal(posts,1);
+  assert.equal((await api.sendToAgent('second','')).reply,'ok');
+  assert.equal(posts,2);assert.equal(sessions,2);
+});

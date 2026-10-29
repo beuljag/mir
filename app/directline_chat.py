@@ -53,9 +53,39 @@ def settings(env_file=None):
             or not re.fullmatch(r'(?:[a-z0-9-]+\.)?directline\.botframework\.com', parsed.hostname or '')
             or parsed.path != '/v3/directline' or parsed.query or parsed.fragment):
         raise ChatError(503, 'INVALID_DIRECT_LINE_DOMAIN')
-    return {'secret': secret, 'domain': domain,
+    try:
+        reply_timeout = int(values['COPILOT_REPLY_TIMEOUT_SECONDS']) if values.get('COPILOT_REPLY_TIMEOUT_SECONDS') else None
+        if reply_timeout is not None and not 30 <= reply_timeout <= 900: raise ValueError()
+    except (ValueError, TypeError):
+        raise ChatError(503, 'INVALID_REPLY_TIMEOUT') from None
+    return {'reply_timeout_seconds': reply_timeout, 'secret': secret, 'domain': domain,
             'mode': values.get('COPILOT_CHAT_MODE', 'directline'),
             'configured': bool(secret)}
+
+
+def activity_text(activity):
+    """테キ스트 없는 카드도 읽되 링크·버튼·외부 콘텐츠는 실행하지 않는다."""
+    text = activity.get('text')
+    if isinstance(text, str) and text.strip(): return text
+    chunks = []
+    def collect(node, depth=0):
+        if depth > 12 or len(chunks) >= 100: return
+        if isinstance(node, list):
+            for item in node[:100]: collect(item, depth + 1)
+        elif isinstance(node, dict):
+            for name in ('title', 'subtitle', 'text'):
+                if isinstance(node.get(name), str): chunks.append(node[name][:16000])
+            for name in ('body', 'items', 'columns', 'inlines', 'facts'):
+                collect(node.get(name), depth + 1)
+            if node.get('type') is None and isinstance(node.get('value'), str): chunks.append(node['value'][:16000])
+    attachments = activity.get('attachments')
+    if isinstance(attachments, list):
+        for attachment in attachments[:20]:
+            if isinstance(attachment, dict) and attachment.get('contentType') in (
+                'application/vnd.microsoft.card.adaptive', 'application/vnd.microsoft.card.hero',
+                'application/vnd.microsoft.card.thumbnail'):
+                collect(attachment.get('content'))
+    return '\n'.join(chunks)[:64000]
 
 
 @dataclass
@@ -87,7 +117,7 @@ class DirectLineChat:
         self.env_file, self.transport = env_file, transport
         self.sessions = {}
         self.creation_lock = asyncio.Lock()
-        self.reply_timeout = 120
+        self.reply_timeout = 300
         self.quiet_seconds = 3
         self.logger = chat_logger()
 
@@ -102,7 +132,8 @@ class DirectLineChat:
 
     def config(self):
         cfg = settings(self.env_file)
-        return {'mode': cfg['mode'], 'configured': cfg['configured'], 'provider': 'copilot-directline'}
+        return {'mode': cfg['mode'], 'configured': cfg['configured'], 'provider': 'copilot-directline',
+                'reply_timeout_seconds': cfg['reply_timeout_seconds'] or self.reply_timeout}
 
     async def rpc(self, domain, token, method, path, body=None, params=None):
         started = time.monotonic()
@@ -145,7 +176,7 @@ class DirectLineChat:
             sid = uuid4().hex
             self.sessions[sid] = Session(owner, conversation, token, cfg['domain'])
             self.trace('session_started', session_ref=sid[-8:])
-            return {'session_id': sid}
+            return {'session_id': sid, 'reply_timeout_seconds': cfg['reply_timeout_seconds'] or self.reply_timeout}
 
     def get(self, sid, owner):
         session = self.sessions.get(sid)
@@ -173,7 +204,7 @@ class DirectLineChat:
             session.request_id = uuid4().hex
             session.status = 'waiting'
             session.replies, session.seen, session.error = [], set(), None
-            session.deadline, session.last_reply = time.monotonic() + self.reply_timeout, 0
+            session.deadline, session.last_reply = time.monotonic() + (settings(self.env_file)['reply_timeout_seconds'] or self.reply_timeout), 0
             session.sent_at, session.polls, session.received = time.monotonic(), 0, {}
             try:
                 accepted = await self.rpc(session.domain, session.token, 'POST', f'/conversations/{quote(session.conversation, safe="")}/activities',
@@ -220,15 +251,24 @@ class DirectLineChat:
                         session.received[summary] = session.received.get(summary, 0) + 1
                         if role != 'bot':
                             continue
-                        text = activity.get('text')
+                        attachments = activity.get('attachments')
+                        self.trace('bot_activity', session_ref=sid[-8:], kind=kind,
+                                   has_text=bool(activity.get('text')), has_speak=bool(activity.get('speak')),
+                                   attachment_count=len(attachments) if isinstance(attachments, list) else 0)
+                        text = activity_text(activity)
                         if activity.get('type') == 'message' and isinstance(text, str) and text:
                             session.replies.append(text)
                             session.last_reply = time.monotonic()
+                            if text.lstrip().startswith('Connection Required') and 'Set up your connection' in text:
+                                session.status, session.error = 'failed', 'COPILOT_TOOL_CONNECTION_REQUIRED'
+                        elif activity.get('type') == 'endOfConversation':
+                            if session.replies: session.status = 'completed'
+                            else: session.status, session.error = 'failed', 'DIRECT_LINE_ENDED_WITHOUT_REPLY'
                         elif activity.get('type') == 'typing' and session.replies:
                             session.last_reply = time.monotonic()
-                    if session.replies and time.monotonic() - session.last_reply >= self.quiet_seconds:
+                    if session.status == 'waiting' and session.replies and time.monotonic() - session.last_reply >= self.quiet_seconds:
                         session.status = 'completed'
-                    elif time.monotonic() >= session.deadline:
+                    elif session.status == 'waiting' and time.monotonic() >= session.deadline:
                         session.status, session.error = 'failed', 'DIRECT_LINE_REPLY_TIMEOUT'
                 except ChatError as exc:
                     session.status, session.error = 'failed', exc.code
