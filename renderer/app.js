@@ -1,5 +1,8 @@
+import { runtimeApi } from './web-api.js';
+import { initBackendPanel } from './backend-panel.js';
+import { initVerificationPanel } from './verification-panel.js';
 import { WiringCanvas, layoutPart } from './canvas.js';
-import { drawArt, lookOf, BARE } from './art.js';
+import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
@@ -7,7 +10,7 @@ import {
 } from './agent.js';
 
 const $ = (id) => document.getElementById(id);
-const api = window.api;
+const api = runtimeApi;
 
 const CATEGORY = {
   board: '보드', sensor: '센서', display: '디스플레이', output: '출력', input: '입력',
@@ -22,6 +25,7 @@ const state = {
   instances: [],
   wires: [],
   title: '',
+  requirements: '',
   power: false,
   gpio: {},
   pressed: new Set(),
@@ -42,23 +46,23 @@ const tooltip = {
     const pin = def?.pins.find((p) => p.id === pid);
     if (!pin) return;
     const conns = state.wires.filter((w) => w.from === key || w.to === key).map((w) => (w.from === key ? w.to : w.from));
-    let html = `<b>${ref}.${pin.label || pin.id}</b> <span class="dim">(${pin.id})</span><br><span class="dim">${def.name}</span><br>종류: ${PIN_TYPE[pin.type] || pin.type}`;
-    if (pin.voltage != null) html += `<br>${pin.type === 'power_out' ? '출력 전압' : '로직 전압'}: ${pin.voltage}${typeof pin.voltage === 'number' ? 'V' : ' 전압을 따름'}`;
+    let html = `<b>${escapeHtml(ref)}.${escapeHtml(pin.label || pin.id)}</b> <span class="dim">(${escapeHtml(pin.id)})</span><br><span class="dim">${escapeHtml(def.name)}</span><br>종류: ${escapeHtml(PIN_TYPE[pin.type] || pin.type)}`;
+    if (pin.voltage != null) html += `<br>${pin.type === 'power_out' ? '출력 전압' : '로직 전압'}: ${escapeHtml(pin.voltage)}${typeof pin.voltage === 'number' ? 'V' : ' 전압을 따름'}`;
     if (pin.minVoltage != null || pin.maxVoltage != null) {
-      html += `<br>허용 범위: ${pin.minVoltage != null ? pin.minVoltage + 'V' : ''} ~ ${pin.maxVoltage != null ? pin.maxVoltage + 'V' : ''}`;
+      html += `<br>허용 범위: ${pin.minVoltage != null ? escapeHtml(pin.minVoltage) + 'V' : ''} ~ ${pin.maxVoltage != null ? escapeHtml(pin.maxVoltage) + 'V' : ''}`;
     }
-    if (pin.functions?.length) html += `<br>기능: ${pin.functions.join(', ')}`;
-    if (pin.note) html += `<br><span class="warn">※ ${pin.note}</span>`;
-    html += `<br>연결: ${conns.length ? conns.join(', ') : '없음'}`;
+    if (pin.functions?.length) html += `<br>기능: ${escapeHtml(pin.functions.join(', '))}`;
+    if (pin.note) html += `<br><span class="warn">※ ${escapeHtml(pin.note)}</span>`;
+    html += `<br>연결: ${conns.length ? escapeHtml(conns.join(', ')) : '없음'}`;
     if (state.power && canvas.sim) {
       const net = canvas.sim.netByPin[key];
       const v = net?.voltage;
       html += `<div class="meter">🔌 멀티미터: <span class="v">${v == null ? '측정 안 됨(떠 있음)' : v.toFixed(2) + ' V'}</span>`;
       if (net?.kind === 'gnd') html += ' (GND)';
-      if (net?.via) html += `<br>${net.via}`;
+      if (net?.via) html += `<br>${escapeHtml(net.via)}`;
       if (net?.short) html += '<br><span class="err">⚡ 서로 다른 전원이 한 선에 직접 연결됨 (불꽃)</span>';
       const src = net?.sources?.filter((s) => s.strength !== 'pullup').map((s) => s.label);
-      if (src?.length) html += `<br>공급원: ${src.join(', ')}`;
+      if (src?.length) html += `<br>공급원: ${escapeHtml(src.join(', '))}`;
       html += '</div>';
     } else {
       html += '<div class="meter dim">가상 전원을 켜면 이 핀의 전압을 측정할 수 있어요</div>';
@@ -70,7 +74,7 @@ const tooltip = {
   showWire(id, e) {
     const w = state.wires.find((x) => x.id === id);
     if (!w) return;
-    let html = `<b>${w.from} ↔ ${w.to}</b><br>${w.origin === 'ai' ? 'AI 추천 배선' : '직접 연결한 배선'}`;
+    let html = `<b>${escapeHtml(w.from)} ↔ ${escapeHtml(w.to)}</b><br>${w.origin === 'ai' ? 'AI 추천 배선' : '직접 연결한 배선'}`;
     if (w.note) html += `<br>${escapeHtml(w.note)}`;
     if (state.power && canvas.sim) {
       const v = canvas.sim.netByPin[w.from]?.voltage;
@@ -270,7 +274,7 @@ function partItem(d) {
 // 부품함 미리보기: 캔버스와 같은 그림을 작게 그린다
 const thumbCache = new Map();
 function partThumb(d) {
-  const key = `${d.id}|${d.imageData ? 'img' : 'art'}`;
+  const key = `${d.id}|${d.imageAssetId || (d.imageData ? 'img' : 'art')}`;
   if (thumbCache.has(key)) return thumbCache.get(key).cloneNode(true);
   const NS = 'http://www.w3.org/2000/svg';
   const { w, h, pos, top } = layoutPart(d);
@@ -279,7 +283,7 @@ function partThumb(d) {
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   const g = document.createElementNS(NS, 'g');
   svg.appendChild(g);
-  const bare = BARE.has(lookOf(d)) && !d.imageData;
+  const bare = isBareArt(d);
   const body = document.createElementNS(NS, 'rect');
   body.setAttribute('width', w);
   body.setAttribute('height', h);
@@ -400,7 +404,7 @@ function showSelection(sel) {
     const inst = state.instances.find((i) => i.ref === sel.ref);
     const def = state.defs.get(inst?.part);
     if (!def) return box.classList.add('hidden');
-    box.innerHTML = `<h4>${inst.ref} · ${escapeHtml(def.name)}</h4>
+    box.innerHTML = `<h4>${escapeHtml(inst.ref)} · ${escapeHtml(def.name)}</h4>
       <div>${escapeHtml(def.description || '')}</div>
       ${inst.label ? `<div class="muted">역할: ${escapeHtml(inst.label)}</div>` : ''}
       ${def.sources?.length ? `<div class="muted">근거: ${escapeHtml(def.sources.join(', '))}</div>` : ''}
@@ -408,7 +412,7 @@ function showSelection(sel) {
   } else {
     const w = state.wires.find((x) => x.id === sel.id);
     if (!w) return box.classList.add('hidden');
-    box.innerHTML = `<h4>${w.from} ↔ ${w.to}</h4>
+    box.innerHTML = `<h4>${escapeHtml(w.from)} ↔ ${escapeHtml(w.to)}</h4>
       <div>${w.origin === 'ai' ? 'AI 추천 배선' : '직접 연결한 배선'}</div>
       ${w.note ? `<div class="muted">${escapeHtml(w.note)}</div>` : ''}
       <div class="row"><button id="selDelete">선 삭제</button></div>`;
@@ -539,8 +543,8 @@ function proposeWiring(wiring) {
   const desc = [];
   if (added.length) desc.push(`<span class="add">+ 선 ${added.length}개</span>`);
   if (removed.size) desc.push(`<span class="del">− 선 ${removed.size}개</span>`);
-  if (addedParts.length) desc.push(`<span class="add">+ 부품 ${addedParts.map((p) => p.ref).join(', ')}</span>`);
-  if (removedParts.length) desc.push(`<span class="del">− 부품 ${removedParts.map((p) => p.ref).join(', ')}</span>`);
+  if (addedParts.length) desc.push(`<span class="add">+ 부품 ${escapeHtml(addedParts.map((p) => p.ref).join(', '))}</span>`);
+  if (removedParts.length) desc.push(`<span class="del">− 부품 ${escapeHtml(removedParts.map((p) => p.ref).join(', '))}</span>`);
   $('previewText').innerHTML = `<b>AI 수정안 미리보기</b> — ${desc.join(' · ')}<br><span class="muted">초록 점선=추가, 빨간 점선=삭제. 적용하기 전에 확인하세요.</span>`;
   $('previewBar').classList.remove('hidden');
   refresh();
@@ -551,7 +555,7 @@ function applyProposal({ parts, conns, title, addedParts = [] }) {
   const placed = new Map(addedParts.map((p) => [`${p.ref}|${p.part}`, p]));
   const instances = parts.map((p) => {
     const old = keep.get(`${p.ref}|${p.part}`) || placed.get(`${p.ref}|${p.part}`);
-    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y };
+    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y, rotation: old?.rotation ?? 0 };
   });
   placeNew(instances, instances.filter((i) => i.x != null));
   state.instances = instances;
@@ -596,6 +600,10 @@ function codeBlock(code) {
 }
 
 function addMessage(role, text, extra) {
+  if (state.settings.mode === 'web' && role === 'system') {
+    const entry = document.createElement('p'); entry.textContent = text;
+    $('webActivity').appendChild(entry);
+  }
   const m = document.createElement('div');
   m.className = `msg ${role}`;
   m.innerHTML = role === 'agent' ? renderMarkdown(text) : escapeHtml(text);
@@ -656,24 +664,41 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
   if (shown) addMessage('user', shown);
   const typing = addMessage('agent', '에이전트가 생각하는 중…');
   typing.classList.add('typing');
+  const waitingSince = Date.now();
+  let waitingStage = '요청 준비 중';
+  const refreshWaiting = () => { typing.textContent = `${waitingStage} · ${Math.floor((Date.now() - waitingSince) / 1000)}초`; };
+  const waitingTimer = setInterval(refreshWaiting, 1000);
   try {
     let reply;
-    const res = await api.sendToAgent(message, buildCatalog(state.defs));
+    const res = await api.sendToAgent(message, buildCatalog(state.defs), (progress) => {
+      waitingStage = progress.stage === 'opening' ? 'Copilot 대화 연결 중'
+        : progress.stage === 'receiving' ? 'Copilot 응답 수신 중' : 'Copilot 응답 대기 중';
+      refreshWaiting();
+    });
     if (res.demo) {
+      typing.textContent = '저장된 데모 예시를 확인하는 중…';
       await new Promise((r) => setTimeout(r, 500));
       reply = demoReply(message, ctx);
     } else {
       reply = res.reply;
     }
     typing.remove();
-    const { text, wiring, part } = parseReply(reply);
-    const extra = wiring ? wiringCard(wiring) : part ? partCard(part) : null;
+    const { text, wiring, part, circuit } = parseReply(reply);
+    let extra = wiring ? wiringCard(wiring) : part ? partCard(part) : null;
+    if (!extra && circuit) {
+      extra = document.createElement('button');
+      extra.textContent = '에이전트 회로를 DB에서 불러오기';
+      extra.onclick = () => backend.openCircuit(circuit.circuit_id || circuit.id);
+    }
     addMessage('agent', text || (wiring ? '배선을 제안합니다.' : '(빈 응답)'), extra);
+    // 에이전트가 저장·선택한 이미지를 편집 상태를 유지한 채 다시 불러온다.
+    if (!res.demo) await backend.refreshAfterAgent();
     if (wiring) proposeWiring(wiring);
   } catch (e) {
     typing.remove();
     addMessage('system', `에이전트 호출 실패: ${e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\n⚙ 설정에서 연결 정보를 확인하세요.`);
   } finally {
+    clearInterval(waitingTimer);
     state.busy = false;
     $('btnSend').disabled = false;
   }
@@ -762,10 +787,27 @@ async function requestDiagnosis() {
 // ---------- 설정 ----------
 async function loadSettings() {
   state.settings = await api.getSettings();
+  api.selectMode(state.settings.mode);
   const pill = $('connPill');
   const on = state.settings.mode !== 'demo';
-  pill.textContent = on ? 'Copilot Studio 연결' : '데모 모드';
-  pill.className = on ? 'badge b-ok' : 'badge b-mute';
+  const web = state.settings.mode === 'web';
+  pill.textContent = state.settings.mode === 'server'
+    ? (state.settings.serverSecretConfigured ? 'Copilot · 서버 API' : 'Copilot · .env 키 입력 필요')
+    : web ? '중앙 에이전트 · 웹 채팅' : on ? 'Copilot Studio 설정됨' : '데모 · AI 미연결';
+  pill.className = state.settings.mode === 'server' && !state.settings.serverSecretConfigured
+    ? 'badge b-warn' : web ? 'badge b-info' : on ? 'badge b-ok' : 'badge b-mute';
+  $('webChatPanel').classList.toggle('hidden', !web);
+  $('tab-chat').classList.toggle('hidden', web);
+  $('emptyHint').querySelector('.examples').classList.toggle('hidden', web);
+  if (web) {
+    const url = window.MirWebChat.embeddedWebChatUrl(state.settings.webChatUrl);
+    if ($('webChatFrame').getAttribute('src') !== url) $('webChatFrame').src = url;
+  } else { $('webChatFrame').removeAttribute('src'); }
+  $('emptyHint').querySelector('h3').textContent = on ? '무엇을 만들고 싶나요?' : '배선 예시를 체험해 보세요';
+  $('emptyHint').querySelector('p').textContent = web
+    ? '오른쪽 중앙 에이전트에 설계를 요청하세요. 답변에서 저장된 회로 ID를 받아 상단 배선 API · DB에서 불러오면 여기에 표시됩니다.' : on
+    ? '오른쪽 채팅에 목표를 입력하거나 왼쪽 부품함에서 부품을 놓고 핀을 연결하세요.'
+    : '현재는 AI 미연결 데모입니다. 아래 예시를 누르거나 부품함에서 직접 배선해 보세요. 자유로운 설계 요청은 연결 설정에서 실제 에이전트를 연결한 뒤 사용할 수 있습니다.';
 }
 
 function openSettings() {
@@ -774,6 +816,10 @@ function openSettings() {
   $('inSecret').value = '';
   $('inSecret').placeholder = s.hasSecret ? '저장된 키 있음 (바꿀 때만 입력)' : 'Direct Line 비밀 키 붙여 넣기';
   $('inToken').value = s.tokenEndpoint || '';
+  $('inWebChat').value = s.webChatUrl || '';
+  $('serverChatStatus').textContent = s.serverSecretConfigured
+    ? '서버에 Direct Line 비밀 키가 설정되어 있습니다. 배선 API 키는 .env에서 읽어 자동으로 연결합니다.'
+    : '.env의 COPILOT_DIRECT_LINE_SECRET에 비밀 키를 넣으세요. 파일 저장 후 연결 테스트로 확인할 수 있습니다.';
   $('testResult').textContent = '';
   updateSettingsFields();
   $('settingsModal').classList.remove('hidden');
@@ -783,11 +829,13 @@ function updateSettingsFields() {
   const mode = document.querySelector('input[name="mode"]:checked')?.value;
   $('fieldSecret').classList.toggle('hidden', mode !== 'secret');
   $('fieldToken').classList.toggle('hidden', mode !== 'token');
+  $('fieldWeb').classList.toggle('hidden', mode !== 'web');
+  $('fieldServer').classList.toggle('hidden', mode !== 'server');
 }
 
 async function saveSettings() {
   const mode = document.querySelector('input[name="mode"]:checked')?.value || 'demo';
-  await api.setSettings({ mode, secret: $('inSecret').value.trim(), tokenEndpoint: $('inToken').value.trim() });
+  await api.setSettings({ mode, secret: $('inSecret').value.trim(), tokenEndpoint: $('inToken').value.trim(), webChatUrl: $('inWebChat').value.trim() });
   await loadSettings();
 }
 
@@ -815,7 +863,8 @@ $('btnDiagnose').onclick = requestDiagnosis;
 
 $('btnNew').onclick = () => {
   if (state.instances.length && !confirm('지금 배선을 지우고 새로 시작할까요?')) return;
-  state.instances = []; state.wires = []; state.title = ''; state.gpio = {};
+  state.instances = []; state.wires = []; state.title = ''; state.gpio = {}; state.requirements = '';
+  backend.reset();
   clearPreview(); syncToCanvas(); pushHistory(); setPower(false);
   api.resetAgent();
   $('messages').replaceChildren();
@@ -825,7 +874,8 @@ $('btnSave').onclick = () => api.saveProject({ format: 'mir-wiring/1', title: st
 $('btnOpen').onclick = async () => {
   const d = await api.openProject();
   if (!d) return;
-  state.instances = d.instances || []; state.wires = d.wires || []; state.title = d.title || '';
+  state.instances = d.instances || []; state.wires = d.wires || []; state.title = d.title || ''; state.requirements = '';
+  backend.reset();
   clearPreview(); syncToCanvas(); pushHistory(); refresh(); canvas.fit();
 };
 
@@ -855,8 +905,12 @@ $('btnPartAsk').onclick = () => {
 };
 
 $('btnSettings').onclick = openSettings;
+$('btnWebChatOpen').onclick = () => api.openAgentWebsite(state.settings.webChatUrl);
 $('btnSettingsCancel').onclick = () => $('settingsModal').classList.add('hidden');
-$('btnSettingsSave').onclick = async () => { await saveSettings(); $('settingsModal').classList.add('hidden'); };
+$('btnSettingsSave').onclick = async () => {
+  try { await saveSettings(); $('settingsModal').classList.add('hidden'); }
+  catch (e) { $('testResult').textContent = `설정 실패: ${e.message}`; }
+};
 document.querySelectorAll('input[name="mode"]').forEach((r) => { r.onchange = updateSettingsFields; });
 $('linkConnectGuide').onclick = (e) => { e.preventDefault(); api.openDoc('Copilot-Studio-연결-안내.md'); };
 $('btnTest').onclick = async () => {
@@ -951,6 +1005,17 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => appl
 try { applyTheme(localStorage.getItem('mir-theme')); } catch { applyTheme(); }
 
 function greet() {
+  if (state.settings.mode === 'web') return;
+  if (state.settings.mode === 'server') {
+    addMessage('system', state.settings.serverSecretConfigured
+      ? '서버 API에 자동 연결됩니다. 오른쪽 채팅창에 설계를 요청하세요. 키는 .env에서 관리합니다.'
+      : '서버 API 모드입니다. .env의 COPILOT_DIRECT_LINE_SECRET에 비밀 키를 넣고 저장하세요. 배선 API 연결은 자동으로 처리합니다.');
+    return;
+  }
+  if (state.settings.mode === 'demo') {
+    addMessage('system', '현재는 데모 모드입니다. Copilot Studio에 연결되지 않아 저장된 예시만 보여 줍니다. 자유로운 설계 요청은 ⚙ 연결 설정에서 실제 에이전트를 연결한 뒤 보내세요.');
+    return;
+  }
   addMessage('agent', `안녕하세요! 임베디드 배선 가이드 **미르**입니다.
 만들고 싶은 것을 말하면 보드·센서의 핀 기능, 전압, 통신 방식을 따져 배선을 추천하고 2D 화면에 그려 드려요.
 
@@ -972,9 +1037,28 @@ async function applyAppIcon() {
   document.head.appendChild(link);
 }
 
+const backend = initBackendPanel({
+  getState: () => state,
+  renderParts: () => { renderPalette(); refresh(); },
+  message: (text) => addMessage('system', text),
+  replace: (next) => {
+    Object.assign(state, next); state.gpio = {};
+    state.history = []; state.future = [];
+    clearPreview(); syncToCanvas(); pushHistory(); setPower(false); canvas.fit();
+  }
+});
+
+initVerificationPanel({ message: (text) => addMessage('system', text) });
+
+if (api.browserMode) {
+  document.querySelector('input[name="mode"][value="secret"]').disabled = true;
+  $('fieldSecret').querySelector('small').textContent = '브라우저에서는 비밀 키를 저장하지 않습니다. 토큰 끝점 URL을 사용하세요.';
+}
+
 (async function init() {
   await loadSettings();
   await loadParts();
+  await backend.connectAutomatically();
   pushHistory();
   initResizers();
   applyAppIcon();

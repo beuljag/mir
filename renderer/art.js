@@ -29,6 +29,10 @@ export function lookOf(def) {
 // 몸체 상자 없이 부품만 그리는 종류 (LED, 저항처럼 PCB가 없는 소자)
 export const BARE = new Set(['led', 'resistor', 'diode', 'button', 'valve', 'adapter']);
 
+export function isBareArt(def) {
+  return Array.isArray(def.imageNodes) ? def.imagePresentation?.kind === 'bare' : BARE.has(lookOf(def)) && !def.imageData;
+}
+
 // 핀 이름표를 안쪽으로 얼마나 더 밀지 (단자대 같은 그림과 겹치지 않게)
 export function labelInset(look) {
   return look === 'relay' ? { left: 0, right: -20 } : { left: 0, right: 0 };
@@ -40,10 +44,54 @@ export function labelInset(look) {
  */
 export function drawArt(g, ctx) {
   const { def } = ctx;
+  if (Array.isArray(def.imageNodes) && drawGeneratedArt(g, ctx)) return;
   if (def.imageData) return drawImage(g, ctx);
   const look = lookOf(def);
   const art = el('g', { class: `art art-${look}` }, g);
   (DRAW[look] || DRAW.module)(art, ctx);
+}
+
+const GENERATED_TAGS = new Set(['g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text']);
+const GENERATED_ATTRS = new Set(['x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'x1', 'y1', 'x2', 'y2',
+  'points', 'd', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'fill-opacity',
+  'stroke-opacity', 'transform', 'fill-rule', 'class', 'text-anchor', 'font-family', 'font-size', 'font-weight']);
+
+function drawGeneratedArt(g, ctx) {
+  const { def, st = {}, power = false } = ctx;
+  let count = 0;
+  const valid = (node, depth = 0) => {
+    if (++count > 1200 || depth > 36 || !GENERATED_TAGS.has(node?.tag) || !Array.isArray(node.children)) return false;
+    if (typeof node.text !== 'string' || (node.tag === 'text' ? node.text.length > 80 || node.children.length : node.text.trim())) return false;
+    for (const [key, value] of Object.entries(node.attrs || {})) {
+      if (!GENERATED_ATTRS.has(key) || typeof value !== 'string' || value.length > 40000 || /[<>]|url\s*\(|javascript:|https?:/i.test(value)) return false;
+    }
+    return node.children.every((child) => valid(child, depth + 1));
+  };
+  if (!def.imageNodes.every((node) => valid(node))) return false;
+  const art = el('g', { class: 'art art-generated' }, g);
+  const active = power && !!(st.on || st.lit || st.energized || st.pressed);
+  const powered = power && !!(st.powered || st.on || st.lit || st.energized);
+  let band = 0;
+  const bands = Number.isFinite(def.behavior?.ohms) && def.behavior.ohms > 0 ? resistorBands(def.behavior.ohms) : null;
+  const append = (node, parent) => {
+    const attrs = { ...node.attrs };
+    const classes = new Set((attrs.class || '').split(/\s+/).filter(Boolean));
+    if ((classes.has('state-on') && !active) || (classes.has('state-off') && active)
+      || (classes.has('state-powered') && !powered) || (classes.has('state-unpowered') && powered)) return;
+    if (classes.has('led-dome') && power && st.lit) classes.add('lit');
+    if (classes.has('pipe') && power && st.on) classes.add('flow');
+    if (classes.has('tact-cap') && st.pressed) classes.add('pressed');
+    if (classes.has('resistor-band') && bands && band < 4) {
+      for (const cls of classes) if (cls.startsWith('band-')) classes.delete(cls);
+      classes.add('band-' + bands[band++]);
+    }
+    if (classes.size) attrs.class = [...classes].join(' ');
+    const element = el(node.tag, attrs, parent);
+    if (node.tag === 'text') element.textContent = node.text;
+    for (const child of node.children) append(child, element);
+  };
+  for (const node of def.imageNodes) append(node, art);
+  return true;
 }
 
 function drawImage(g, { w, h, def }) {

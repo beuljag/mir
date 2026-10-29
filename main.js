@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('ele
 const path = require('path');
 const fs = require('fs');
 const { DirectLineClient } = require('./src/directline');
+const { validateWebChatUrl, readWebChatDefaults } = require('./renderer/web-chat');
 
 const builtinPartsDir = app.isPackaged
   ? path.join(process.resourcesPath, 'parts')
@@ -11,6 +12,32 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 
 let client = null;
 let catalogSentFor = null;
+
+ipcMain.handle('circuit:autoStatus', async () => {
+  try {
+    const response = await fetch('http://127.0.0.1:8002/local-connection/status', { signal: AbortSignal.timeout(4000) });
+    return response.ok ? response.json() : { ready: false };
+  } catch { return { ready: false }; }
+});
+
+// 키는 Python의 .env에서만 읽는다. Electron은 로컬 전용 연결을 호출한다.
+ipcMain.handle('circuit:request', async (_e, { path: route, options = {} }) => {
+  if (!/^\/(?:chat\/(?:config|diagnostics|sessions(?:\/[a-f0-9]+(?:\/messages(?:\/[a-f0-9]+)?)?)?)|verification\/(?:config|projects(?:\/[a-f0-9]{32}(?:\/verify)?)?|jobs\/[a-f0-9-]+\/artifacts\/(?:erc\.json|erc\.log|export\.cir|export\.log|run\.cir|ngspice\.log))|jobs\/[a-f0-9-]+|components\/search(?:\?limit=100(?:&offset=[0-9]{1,5})?)?|components\/[a-zA-Z0-9_.%-]+(?:\/image)?|circuits(?:\/[a-zA-Z0-9-]+(?:\/validate)?)?)$/.test(route)) {
+    throw new Error('허용되지 않은 API 경로입니다.');
+  }
+  if (!options.headers?.['X-API-Key']) {
+    const response = await fetch('http://127.0.0.1:8002/local-connection/request', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'error',
+      signal: AbortSignal.timeout(route.startsWith('/chat/') ? 45000 : 15000),
+      body: JSON.stringify({ path: route, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null })
+    });
+    return response.ok ? response.json() : { status: response.status, body: await response.json() };
+  }
+  const response = await fetch('http://127.0.0.1:8000' + route, {
+    ...options, redirect: 'error', signal: AbortSignal.timeout(route.startsWith('/chat/') ? 45000 : 15000)
+  });
+  return { status: response.status, body: await response.json() };
+});
 
 // ---------- 설정 (비밀 키는 Windows 자격 증명으로 암호화해 저장) ----------
 function loadSettings() {
@@ -22,12 +49,14 @@ function loadSettings() {
     delete raw.secretEnc;
     return raw;
   } catch {
-    return { mode: 'demo', secret: '', tokenEndpoint: '' };
+    try { return readWebChatDefaults(JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'agent-config.json'), 'utf8'))); }
+    catch { return { mode: 'demo', secret: '', tokenEndpoint: '' }; }
   }
 }
 
 function saveSettings(s) {
   const out = { mode: s.mode, tokenEndpoint: s.tokenEndpoint || '' };
+  if (s.mode === 'web') out.webChatUrl = validateWebChatUrl(s.webChatUrl);
   if (s.secret) {
     if (safeStorage.isEncryptionAvailable()) {
       out.secretEnc = safeStorage.encryptString(s.secret).toString('base64');
@@ -149,7 +178,7 @@ ipcMain.handle('app:icon', () => {
 
 ipcMain.handle('settings:get', () => {
   const s = loadSettings();
-  return { mode: s.mode, tokenEndpoint: s.tokenEndpoint, hasSecret: !!s.secret };
+  return { mode: s.mode, tokenEndpoint: s.tokenEndpoint, webChatUrl: s.webChatUrl, hasSecret: !!s.secret };
 });
 
 ipcMain.handle('settings:set', (_e, s) => {
@@ -161,6 +190,7 @@ ipcMain.handle('settings:set', (_e, s) => {
 ipcMain.handle('agent:send', async (_e, { text, catalog }) => {
   const s = loadSettings();
   if (s.mode === 'demo') return { demo: true };
+  if (s.mode === 'web') throw new Error('Microsoft 웹 채팅에서 메시지를 보내세요.');
   if (!client) client = new DirectLineClient(s);
   if (!client.conversationId) await client.start();
   let message = text;
@@ -181,6 +211,10 @@ ipcMain.handle('agent:reset', () => {
 ipcMain.handle('agent:test', async () => {
   const s = loadSettings();
   if (s.mode === 'demo') return '데모 모드입니다.';
+  if (s.mode === 'web') {
+    validateWebChatUrl(s.webChatUrl);
+    return '웹 채팅 URL 형식을 확인했습니다. 실제 대화 권한과 응답은 채팅 화면에서 확인하세요.';
+  }
   const c = new DirectLineClient(s);
   await c.start();
   return '연결 성공! 에이전트와 대화를 열었습니다.';
@@ -252,4 +286,5 @@ ipcMain.handle('docs:open', (_e, name) => {
 });
 
 app.whenReady().then(createWindow);
+ipcMain.handle('agent:openWebsite', (_e, url) => shell.openExternal(validateWebChatUrl(url)));
 app.on('window-all-closed', () => app.quit());

@@ -3,7 +3,7 @@
 
 export const FORMAT_REMINDER = `[응답 형식] 설명은 자유롭게 쓰되, 배선을 제안할 때는 마지막에 \`\`\`json 코드블록 하나로
 {"type":"wiring","title":"...","parts":[{"ref":"U1","part":"부품id","label":"역할"}],"connections":[{"from":"U1.핀id","to":"R1.핀id","note":"이유"}],"steps":["..."],"warnings":["..."],"code":"아두이노/파이썬 코드"}
-를 넣어 주세요. 부품id와 핀id는 [부품 목록]에 있는 것만 쓰고, 수정안일 때도 전체 배선을 다시 보내 주세요.`;
+를 넣어 주세요. 부품id와 핀id는 [부품 목록] 또는 MCP로 생성·조회한 DB 정의에 있는 것만 쓰세요. 필요한 부품이 없으면 조사 후 CreateComponent로 미검증 정의를 저장하고 이미지 제작·적용까지 진행하세요. 핀이 없는 외형 초안에는 임의 배선을 연결하지 마세요. 수정안일 때도 전체 배선을 다시 보내 주세요.`;
 
 export function buildCatalog(defs) {
   const lines = ['[부품 목록] 형식: 부품id | 이름 | 핀id:종류:전압(허용범위)[기능]'];
@@ -17,7 +17,7 @@ export function buildCatalog(defs) {
       if (p.note) s += `{${p.note}}`;
       return s;
     });
-    lines.push(`${d.id} | ${d.name} | ${pins.join(', ')}`);
+    lines.push(`${d.id} | ${d.name} | ${pins.join(', ')}${d.isDraft ? ' [미검증 설계 부품' + (d.unresolvedFields?.length ? ': ' + d.unresolvedFields.join(', ') : '') + ']' : ''}`);
   }
   return lines.join('\n');
 }
@@ -91,13 +91,15 @@ export function parseReply(text) {
   }
   const wiring = blocks.find((b) => b && (b.type === 'wiring' || Array.isArray(b.connections)));
   const part = blocks.find((b) => b && (b.type === 'part' || (Array.isArray(b.pins) && b.id)));
-  return { text: plain.trim(), wiring, part };
+  const circuit = blocks.find((b) => b && (typeof b.circuit_id === 'string' || (typeof b.id === 'string' && Array.isArray(b.component_instances))));
+  return { text: plain.trim(), wiring, part, circuit };
 }
 
 // ---------- 데모 모드 (에이전트 연결 전 체험용) ----------
 const DEMOS = [
   {
-    match: /밸브|솔레노이드|valve|펌프|외부 ?전[원력]/i,
+    board: 'esp32',
+    match: /밸브|솔레노이드|valve|solenoid/i,
     reply: `ESP32의 GPIO는 3.3V·수십 mA밖에 못 내기 때문에 12V 밸브를 직접 켤 수 없습니다. **릴레이 모듈**로 12V 회로를 따로 스위칭하는 구성을 추천합니다.
 
 1. 릴레이 모듈 전원은 ESP32의 5V(USB) 핀에서, 제어 신호(IN)는 GPIO23에서 받습니다.
@@ -128,6 +130,7 @@ const DEMOS = [
     }
   },
   {
+    board: 'esp32',
     match: /온도|습도|화면|oled|디스플레이|dht/i,
     reply: `DHT22로 온습도를 읽어 OLED에 띄우는 구성입니다.
 
@@ -155,7 +158,8 @@ const DEMOS = [
     }
   },
   {
-    match: /라즈베리|raspberry|파이/i,
+    board: 'raspberry',
+    match: /led|엘이디|불빛|깜빡/i,
     reply: `라즈베리파이 GPIO17에 LED를 연결하는 기본 구성입니다. GPIO는 3.3V이고 5V를 견디지 못하니 5V 핀은 쓰지 않습니다.`,
     wiring: {
       type: 'wiring', title: '라즈베리파이 LED 깜빡이기',
@@ -173,6 +177,7 @@ const DEMOS = [
     }
   },
   {
+    board: 'esp32',
     match: /led|엘이디|불빛|깜빡/i,
     reply: `ESP32 GPIO26 → 220Ω 저항 → LED → GND 로 연결합니다. 저항이 없으면 LED와 GPIO에 과전류가 흐릅니다.`,
     wiring: {
@@ -192,23 +197,34 @@ const DEMOS = [
   }
 ];
 
-export function demoReply(message, ctx) {
+export function demoReply(message, ctx = {}) {
   if (message.startsWith('[요청 종류: 오류 진단]')) return demoDiagnose(ctx);
   if (message.startsWith('[요청 종류: 부품 등록]')) {
     return '데모 모드에서는 부품 등록을 할 수 없습니다. 설정에서 Copilot Studio 에이전트를 연결하면 데이터시트 내용으로 부품 JSON을 만들어 드립니다.';
   }
-  const goal = message.split('\n\n[현재 배선]')[0];
-  const d = DEMOS.find((x) => x.match.test(goal));
+  // 프롬프트의 응답 양식·현재 배선에 들어 있는 예시 단어는 요청으로 해석하지 않는다.
+  const goal = message.split(/\[현재 배선\]|\[응답 형식\]/)[0];
+  const raspberry = /라즈베리|raspberry|\brpi\b/i.test(goal);
+  const esp32 = /esp\s*32/i.test(goal);
+  const board = raspberry ? 'raspberry' : 'esp32';
+  const prefix = '(데모 모드 · 실제 AI 응답이 아닙니다)';
+  if (/펌프|pump/i.test(goal)) {
+    const controller = raspberry && !esp32 ? '라즈베리파이' : esp32 && !raspberry ? 'ESP32' : '요청한 보드';
+    return `${prefix}\n\n${controller}로 외부 전원을 사용하는 펌프를 켜고 끄려는 요청입니다.\n현재 저장된 데모에는 펌프 회로가 없어 배선을 생성하지 않았습니다.\n\n펌프 모델·정격 전압·정격 전류와 파워서플라이 사양을 준비하고, ⚙ 연결 설정에서 Copilot Studio를 연결해 설계를 요청하세요. 기존 ESP32 밸브 예시로 바꾸지 않습니다.`;
+  }
+  const unsupportedBoard = /아두이노|arduino|피코|\bpico\b|stm32|micro:bit|마이크로비트/i.test(goal);
+  const d = !unsupportedBoard && !(raspberry && esp32)
+    ? DEMOS.find((x) => x.board === board && x.match.test(goal)) : undefined;
   if (!d) {
     return `(데모 모드) 지금은 Copilot Studio 에이전트에 연결되어 있지 않아 정해진 예시만 답할 수 있습니다.
 "ESP32로 외부 전원으로 밸브 켜기", "온도를 읽어서 화면에 띄우기", "LED 깜빡이기", "라즈베리파이 LED" 처럼 물어보세요.
-오른쪽 위 ⚙ 설정에서 에이전트를 연결하면 무엇이든 물어볼 수 있습니다.`;
+입력한 보드와 장치를 다른 예시로 바꾸지는 않습니다. 오른쪽 위 ⚙ 연결 설정에서 실제 에이전트를 연결하세요.`;
   }
-  return `${d.reply}\n\n\`\`\`json\n${JSON.stringify(d.wiring, null, 2)}\n\`\`\``;
+  return `${prefix}\n\n${d.reply}\n\n\`\`\`json\n${JSON.stringify(d.wiring, null, 2)}\n\`\`\``;
 }
 
 // 데모용 진단: 학생이 "문제"로 판정한 항목을 바탕으로 측정값을 짚어 준다.
-function demoDiagnose({ problems }) {
+function demoDiagnose({ problems = [] }) {
   if (!problems.length) {
     return '(데모 모드) 학생 판정에서 문제 항목이 없습니다. 실제 진단은 Copilot Studio 에이전트를 연결하면 받을 수 있습니다.';
   }

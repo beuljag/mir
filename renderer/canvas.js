@@ -1,6 +1,6 @@
 // 2D 가상 실습 화면 (SVG). 부품 배치, 배선 그리기/삭제, 핀 정보, 가상 전원 표시를 담당한다.
 import { pinKey, splitKey } from './sim.js';
-import { drawArt, lookOf, BARE, labelInset } from './art.js';
+import { drawArt, lookOf, isBareArt, labelInset } from './art.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const PIN_GAP = 18;
@@ -326,7 +326,7 @@ export class WiringCanvas {
       const st = this.sim?.parts[i.ref] || {};
       const sel = this.selected?.type === 'part' && this.selected.ref === i.ref;
       const look = lookOf(def);
-      const bare = BARE.has(look) && !def.imageData;
+      const bare = isBareArt(def);
       // 맨 소자(LED·저항 등)는 캔버스 바탕 위에 그리므로 글자색을 화면 테마에 맞춘다
       const light = bare ? null : isLight(def.color);
       const tone = bare ? 'on-canvas' : light ? 'dark' : '';

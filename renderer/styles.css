@@ -98,6 +98,18 @@ a { color: var(--primary); }
 .brand-name { font-weight: var(--weight-bold); font-size: var(--text-base); letter-spacing: -.02em; }
 .brand-sub { font-size: var(--text-xs); color: var(--text-muted); line-height: var(--lh-xs); }
 .top-actions { display: flex; gap: var(--space-2); align-items: center; }
+@media (max-width: 1300px) {
+  .topbar { height: auto; min-height: 64px; flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+  .top-actions { flex-wrap: wrap; max-width: 100%; gap: 4px; }
+}
+
+/* 브라우저의 좁은 창에서도 API 버튼과 배선 도구에 접근할 수 있게 한다. */
+@media (max-width: 1100px) {
+  .topbar { height: auto; min-height: 64px; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .brand-sub { display: none; }
+  .top-actions { flex-wrap: wrap; gap: 4px; }
+  .layout { grid-template-columns: 180px 0 minmax(0, 1fr) 0 280px !important; }
+}
 
 /* ---------- 레이아웃 ---------- */
 .layout { flex: 1; display: grid; grid-template-columns: var(--left-w, 248px) 0 minmax(0, 1fr) 0 var(--right-w, 392px); min-height: 0; }
@@ -120,6 +132,7 @@ a { color: var(--primary); }
 .stage-toolbar {
   display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4);
   background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
 .stage-title { font-weight: var(--weight-medium); color: var(--text-muted); }
 button.power { display: inline-flex; align-items: center; gap: var(--space-2); }
@@ -242,6 +255,11 @@ button.power.on::before { background: var(--warning); box-shadow: 0 0 0 3px var(
 
 /* ---------- 사이드 탭 ---------- */
 .tab-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.web-chat-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.web-chat-help { padding: 8px 12px; font-size: var(--text-xs); color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.web-chat-help p { margin: 0 0 6px; }
+#webChatFrame { border: 0; width: 100%; min-height: 0; flex: 1; background: white; }
+.web-chat-activity { padding: 8px 12px; font-size: var(--text-xs); max-height: 28%; overflow: auto; white-space: pre-wrap; border-top: 1px solid var(--border); }
 
 .messages { flex: 1; overflow: auto; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
 .msg { max-width: 92%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); white-space: pre-wrap; word-break: break-word; }
@@ -278,6 +296,7 @@ button.power.on::before { background: var(--warning); box-shadow: 0 0 0 3px var(
 .modal-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: var(--space-5); width: 560px; max-width: 92vw; box-shadow: var(--shadow-lg);
+  max-height: 92vh; overflow: auto;
 }
 .modal-card h2 { font-size: var(--text-xl); line-height: var(--lh-xl); margin-bottom: var(--space-2); }
 .modal-card p { margin: 0 0 var(--space-3); }
@@ -411,6 +430,13 @@ body.resizing .canvas { pointer-events: none; }
 .art-text.dark { fill: var(--slate-800); }
 .art .shield + .art-text, .art .metal ~ .art-text.dark { fill: var(--slate-800); }
 .art-image { pointer-events: none; }
+.art-text.on-canvas { fill: var(--text); }
+.art-generated .led-dome.lit { filter: drop-shadow(0 0 5px var(--led, var(--red-500))); }
+.part-body.added ~ .art-generated { opacity: .85; }
+:root[data-theme="dark"] .art-generated { filter: brightness(.82); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .art-generated { filter: brightness(.82); }
+}
 
 /* ---------- 부품함 ---------- */
 .chips { display: flex; gap: var(--space-1); padding: 0 var(--space-4) var(--space-2); overflow-x: auto; scrollbar-width: thin; flex-shrink: 0; }

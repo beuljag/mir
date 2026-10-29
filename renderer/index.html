@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: http://127.0.0.1:8002 http://localhost:8002; frame-src https://copilotstudio.microsoft.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'">
   <title>미르</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -19,8 +19,9 @@
       <button id="btnNew" class="ghost" title="새 배선">새로 만들기</button>
       <button id="btnOpen" class="ghost" title="저장한 배선 열기">열기</button>
       <button id="btnSave" class="ghost" title="배선 파일로 저장">저장</button>
+      <button id="btnBackend" class="ghost">배선 API · DB</button>
       <span class="sep"></span>
-      <span id="connPill" class="badge b-mute">데모 모드</span>
+      <span id="connPill" class="badge b-mute">데모 · AI 미연결</span>
       <button id="btnTheme" title="화이트/블랙 모드 전환">☾ 블랙 모드</button>
       <button id="btnSettings" title="에이전트 연결 설정">⚙ 연결 설정</button>
     </div>
@@ -108,6 +109,16 @@
     <aside class="side">
       <div class="panel-head"><span class="label">AI 에이전트</span></div>
 
+      <div id="webChatPanel" class="web-chat-panel hidden">
+        <div class="web-chat-help">
+          <p>중앙 설계 에이전트와 직접 대화합니다. 저장된 회로 ID는 상단 <b>배선 API · DB</b>에서 불러오세요.</p>
+          <p>로그인·대화 권한 오류나 빈 화면이 나오면 별도 창에서 확인하세요.</p>
+          <button id="btnWebChatOpen" class="small">에이전트 웹사이트 열기</button>
+        </div>
+        <iframe id="webChatFrame" title="중앙 설계 에이전트 웹 채팅" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+        <details class="web-chat-activity"><summary>API · 검증 결과</summary><div id="webActivity"></div></details>
+      </div>
+
       <div id="tab-chat" class="tab-body">
         <div id="messages" class="messages"></div>
         <div class="composer">
@@ -128,11 +139,22 @@
   <div id="settingsModal" class="modal hidden">
     <div class="modal-card">
       <h2>Copilot Studio 에이전트 연결</h2>
-      <p class="muted">Copilot Studio에서 만든 에이전트를 Direct Line으로 연결합니다. 방법을 모르면 <a href="#" id="linkConnectGuide">연결 안내 문서</a>를 열어 보세요.</p>
+      <p class="muted">새 에이전트는 웹사이트 링크로, 클래식 에이전트는 Direct Line으로 연결합니다. <a href="#" id="linkConnectGuide">연결 안내</a></p>
       <div class="radio-group">
         <label><input type="radio" name="mode" value="demo"> 데모 모드 (연결 없이 예시로 체험)</label>
+        <label><input type="radio" name="mode" value="server"> 서버 API (.env의 Direct Line 비밀 키)</label>
+        <label><input type="radio" name="mode" value="web"> 에이전트 웹사이트 (새 Copilot Studio)</label>
         <label><input type="radio" name="mode" value="secret"> Direct Line 비밀 키 (웹 채널 보안)</label>
         <label><input type="radio" name="mode" value="token"> 토큰 끝점 URL (인증 없음 에이전트)</label>
+      </div>
+      <div id="fieldWeb" class="field">
+        <label for="inWebChat">에이전트 웹사이트 URL</label>
+        <input id="inWebChat" type="url" placeholder="https://copilotstudio.microsoft.com/environments/.../bots/.../canvas?...">
+        <small>Microsoft 채팅을 화면에 표시합니다. 답변 자동 해석과 현재 배선 자동 전송은 지원하지 않습니다. 회로 ID로 DB를 불러오세요.</small>
+      </div>
+      <div id="fieldServer" class="field">
+        <p id="serverChatStatus"></p>
+        <small>Direct Line 비밀 키는 Python 서버만 읽습니다. 브라우저에는 입력하지 않습니다. 채팅은 기존 미르 화면을 사용합니다.</small>
       </div>
       <div id="fieldSecret" class="field">
         <label>Direct Line 비밀 키</label>
@@ -167,6 +189,48 @@
     </div>
   </div>
 
+  <div id="backendModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>배선 API · DB</h2>
+      <p class="muted">Copilot Studio가 만든 회로 ID를 불러오거나 현재 배선을 저장합니다. 키는 .env에서 읽어 자동으로 연결합니다.</p>
+      <button id="btnDbConnect">서버 다시 연결</button>
+      <div class="field"><label for="dbCircuitId">회로 ID</label>
+        <input id="dbCircuitId" type="text" placeholder="에이전트가 반환한 circuit_id">
+      </div>
+      <p id="dbStatus" role="status">API 연결 전</p>
+      <p class="muted">미르 기본 부품은 화면용 자료입니다. 부품 DB에 없으면 초안 저장은 가능하지만 서버 검증에서 미등록 오류가 납니다. 가상 전원 결과와 서버 검증은 별개입니다.</p>
+      <div class="modal-actions">
+        <button id="btnDbLoad">DB에서 불러오기</button>
+        <button id="btnDbSave" class="primary">현재 화면 DB 저장</button>
+        <button id="btnDbValidate">서버 검증</button>
+        <button id="btnFileVerification">KiCad 파일 검증</button>
+        <button id="btnDbClose">닫기</button>
+      </div>
+    </div>
+  </div>
+  <div id="verificationModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>KiCad 파일 검증</h2>
+      <p class="muted">별도로 만든 회로도와 모델 파일을 가져옵니다. 현재 미르 배선의 검증 상태는 변경하지 않습니다.</p>
+      <p id="verificationConfig" role="status">실행 파일 확인 전</p>
+      <div class="field"><label for="verificationFiles">회로도·하위 회로도·SPICE 모델 파일 선택</label>
+        <input id="verificationFiles" type="file" multiple accept=".kicad_sch,.kicad_pro,.lib,.inc,.mod,.cir,.sp,.model">
+      </div>
+      <div class="field"><label for="verificationFolder">또는 프로젝트 폴더 선택(하위 모델 경로 유지)</label>
+        <input id="verificationFolder" type="file" webkitdirectory directory multiple>
+      </div>
+      <div class="field"><label for="verificationMain">주 회로도</label><select id="verificationMain"></select></div>
+      <button id="btnVerificationImport">파일 가져오기</button>
+      <div class="field"><label for="verificationProjectId">가져온 프로젝트 ID</label><input id="verificationProjectId" type="text"></div>
+      <label><input id="verificationSpice" type="checkbox"> ngspice 시뮬레이션도 실행</label>
+      <div class="field"><label for="verificationAnalysis">분석 종류</label><select id="verificationAnalysis"><option value="op">DC 동작점</option><option value="transient">시간 변화</option></select></div>
+      <div class="row"><label>시간 간격(s)<input id="verificationStep" type="number" value="0.00001" step="any" min="0.000000001"></label>
+        <label>총 시간(s)<input id="verificationDuration" type="number" value="0.01" step="any" min="0.000000001"></label></div>
+      <div class="field"><label for="verificationVectors">측정 항목(선택·쉼표 구분)</label><input id="verificationVectors" placeholder="v(out), i(V1)"></div>
+      <pre id="verificationResult" role="status" style="white-space:pre-wrap;max-height:240px;overflow:auto"></pre>
+      <div class="modal-actions"><button id="btnVerificationRun" class="primary">검사 실행</button><button id="btnVerificationClose">닫기</button></div>
+    </div>
+  </div>
   <script type="module" src="app.js"></script>
 </body>
 </html>

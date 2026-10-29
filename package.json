@@ -7,6 +7,7 @@
   "author": "PLAYLABS (아산스마트팩토리마이스터고)",
   "license": "MIT",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "start": "electron .",
     "dist": "electron-builder --win portable"
   },
