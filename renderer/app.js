@@ -792,7 +792,7 @@ async function loadSettings() {
   const on = state.settings.mode !== 'demo';
   const web = state.settings.mode === 'web';
   pill.textContent = state.settings.mode === 'server'
-    ? (state.settings.serverSecretConfigured ? 'Copilot · 서버 API' : 'Copilot · .env 키 입력 필요')
+    ? (state.settings.serverSecretConfigured ? 'Copilot · 서버 API' : 'Copilot · 서버 연결 확인 필요')
     : web ? '중앙 에이전트 · 웹 채팅' : on ? 'Copilot Studio 설정됨' : '데모 · AI 미연결';
   pill.className = state.settings.mode === 'server' && !state.settings.serverSecretConfigured
     ? 'badge b-warn' : web ? 'badge b-info' : on ? 'badge b-ok' : 'badge b-mute';
@@ -823,7 +823,7 @@ async function openSettings() {
   $('inToken').value = s.tokenEndpoint || '';
   $('inWebChat').value = s.webChatUrl || '';
   $('serverChatStatus').textContent = s.serverSecretConfigured
-    ? '연결된 서버에 Direct Line 비밀 키가 설정되어 있습니다. 공유 서버는 아래 주소와 배선 API 키로 연결합니다.'
+    ? '연결된 서버에 Direct Line 비밀 키가 설정되어 있습니다. 공유 서버는 설정한 주소와 배선 API 키로 연결합니다.'
     : '로컬 서버를 실행하거나 공유 서버 주소·배선 API 키를 입력하세요. Direct Line 비밀 키는 서버 관리자가 설정합니다.';
   $('testResult').textContent = '';
   updateSettingsFields();
@@ -1022,7 +1022,7 @@ function greet() {
   if (state.settings.mode === 'web') return;
   if (state.settings.mode === 'server') {
     addMessage('system', state.settings.serverSecretConfigured
-      ? '서버 API에 자동 연결됩니다. 오른쪽 채팅창에 설계를 요청하세요. 키는 .env에서 관리합니다.'
+      ? '연결된 배선 서버를 사용합니다. 오른쪽 채팅창에 설계를 요청하세요. 연결이 안 되면 연결 설정을 확인하세요.'
       : '서버 API 모드입니다. .env의 COPILOT_DIRECT_LINE_SECRET에 비밀 키를 넣고 저장하세요. 배선 API 연결은 자동으로 처리합니다.');
     return;
   }
