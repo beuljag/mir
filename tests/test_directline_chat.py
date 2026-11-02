@@ -234,3 +234,27 @@ def test_input_hint_marks_intermediate_reply():
     assert is_progress_message('이미지 제작 에이전트에 맡깁니다.')
     assert not is_progress_message('부품을 저장했습니다.')
     assert not is_progress_message('전압이 몇 V인가요?')
+
+
+def test_design_waits_past_unrecognized_english_progress_until_saved_reference(chat):
+    client, service, env, calls = chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'[요청 종류: 배선 추천] 아두이노 우노'}).json()['request_id']
+    batches=iter([
+        [{'id':'p','type':'message','from':{'role':'bot'},'text':'Now the resistor image.'}],
+        [],
+        [{'id':'f','type':'message','from':{'role':'bot'},'text':'저장 완료\n```json\n{"type":"circuit_reference","circuit_id":"real-id","version":1}\n```'}]])
+    service.transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'activities':next(batches)}))
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='completed'
+
+
+def test_design_question_marker_finishes_without_inventing_connections(chat):
+    client, service, env, calls = chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'[요청 종류: 배선 추천] 미확인 보드'}).json()['request_id']
+    service.transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'activities':[
+        {'id':'question','type':'message','from':{'role':'bot'},'text':'어떤 센서를 연결할까요?<!--MIR_TURN_COMPLETE-->'}]}))
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='completed' and result['reply']=='어떤 센서를 연결할까요?'

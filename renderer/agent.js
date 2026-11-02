@@ -1,9 +1,14 @@
 // Copilot Studio 에이전트와 주고받는 메시지 형식.
 // 에이전트 쪽 지침은 docs/Copilot-Studio-지침.md 에 있다.
 
-export const FORMAT_REMINDER = `[응답 형식] 설명은 자유롭게 쓰되, 배선을 제안할 때는 마지막에 \`\`\`json 코드블록 하나로
-{"type":"wiring","title":"...","parts":[{"ref":"U1","part":"부품id","label":"역할"}],"connections":[{"from":"U1.핀id","to":"R1.핀id","note":"이유"}],"steps":["..."],"warnings":["..."],"code":"아두이노/파이썬 코드"}
-를 넣어 주세요. 부품id와 핀id는 [부품 목록] 또는 MCP로 생성·조회한 DB 정의에 있는 것만 쓰세요. 필요한 부품이 없으면 조사 후 CreateComponent로 미검증 정의를 저장하고 이미지 제작·적용까지 진행하세요. 핀이 없는 외형 초안에는 임의 배선을 연결하지 마세요. 수정안일 때도 전체 배선을 다시 보내 주세요.`;
+export const FORMAT_REMINDER = `[응답 형식]
+배선 설계를 요청받으면 부품·이미지 등록만으로 작업을 끝내지 마세요. 사용자 목표의 전원·GND·신호 연결까지 설계합니다.
+1. 부품id와 핀id는 [부품 목록] 또는 MCP로 생성·조회한 실제 DB 정의만 사용합니다. 부족한 부품은 조사 → CreateComponent → 이미지 제작·적용 후 회로 설계로 계속 진행합니다. 기존 부품의 pins=[]도 미완성 정의입니다. 공식 핀맵을 조사하고 확인된 핀으로 새 request_id의 새 정의를 저장해 사용합니다. 일반 모델명을 특정 버전으로 해석했다면 초안의 모델 가정을 명시합니다.
+2. MCP를 사용할 수 있으면 CreateCircuitDraft(수정은 UpdateCircuit)로 component_instances/nets/layout을 실제 저장하고, ValidateCircuit의 상태를 설명합니다. 미검증 초안 표시에는 ApplyCircuitLayout의 allow_unvalidated_draft=true를 사용합니다. 검증 통과를 꾸며내지 않습니다.
+3. 마지막에 실제 저장 결과를 JSON 코드블록으로 반환합니다: {"type":"circuit_reference","circuit_id":"저장된 실제 회로 ID","version":실제버전}. 부품 ID나 이미지 ID를 회로 ID로 쓰지 마세요. 미르가 이 ID로 배선 그림을 불러옵니다.
+4. MCP로 회로를 저장하지 못했으나 확인된 핀으로 화면용 초안을 만들 수 있으면 기존 형식 {"type":"wiring","title":"...","parts":[{"ref":"U1","part":"부품id","label":"역할"}],"connections":[{"from":"U1.핀id","to":"R1.핀id","note":"이유"}],"steps":["..."],"warnings":["..."],"code":"..."}을 JSON 코드블록으로 반환합니다. 이때 DB 저장 완료라고 말하지 마세요.
+5. 핀이나 필수 사양이 부족하면 임의 배선을 만들지 말고, 부족한 정보와 실제 저장한 초안의 상태를 설명하고 질문하세요. 단순 질문이나 부품 등록만 요청한 경우 불필요한 회로를 만들지 않습니다.`;
+
 
 export function buildCatalog(defs) {
   const lines = ['[부품 목록] 형식: 부품id | 이름 | 핀id:종류:전압(허용범위)[기능]'];
@@ -36,7 +41,7 @@ export function buildRecommendRequest(goal) {
 }
 
 export function buildChatRequest(text, snapshot) {
-  if (!snapshot) return text;
+  if (!snapshot) return `${text}\n\n${FORMAT_REMINDER}`;
   return `${text}\n\n[현재 배선]\n\`\`\`json\n${JSON.stringify(snapshot)}\n\`\`\`\n\n${FORMAT_REMINDER}`;
 }
 

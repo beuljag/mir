@@ -63,6 +63,21 @@ def settings(env_file=None):
             'configured': bool(secret)}
 
 
+FINAL_MARKER = '<!--MIR_TURN_COMPLETE-->'
+
+
+def has_design_result(text):
+    candidates = re.findall(r'```(?:json)?\s*([\s\S]*?)```', text)
+    candidates.append(text)
+    for candidate in candidates:
+        try: data = json.loads(candidate)
+        except (ValueError, TypeError): continue
+        if isinstance(data, dict) and (isinstance(data.get('circuit_id'), str)
+                or (data.get('type') == 'wiring' and isinstance(data.get('parts'), list) and data['parts'])):
+            return True
+    return False
+
+
 def is_progress_message(text, input_hint=None):
     # Bot Framework의 ignoringInput과 명확한 진행 안내는 최종 응답이 아니다.
     if input_hint == 'ignoringInput': return True
@@ -121,6 +136,8 @@ class Session:
     received: dict = field(default_factory=dict)
     sent_activity_id: str | None = None
     awaiting_work: bool = False
+    requires_design_result: bool = False
+    final_result_seen: bool = False
 
 
 class DirectLineChat:
@@ -206,7 +223,11 @@ class DirectLineChat:
                 raise ChatError(409, 'CHAT_REQUEST_IN_PROGRESS')
             if session.status == 'failed':
                 raise ChatError(409, 'CHAT_SESSION_NEEDS_RESET')
+            session.requires_design_result = '[요청 종류: 배선 추천]' in message
+            session.final_result_seen = False
             text = (catalog + '\n\n' if catalog and not session.catalog_sent else '') + message
+            if session.requires_design_result:
+                text += '\n\n[미르 응답 계약] 진행 중 안내는 최종 결과가 아닙니다. 실제 회로 저장 결과 또는 화면용 배선 JSON까지 실행하세요. 최종 답변은 한국어로 작성하고 맨 마지막에 ' + FINAL_MARKER + '를 붙이세요. 정보가 부족해 작업을 멈추고 질문하는 경우에도 마지막에 이 표식을 붙이세요. 단순 중간 안내에는 표식을 붙이지 마세요.'
             if len(text.encode('utf-8')) > 200000:
                 raise ChatError(422, 'CHAT_MESSAGE_TOO_LARGE')
             # 초기 인사와 이전 응답이 다음 요청의 응답으로 섞이지 않게 현재 위치를 읽는다.
@@ -269,9 +290,12 @@ class DirectLineChat:
                                    input_hint=activity.get('inputHint') if activity.get('inputHint') in ('acceptingInput','ignoringInput','expectingInput') else None,
                                    attachment_count=len(attachments) if isinstance(attachments, list) else 0)
                         text = activity_text(activity)
+                        final_marked = FINAL_MARKER in text
+                        text = text.replace(FINAL_MARKER, '').strip()
                         if activity.get('type') == 'message' and isinstance(text, str) and text:
                             session.replies.append(text)
-                            session.awaiting_work = is_progress_message(text, activity.get('inputHint'))
+                            session.final_result_seen = session.final_result_seen or final_marked or has_design_result(text) or activity.get('inputHint') == 'expectingInput'
+                            session.awaiting_work = (session.requires_design_result and not session.final_result_seen) or (not session.final_result_seen and is_progress_message(text, activity.get('inputHint')))
                             session.last_reply = time.monotonic()
                             if text.lstrip().startswith('Connection Required') and 'Set up your connection' in text:
                                 session.status, session.error = 'failed', 'COPILOT_TOOL_CONNECTION_REQUIRED'

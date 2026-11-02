@@ -1,5 +1,5 @@
 import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js';
-import { runtimeApi } from './web-api.js?v=chat-recovery-2';
+import { runtimeApi } from './web-api.js?v=circuit-display-3';
 
 export function initBackendPanel({ getState, replace, renderParts, message }) {
   const $ = (id) => document.getElementById(id);
@@ -11,7 +11,7 @@ export function initBackendPanel({ getState, replace, renderParts, message }) {
     if (busy) return;
     busy = true;
     ['btnDbConnect', 'btnDbLoad', 'btnDbSave', 'btnDbValidate', 'btnDbClose'].forEach((id) => { $(id).disabled = true; });
-    try { await action(); }
+    try { return await action(); }
     catch (e) { status(`실패: ${e.message}`); message(`배선 API: ${e.message}`); }
     finally {
       busy = false;
@@ -99,5 +99,9 @@ export function initBackendPanel({ getState, replace, renderParts, message }) {
   const linked = new URLSearchParams(location.search).get('circuit');
   if (linked) { $('dbCircuitId').value = linked; $('backendModal').classList.remove('hidden'); }
   return { reset, connectAutomatically: () => run(connect), refreshAfterAgent: () => client ? run(connect) : Promise.resolve(),
-    openCircuit: (id) => { $('dbCircuitId').value = id; $('backendModal').classList.remove('hidden'); } };
+    openCircuit: (id, { showPanel = true } = {}) => {
+      $('dbCircuitId').value = id;
+      if (showPanel) $('backendModal').classList.remove('hidden');
+      return run(load);
+    } };
 }
