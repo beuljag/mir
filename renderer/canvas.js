@@ -1,6 +1,7 @@
 // 2D 가상 실습 화면 (SVG). 부품 배치, 배선 그리기/삭제, 핀 정보, 가상 전원 표시를 담당한다.
 import { pinKey, splitKey } from './sim.js';
-import { drawArt, lookOf, BARE, labelInset } from './art.js';
+import { drawArt, lookOf, BARE, isBareArt, labelInset } from './art.js';
+import { routeWire, routeWires, pointsToPath, softAlignedPath } from './wire-router.js';
 import { defFor } from './props.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -41,8 +42,6 @@ export function layoutPart(def) {
   return def._layout;
 }
 
-const DIR = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] };
-
 export function wireColor(fromPin, toPin) {
   const types = [fromPin?.type, toPin?.type];
   const fns = [...(fromPin?.functions || []), ...(toPin?.functions || [])].join(' ');
@@ -70,6 +69,11 @@ export class WiringCanvas {
     this.selected = null;
     this.pending = null;
     this.mouse = { x: 0, y: 0 };
+    this.routeCacheKey = null;
+    this.wireStyle = "curve";
+    this.routingPaths = new Map();
+    this.routingObstacles = [];
+    this.routeWarnings = new Set();
     this.defsLayer = el('defs', {}, svg);
     this.defsLayer.innerHTML = `
       <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -92,13 +96,13 @@ export class WiringCanvas {
     return i && defFor(this.getDefs(), i);
   }
 
-  pinPos(key) {
+  pinPos(key, instances = this.instances) {
     const [ref, pid] = splitKey(key);
-    const i = this.instances.find((x) => x.ref === ref);
+    const i = instances.find((x) => x.ref === ref);
     const def = i && defFor(this.getDefs(), i);
     if (!def) return null;
     const p = layoutPart(def).pos[pid];
-    return p && { x: i.x + p.x, y: i.y + p.y, side: p.side, def: p.def };
+    return p && { x: i.x + p.x, y: i.y + p.y, side: p.side, owner: ref, def: p.def };
   }
 
   applyView() {
@@ -242,6 +246,7 @@ export class WiringCanvas {
   deleteSelected() {
     const s = this.selected;
     if (!s) return false;
+    if (!confirm(s.type === 'part' ? '선택한 부품과 연결된 선을 삭제할까요?' : '선택한 선을 삭제할까요?')) return false;
     if (s.type === 'wire') this.wires = this.wires.filter((w) => w.id !== s.id);
     if (s.type === 'part') {
       this.instances = this.instances.filter((i) => i.ref !== s.ref);
@@ -255,10 +260,75 @@ export class WiringCanvas {
   }
 
   wirePath(a, b) {
-    const [dx1, dy1] = DIR[a.side] || [1, 0];
-    const [dx2, dy2] = DIR[b.side] || [-1, 0];
-    const d = Math.min(120, Math.max(40, Math.hypot(b.x - a.x, b.y - a.y) / 3));
-    return `M${a.x} ${a.y} C${a.x + dx1 * d} ${a.y + dy1 * d} ${b.x + dx2 * d} ${b.y + dy2 * d} ${b.x} ${b.y}`;
+    if (this.wireStyle === 'curve') {
+      // Preserve upstream's flexible lead shape, rather than rounding an orthogonal route.
+      const dirs={left:[-1,0],right:[1,0],top:[0,-1],bottom:[0,1]};
+      const [dx1,dy1]=dirs[a.side]||[1,0], [dx2,dy2]=dirs[b.side]||[-1,0];
+      const d=Math.min(120,Math.hypot(b.x-a.x,b.y-a.y)/3);
+      return `M${a.x} ${a.y} C${a.x+dx1*d} ${a.y+dy1*d} ${b.x+dx2*d} ${b.y+dy2*d} ${b.x} ${b.y}`;
+    }
+    const gentle=softAlignedPath(a,b,this.routingObstacles);
+    if(gentle)return gentle;
+    const result = routeWire(a, b, this.routingObstacles, [], { maxVisited: 2000 });
+    return pointsToPath(result.points, this.wireStyle === "curve" ? 10 : 5, this.wireStyle === "curve");
+  }
+
+  shadeOverlappingWires() {
+    const paths=[...this.wireLayer.querySelectorAll('.wire')].sort((a,b)=>a.dataset.id.localeCompare(b.dataset.id));
+    const cells=new Map();let rank=0;
+    for(const path of paths){
+      const length=path.getTotalLength(),samples=[],step=Math.max(3,length/500),trim=Math.min(8,length*.1);
+      for(let t=trim;t<length-trim;t+=step){
+        const p=path.getPointAtLength(t),before=path.getPointAtLength(Math.max(0,t-1)),after=path.getPointAtLength(Math.min(length,t+1));
+        const dx=after.x-before.x,dy=after.y-before.y,n=Math.hypot(dx,dy)||1;
+        const s={p,t,x:Math.floor(p.x/4),y:Math.floor(p.y/4),dx:dx/n,dy:dy/n,overlap:false};
+        for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(const q of cells.get(`${s.x+x},${s.y+y}`)||[]){
+          if(Math.hypot(p.x-q.p.x,p.y-q.p.y)<3 && Math.abs(s.dx*q.dx+s.dy*q.dy)>.95)s.overlap=true;
+        }
+        samples.push(s);
+      }
+      let run=[];
+      const flush=()=>{
+        if(run.length>=3 && run.at(-1).t-run[0].t>=8){
+          const points=run.map(s=>s.p),d=points.map((p,i)=>`${i?'L':'M'}${p.x} ${p.y}`).join(' ');
+          const overlay=el('path',{d,class:'wire-overlap-shade',style:`stroke:${path.style.stroke};filter:brightness(${rank%2 ? .82 : 1.18})`},this.wireLayer);
+          overlay.dataset.wireId=path.dataset.id;path.dataset.overlap='true';rank++;
+        }
+        run=[];
+      };
+      for(const s of samples){if(s.overlap)run.push(s);else flush();}flush();
+      for(const s of samples){const key=`${s.x},${s.y}`;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(s);}
+    }
+  }
+
+  updateRoutes(instances, wires) {
+    const defs = this.getDefs();
+    const obstacles = instances.flatMap(i => {
+      const def = defFor(defs, i);
+      if (!def) return [{ id: i.ref, x: i.x, y: i.y, width: 140, height: 40 }];
+      const { w, h } = layoutPart(def);
+      return [{ id: i.ref, x: i.x, y: i.y, width: w, height: h }];
+    });
+    const connections = wires.flatMap(w => {
+      const start = this.pinPos(w.from, instances), end = this.pinPos(w.to, instances);
+      if (!start || !end) return [];
+      const point = p => ({ x: p.x, y: p.y, side: p.side, owner: p.owner });
+      return [{ id: w.id, start: point(start), end: point(end) }];
+    });
+    const key = JSON.stringify([obstacles, connections, this.wireStyle]);
+    if (key === this.routeCacheKey) return;
+    this.routingObstacles = obstacles;
+    this.routingPaths = routeWires(connections, obstacles);
+    this.routeWarnings = new Set();
+    for (const [id, route] of this.routingPaths) {
+      route.path = pointsToPath(route.points, this.wireStyle === "curve" ? 10 : 5, this.wireStyle === "curve");
+      if(this.wireStyle==='straight') {
+        const connection=connections.find(w=>w.id===id);
+        if(connection){const gentle=softAlignedPath(connection.start,connection.end,obstacles);if(gentle){route.path=gentle;route.blocked=false;}}
+      }
+      if (route.blocked) this.routeWarnings.add(id);
+    }
+    this.routeCacheKey = key;
   }
 
   drawOverlay() {
@@ -287,33 +357,38 @@ export class WiringCanvas {
     const power = !!this.sim;
     this.wireLayer.replaceChildren();
     this.partLayer.replaceChildren();
+    const shown = [...this.instances, ...(this.preview?.addedParts || [])];
+    this.updateRoutes(shown, [...this.wires, ...(this.preview?.added || [])]);
 
     // 배선: 바탕색 테두리(케이싱) 위에 실선을 그리고, 전원이 흐르면 그 위로 밝은 펄스만 움직인다.
     // 끝이 연결된 핀은 선 색으로 채워서 꽂힌 것처럼 보이게 한다.
     const pinColor = {};
     const drawWire = (w, cls) => {
-      const a = this.pinPos(w.from);
-      const b = this.pinPos(w.to);
+      const a = this.pinPos(w.from, shown);
+      const b = this.pinPos(w.to, shown);
       if (!a || !b) return;
       const net = power ? this.sim.netByPin[w.from] : null;
       const color = power ? this.netColor(net) : wireColor(a.def, b.def);
       const sel = this.selected?.type === 'wire' && this.selected.id === w.id;
-      const d = this.wirePath(a, b);
+      const route = this.routingPaths.get(w.id);
+      const d = this.wireStyle === "curve" ? this.wirePath(a,b) : route?.path || this.wirePath(a, b);
       if (!cls) { pinColor[w.from] = color; pinColor[w.to] = color; }
       el('path', { d, class: 'wire-hit', 'data-kind': 'wire', 'data-id': w.id }, this.wireLayer);
-      el('path', { d, class: `wire-casing ${cls || ''}` }, this.wireLayer);
+      el('path', { d, class: `wire-casing ${cls || ''}`, 'data-wire-id':w.id }, this.wireLayer);
       const p = el('path', {
-        d, style: `stroke:${color}`, class: `wire ${cls || ''} ${sel ? 'selected' : ''} ${net?.short ? 'short' : ''}`,
+        d, style: `stroke:${color}`, class: `wire ${cls || ''} ${sel ? 'selected' : ''} ${net?.short ? 'short' : ''} ${this.wireStyle !== 'curve' && route?.blocked ? 'routing-blocked' : ''}`,
         'data-kind': 'wire', 'data-id': w.id
       }, this.wireLayer);
+      if (this.wireStyle !== 'curve' && route?.blocked) el('title', {}, p).textContent = '부품이 겹치거나 핀 주변 여백이 부족합니다. 부품을 조금 떨어뜨려 주세요.';
       if (w.origin === 'ai') p.classList.add('ai');
       if (power && net?.voltage > 0 && !net.short && !cls) el('path', { d, class: 'wire-pulse' }, this.wireLayer);
     };
     for (const w of this.wires) drawWire(w, this.preview?.removed.has(w.id) ? 'removed' : '');
     if (this.preview) for (const w of this.preview.added) drawWire(w, 'added');
 
+    this.shadeOverlappingWires();
+
     // 부품
-    const shown = [...this.instances, ...(this.preview?.addedParts || [])];
     for (const i of shown) {
       const def = defFor(defs, i);
       const isPreview = this.preview?.addedParts?.includes(i);
@@ -327,10 +402,10 @@ export class WiringCanvas {
       const st = this.sim?.parts[i.ref] || {};
       const sel = this.selected?.type === 'part' && this.selected.ref === i.ref;
       const look = lookOf(def);
-      const bare = BARE.has(look) && !def.imageData;
+      const bare = isBareArt(def);
       // 맨 소자(LED·저항 등)는 캔버스 바탕 위에 그리므로 글자색을 화면 테마에 맞춘다
       const light = bare ? null : isLight(def.color);
-      const tone = bare ? 'on-canvas' : light ? 'dark' : '';
+      const tone = bare || def.imageData ? 'on-canvas' : light ? 'dark' : '';
       el('rect', {
         width: w, height: h, rx: 8, style: bare ? null : def.imageData ? 'fill:transparent' : `fill:${def.color || 'var(--slate-600)'}`,
         class: `part-body ${bare ? 'bare' : ''} ${sel ? 'selected' : ''} ${isPreview ? 'added' : ''}`
@@ -384,7 +459,12 @@ export class WiringCanvas {
       }
       if (st.on) el('rect', { x: 36, y: 20, width: w - 44, height: h - 44, rx: 6, class: 'load-on' }, g);
     } else if (b.kind === 'i2c-device' && b.display) {
-      const sx = 14, sy = 34 + layoutPart(def).top, sw = w - 28, sh = Math.max(26, h - 52 - layoutPart(def).top);
+      // 외부 그림의 화면 영역은 전체 크기 대비 비율로 지정한다.
+      const area = def.imageData && def.imageDisplay;
+      const sx = area ? area.x * w : 14;
+      const sy = area ? area.y * h : 34 + layoutPart(def).top;
+      const sw = area ? area.width * w : w - 28;
+      const sh = area ? area.height * h : Math.max(26, h - 52 - layoutPart(def).top);
       el('rect', { x: sx, y: sy, width: sw, height: sh, rx: 3, class: 'oled-screen' }, g);
       if (st.powered && st.linked) {
         const t = el('text', { x: sx + sw / 2, y: sy + sh / 2 + 4, 'text-anchor': 'middle', class: 'oled-text' }, g);

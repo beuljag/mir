@@ -1,3 +1,14 @@
 node_modules/
 dist/
 .env
+.ux/
+
+work/
+release*/
+.venv/
+__pycache__/
+.pytest_cache/
+data/
+*.db
+
+logs/
