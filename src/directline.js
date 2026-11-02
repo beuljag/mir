@@ -137,4 +137,5 @@ class DirectLineClient {
   }
 }
 
-module.exports = { DirectLineClient };
+if (typeof module !== 'undefined' && module.exports) module.exports = { DirectLineClient };
+else globalThis.MirDirectLineClient = DirectLineClient;

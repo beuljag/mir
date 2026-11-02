@@ -1,0 +1,99 @@
+// 서버의 Direct Line 연결을 미르의 기존 채팅 UI에 붙인다. 비밀 키는 받지 않는다.
+export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let apiKey = '', sessionId = null, selectedMode = null, generation = 0, inFlight = false, sessionTimeout = 300;
+  const messages = {
+    CIRCUIT_API_KEY_REQUIRED: '서버에 연결되지 않았습니다. 연결 설정의 서버 주소·배선 API 키 또는 서버와 터널 실행 상태를 확인하세요.',
+    COPILOT_TOOL_CONNECTION_REQUIRED: 'Copilot Studio의 CircuitAgent 도구 연결이 필요합니다. 도구의 연결 계정·자격 증명을 확인하고 에이전트를 다시 게시하세요. Direct Line 키를 바꿀 문제는 아닙니다.',
+    COPILOT_SECRET_NOT_CONFIGURED: '서버 .env의 COPILOT_DIRECT_LINE_SECRET에 Direct Line 비밀 키를 넣으세요.',
+    DIRECT_LINE_AUTH_FAILED: 'Direct Line 인증에 실패했습니다. 비밀 키와 지역별 Direct Line 주소를 확인하세요.',
+    DIRECT_LINE_REPLY_TIMEOUT: '응답 대기 시간이 끝났습니다. 다음 요청은 새 대화로 연결됩니다. 기존 요청은 자동 재전송하지 않으니 DB에 부품이 생성됐는지 먼저 확인하세요.',
+    CHAT_SESSION_NEEDS_RESET: '새로 만들기로 대화를 다시 연 뒤 요청하세요.',
+    DIRECT_LINE_ENDED_WITHOUT_REPLY: '에이전트가 답변 없이 대화를 종료했습니다. 다음 요청은 새 대화로 연결됩니다.',
+    CHAT_SESSION_EXPIRED: '대화가 만료됐습니다. 새로 만들기로 다시 시작하세요.'
+  };
+  function error(code, status) {
+    const e = new Error(messages[code] || code); e.code = code; e.status = status; return e;
+  }
+  async function call(path, method = 'GET', body) {
+    const response = await base.requestCircuit(path, {
+      method, headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-API-Key': apiKey } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
+    if (response.status >= 400) throw error(response.body?.detail?.code || `HTTP ${response.status}`, response.status);
+    return response.body;
+  }
+  async function requireKey() {
+    if (!apiKey && !(await base.getAutoAuthStatus?.())?.ready) throw error('CIRCUIT_API_KEY_REQUIRED');
+  }
+  function checkGeneration(value) { if (value !== generation) throw error('CHAT_RESET'); }
+  return {
+    ...base,
+    setCircuitKey: (key) => {
+      if (key !== apiKey) { apiKey = key; sessionId = null; generation++; }
+    },
+    getSettings: async () => {
+      const previous = await base.getSettings();
+      let config;
+      try { config = await call('/chat/config'); } catch { config = null; }
+      const mode = selectedMode || (config?.mode === 'directline' ? 'server' : previous.mode);
+      const autoAuth = await base.getAutoAuthStatus?.();
+      return { ...previous, mode, serverSecretConfigured: !!config?.configured, apiKeyReady: !!apiKey || !!autoAuth?.ready };
+    },
+    setSettings: async (settings) => {
+      await base.setSettings(settings);
+      selectedMode = settings.mode;
+    },
+    sendToAgent: async (text, catalog, onProgress = () => {}) => {
+      if (selectedMode !== 'server') return base.sendToAgent(text, catalog);
+      await requireKey();
+      if (inFlight) throw error('CHAT_REQUEST_IN_PROGRESS');
+      const current = generation;
+      inFlight = true;
+      let usedSession = sessionId;
+      try {
+        if (!sessionId) {
+          onProgress({ stage: 'opening' });
+          const opened = await call('/chat/sessions', 'POST');
+          checkGeneration(current); sessionId = opened.session_id;
+          usedSession = sessionId;
+          sessionTimeout = opened.reply_timeout_seconds || 300;
+        }
+        const sent = await call(`/chat/sessions/${sessionId}/messages`, 'POST', { message: text, catalog: catalog || '' });
+        onProgress({ stage: 'waiting' });
+        checkGeneration(current);
+        const until = Date.now() + (sessionTimeout + 30) * 1000;
+        while (Date.now() < until) {
+          await sleep(900); checkGeneration(current);
+          const result = await call(`/chat/sessions/${sessionId}/messages/${sent.request_id}`);
+          onProgress({ stage: result.bot_message_count ? 'receiving' : 'waiting', ...result });
+          checkGeneration(current);
+          if (result.status === 'completed') return { reply: result.reply };
+          if (result.status === 'failed') throw error(result.error || 'DIRECT_LINE_REPLY_FAILED');
+        }
+        throw error('DIRECT_LINE_REPLY_TIMEOUT');
+      } catch (failure) {
+        // 실패한 요청을 재전송하지 않는다. 다음 사용자의 요청만 새 대화로 보낸다.
+        if (generation === current && sessionId === usedSession) {
+          sessionId = null;
+          if (usedSession) void call(`/chat/sessions/${usedSession}`, 'DELETE').catch(() => {});
+        }
+        throw failure;
+      } finally { inFlight = false; }
+    },
+    testAgent: async () => {
+      if (selectedMode !== 'server') return base.testAgent();
+      await requireKey();
+      const opened = await call('/chat/sessions', 'POST');
+      await call(`/chat/sessions/${opened.session_id}`, 'DELETE');
+      return '서버 .env의 키로 Direct Line 대화 생성에 성공했습니다. 실제 답변은 채팅에서 확인하세요.';
+    },
+    resetAgent: async () => {
+      const previous = sessionId; sessionId = null; generation++;
+      if (previous) {
+        try { await call(`/chat/sessions/${previous}`, 'DELETE'); } catch { /* 만료된 대화는 서버에서 정리한다. */ }
+      }
+      await base.resetAgent();
+    },
+    selectMode: (mode) => { selectedMode = mode; }
+  };
+}

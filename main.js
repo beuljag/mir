@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('ele
 const path = require('path');
 const fs = require('fs');
 const { DirectLineClient } = require('./src/directline');
+const { validateWebChatUrl, readWebChatDefaults } = require('./renderer/web-chat');
 
 const builtinPartsDir = app.isPackaged
   ? path.join(process.resourcesPath, 'parts')
@@ -12,8 +13,45 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 let client = null;
 let catalogSentFor = null;
 
-// ---------- .env (COPILOT_DIRECT_LINE_SECRET=키, 큰따옴표 없이) ----------
-// 개발 중에는 프로젝트 폴더, .exe로 실행하면 .exe가 있는 폴더의 .env를 읽는다
+const { updateConnection, createTransport } = require('./renderer/server-connection');
+const connectionFile = () => path.join(app.getPath('userData'), 'server-connection.json');
+function readConnection() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(connectionFile(), 'utf8'));
+    return { mode: raw.mode, url: raw.url, key: raw.keyEnc && safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(raw.keyEnc, 'base64')) : '' };
+  } catch {
+    try {
+      const defaults = JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'server-defaults.json'), 'utf8'));
+      return { mode: 'remote', url: defaults.sharedServerUrl, key: '' };
+    } catch { return { mode: 'local', url: '', key: '' }; }
+  }
+}
+const requestCircuit = createTransport({ read: readConnection });
+ipcMain.handle('circuit:getConnection', () => {
+  const config = readConnection();
+  return { mode: config.mode, url: config.url, hasKey: !!config.key };
+});
+ipcMain.handle('circuit:setConnection', (_e, input) => {
+  const config = updateConnection(readConnection(), input);
+  if (config.key && !safeStorage.isEncryptionAvailable()) throw new Error('Windows 키 암호화를 사용할 수 없습니다. 이 PC의 로그인 상태를 확인하세요.');
+  const stored = { mode: config.mode, url: config.url, ...(config.key ? { keyEnc: safeStorage.encryptString(config.key).toString('base64') } : {}) };
+  fs.mkdirSync(path.dirname(connectionFile()), { recursive: true });
+  fs.writeFileSync(connectionFile(), JSON.stringify(stored, null, 2));
+  return true;
+});
+ipcMain.handle('circuit:autoStatus', async () => {
+  try {
+    if (readConnection().mode === 'remote') {
+      const response = await requestCircuit('/chat/config');
+      return { ready: response.status === 200, remote: true };
+    }
+    const response = await fetch('http://127.0.0.1:8002/local-connection/status', { signal: AbortSignal.timeout(4000) });
+    return response.ok ? response.json() : { ready: false };
+  } catch { return { ready: false }; }
+});
+ipcMain.handle('circuit:request', (_e, { path: route, options = {} }) => requestCircuit(route, options));
+
+// ---------- 설정 (비밀 키는 Windows 자격 증명으로 암호화해 저장) ----------
 function readEnvSecret() {
   const dir = app.isPackaged
     ? process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath)
@@ -40,7 +78,7 @@ function readServerUrl() {
 // ⚙에서 저장한 키가 없으면 .env의 키를 쓴다.
 // 설정을 한 번도 저장하지 않았으면 .env 키 → app-config.json 서버 → 데모 모드 순서로 고른다.
 function loadSettings(withEnv = true) {
-  const envSecret = withEnv ? readEnvSecret() : '';
+  const envSecret = withEnv ? readEnvSecret() : "";
   try {
     const raw = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
     if (raw.secretEnc && safeStorage.isEncryptionAvailable()) {
@@ -52,13 +90,16 @@ function loadSettings(withEnv = true) {
     return raw;
   } catch {
     if (envSecret) return { mode: 'secret', secret: envSecret, tokenEndpoint: '' };
-    const serverUrl = readServerUrl();
-    return { mode: serverUrl ? 'token' : 'demo', secret: '', tokenEndpoint: serverUrl };
+    const legacyServer = readServerUrl();
+    if (legacyServer) return { mode: 'token', secret: '', tokenEndpoint: legacyServer };
+    try { return readWebChatDefaults(JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'agent-config.json'), 'utf8'))); }
+    catch { return { mode: 'demo', secret: '', tokenEndpoint: '' }; }
   }
 }
 
 function saveSettings(s) {
   const out = { mode: s.mode, tokenEndpoint: s.tokenEndpoint || '' };
+  if (s.mode === 'web') out.webChatUrl = validateWebChatUrl(s.webChatUrl);
   if (s.secret) {
     if (safeStorage.isEncryptionAvailable()) {
       out.secretEnc = safeStorage.encryptString(s.secret).toString('base64');
@@ -170,6 +211,15 @@ function createWindow() {
     }
   });
   win.setMenuBarVisibility(false);
+  win.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'question', title: '미르 종료',
+      message: '저장하지 않은 작업이 있어요. 종료할까요?',
+      detail: '계속 편집을 선택하면 돌아가서 작업을 저장할 수 있어요.',
+      buttons: ['계속 편집', '저장하지 않고 종료'], defaultId: 0, cancelId: 0
+    });
+    if (choice === 1) event.preventDefault();
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
@@ -180,11 +230,11 @@ ipcMain.handle('app:icon', () => {
 
 ipcMain.handle('settings:get', () => {
   const s = loadSettings();
-  return { mode: s.mode, tokenEndpoint: s.tokenEndpoint, hasSecret: !!s.secret };
+  return { mode: s.mode, tokenEndpoint: s.tokenEndpoint, webChatUrl: s.webChatUrl, hasSecret: !!s.secret };
 });
 
 ipcMain.handle('settings:set', (_e, s) => {
-  const prev = loadSettings(false); // .env 키는 settings.json에 복사하지 않는다
+  const prev = loadSettings(false);
   saveSettings({ ...s, secret: s.secret || (s.mode === 'secret' ? prev.secret : '') });
   return true;
 });
@@ -192,6 +242,7 @@ ipcMain.handle('settings:set', (_e, s) => {
 ipcMain.handle('agent:send', async (_e, { text, catalog }) => {
   const s = loadSettings();
   if (s.mode === 'demo') return { demo: true };
+  if (s.mode === 'web') throw new Error('Microsoft 웹 채팅에서 메시지를 보내세요.');
   if (!client) client = new DirectLineClient(s);
   if (!client.conversationId) await client.start();
   let message = text;
@@ -212,6 +263,10 @@ ipcMain.handle('agent:reset', () => {
 ipcMain.handle('agent:test', async () => {
   const s = loadSettings();
   if (s.mode === 'demo') return '데모 모드입니다.';
+  if (s.mode === 'web') {
+    validateWebChatUrl(s.webChatUrl);
+    return '웹 채팅 URL 형식을 확인했습니다. 실제 대화 권한과 응답은 채팅 화면에서 확인하세요.';
+  }
   const c = new DirectLineClient(s);
   await c.start();
   return '연결 성공! 에이전트와 대화를 열었습니다.';
@@ -256,25 +311,26 @@ ipcMain.handle('parts:template', async () => {
   return true;
 });
 
-ipcMain.handle('project:save', async (_e, data) => {
-  const r = await dialog.showSaveDialog({
-    title: '배선 저장',
-    defaultPath: 'wiring.mir.json',
-    filters: [{ name: '미르 배선', extensions: ['json'] }]
-  });
-  if (r.canceled) return false;
-  fs.writeFileSync(r.filePath, JSON.stringify(data, null, 2));
+let projectPath = null;
+ipcMain.handle('project:new', () => { projectPath = null; });
+ipcMain.handle('project:save', async (_e, data, saveAs = false) => {
+  let target = projectPath;
+  if (saveAs || !target) {
+    const r = await dialog.showSaveDialog({ title: saveAs ? '다른 이름으로 저장' : '배선 저장', defaultPath: target || 'wiring.mir.json', filters: [{ name: '미르 배선', extensions: ['json'] }] });
+    if (r.canceled) return false;
+    target = r.filePath;
+  }
+  await fs.promises.writeFile(target, JSON.stringify(data, null, 2));
+  projectPath = target;
   return true;
 });
-
 ipcMain.handle('project:open', async () => {
-  const r = await dialog.showOpenDialog({
-    title: '배선 열기',
-    filters: [{ name: '미르 배선', extensions: ['json'] }],
-    properties: ['openFile']
-  });
+  const r = await dialog.showOpenDialog({ title: '배선 열기', filters: [{ name: '미르 배선', extensions: ['json'] }], properties: ['openFile'] });
   if (r.canceled) return null;
-  return JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8'));
+  const data = JSON.parse(await fs.promises.readFile(r.filePaths[0], 'utf8'));
+  if (!data || data.format !== 'mir-wiring/1' || !Array.isArray(data.instances) || !Array.isArray(data.wires)) throw new Error('미르 배선 파일을 선택해 주세요.');
+  projectPath = r.filePaths[0];
+  return data;
 });
 
 ipcMain.handle('docs:open', (_e, name) => {
@@ -283,4 +339,5 @@ ipcMain.handle('docs:open', (_e, name) => {
 });
 
 app.whenReady().then(createWindow);
+ipcMain.handle('agent:openWebsite', (_e, url) => shell.openExternal(validateWebChatUrl(url)));
 app.on('window-all-closed', () => app.quit());

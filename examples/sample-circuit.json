@@ -1,0 +1,87 @@
+{
+  "name": "가상 센서 연결 테스트",
+  "requirements": "소프트웨어 테스트용. 실제 배선 금지.",
+  "component_instances": [
+    {
+      "instance_id": "P1",
+      "component_definition_id": "virtual-supply"
+    },
+    {
+      "instance_id": "S1",
+      "component_definition_id": "virtual-sensor"
+    },
+    {
+      "instance_id": "U1",
+      "component_definition_id": "virtual-controller"
+    }
+  ],
+  "nets": [
+    {
+      "net_id": "power",
+      "connected_pin_refs": [
+        {
+          "instance_id": "P1",
+          "pin_id": "VOUT"
+        },
+        {
+          "instance_id": "S1",
+          "pin_id": "VCC"
+        },
+        {
+          "instance_id": "U1",
+          "pin_id": "VCC"
+        }
+      ]
+    },
+    {
+      "net_id": "ground",
+      "connected_pin_refs": [
+        {
+          "instance_id": "P1",
+          "pin_id": "GND"
+        },
+        {
+          "instance_id": "S1",
+          "pin_id": "GND"
+        },
+        {
+          "instance_id": "U1",
+          "pin_id": "GND"
+        }
+      ]
+    },
+    {
+      "net_id": "signal",
+      "connected_pin_refs": [
+        {
+          "instance_id": "S1",
+          "pin_id": "OUT"
+        },
+        {
+          "instance_id": "U1",
+          "pin_id": "IN"
+        }
+      ]
+    }
+  ],
+  "layout": [
+    {
+      "instance_id": "P1",
+      "x": 70.0,
+      "y": 100.0,
+      "rotation": 0.0
+    },
+    {
+      "instance_id": "S1",
+      "x": 392.0,
+      "y": 219.0,
+      "rotation": 0.0
+    },
+    {
+      "instance_id": "U1",
+      "x": 700.0,
+      "y": 100.0,
+      "rotation": 0.0
+    }
+  ]
+}
