@@ -35,8 +35,8 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
       const previous = await base.getSettings();
       let config;
       try { config = await call('/chat/config'); } catch { config = null; }
-      const mode = selectedMode || (config?.mode === 'directline' ? 'server' : previous.mode);
       const autoAuth = await base.getAutoAuthStatus?.();
+      const mode = selectedMode || (previous.mode === 'demo' && config?.mode === 'directline' && config.configured && autoAuth?.ready ? 'server' : previous.mode);
       return { ...previous, mode, serverSecretConfigured: !!config?.configured, apiKeyReady: !!apiKey || !!autoAuth?.ready };
     },
     setSettings: async (settings) => {

@@ -1,3 +1,4 @@
+import { confirmAction } from './confirm-dialog.js';
 import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js';
 import { runtimeApi } from './web-api.js?v=chat-recovery-2';
 
@@ -40,7 +41,7 @@ export function initBackendPanel({ getState, replace, renderParts, message }) {
     await requireClient();
     const id = $('dbCircuitId').value.trim();
     if (!id) throw new Error('에이전트가 반환한 회로 ID를 입력하세요.');
-    if (getState().instances.length && !confirm('현재 화면을 이 DB 회로로 바꿀까요? 저장하지 않은 변경은 사라집니다.')) return;
+    if (getState().instances.length && !await confirmAction('현재 화면을 이 DB 회로로 바꿀까요? 저장하지 않은 변경은 사라집니다.')) return;
     const record = await client.call(`/circuits/${encodeURIComponent(id)}`);
     const next = fromCircuit(record);
     const defs = getState().defs;
