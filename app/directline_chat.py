@@ -138,6 +138,7 @@ class Session:
     awaiting_work: bool = False
     requires_design_result: bool = False
     final_result_seen: bool = False
+    network_failures: int = 0
 
 
 class DirectLineChat:
@@ -166,14 +167,22 @@ class DirectLineChat:
     async def rpc(self, domain, token, method, path, body=None, params=None):
         started = time.monotonic()
         operation = 'conversation' if path == '/conversations' else 'activities'
-        try:
-            async with httpx.AsyncClient(transport=self.transport, timeout=15, follow_redirects=False, trust_env=False) as client:
-                response = await client.request(method, domain + path,
-                    headers={'Authorization': 'Bearer ' + token}, json=body, params=params)
-        except httpx.HTTPError:
-            self.trace('upstream_network_error', method=method, operation=operation,
-                       duration_ms=round((time.monotonic() - started) * 1000))
-            raise ChatError(502, 'DIRECT_LINE_NETWORK_ERROR') from None
+        # GET만 재시도한다. POST는 수락 여부가 불명확하므로 자동 재전송하지 않는다.
+        attempts = 3 if method == 'GET' else 1
+        for attempt in range(attempts):
+            try:
+                async with httpx.AsyncClient(transport=self.transport, timeout=10 if method == 'GET' else 15,
+                                             follow_redirects=False, trust_env=False) as client:
+                    response = await client.request(method, domain + path,
+                        headers={'Authorization': 'Bearer ' + token}, json=body, params=params)
+                break
+            except httpx.HTTPError as exc:
+                self.trace('upstream_network_error', method=method, operation=operation,
+                           attempt=attempt + 1, error_type=type(exc).__name__,
+                           duration_ms=round((time.monotonic() - started) * 1000))
+                if attempt + 1 == attempts:
+                    raise ChatError(502, 'DIRECT_LINE_NETWORK_ERROR') from None
+                await asyncio.sleep(0.25 if attempt == 0 else 0.75)
         self.trace('upstream_response', method=method, operation=operation, status=response.status_code,
                    duration_ms=round((time.monotonic() - started) * 1000))
         # 제공자가 오류 본문에 키나 토큰을 반사하더라도 브라우저·로그에 내보내지 않는다.
@@ -237,6 +246,7 @@ class DirectLineChat:
             session.status = 'waiting'
             session.replies, session.seen, session.error = [], set(), None
             session.awaiting_work = False
+            session.network_failures = 0
             session.deadline, session.last_reply = time.monotonic() + (settings(self.env_file)['reply_timeout_seconds'] or self.reply_timeout), 0
             session.sent_at, session.polls, session.received = time.monotonic(), 0, {}
             try:
@@ -261,6 +271,7 @@ class DirectLineChat:
                     data = await self.rpc(session.domain, session.token, 'GET', f'/conversations/{quote(session.conversation, safe="")}/activities',
                         params={'watermark': session.watermark} if session.watermark else None)
                     session.watermark = data.get('watermark', session.watermark)
+                    session.network_failures = 0
                     session.polls += 1
                     for activity in data.get('activities', []):
                         if not isinstance(activity, dict) or not isinstance(activity.get('from'), dict):
@@ -309,13 +320,19 @@ class DirectLineChat:
                     elif session.status == 'waiting' and time.monotonic() >= session.deadline:
                         session.status, session.error = 'failed', 'DIRECT_LINE_REPLY_TIMEOUT'
                 except ChatError as exc:
-                    session.status, session.error = 'failed', exc.code
+                    if exc.code == 'DIRECT_LINE_NETWORK_ERROR':
+                        session.network_failures += 1
+                    if exc.code == 'DIRECT_LINE_NETWORK_ERROR' and session.network_failures < 3 and time.monotonic() < session.deadline:
+                        self.trace('poll_reconnecting', session_ref=sid[-8:], failures=session.network_failures)
+                    else:
+                        session.status, session.error = 'failed', exc.code
                 self.trace('reply_progress', session_ref=sid[-8:], status=session.status, polls=session.polls,
                            elapsed_seconds=round(time.monotonic() - session.sent_at, 1),
                            bot_message_count=len(session.replies), activity_counts=session.received, error=session.error)
             result = {'status': session.status, 'polls': session.polls,
                       'elapsed_seconds': round(time.monotonic() - session.sent_at, 1) if session.sent_at else 0,
-                      'bot_message_count': len(session.replies)}
+                      'bot_message_count': len(session.replies),
+                      'recovering_connection': session.status == 'waiting' and session.network_failures > 0}
             if session.status == 'completed':
                 result['reply'] = '\n\n'.join(session.replies)
             if session.error:

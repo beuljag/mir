@@ -1,14 +1,14 @@
 import { applyAgentResult } from './agent-result.js';
-import { runtimeApi } from './web-api.js?v=circuit-display-3';
-import { initBackendPanel } from './backend-panel.js?v=circuit-display-3';
-import { initVerificationPanel } from './verification-panel.js?v=circuit-display-3';
+import { runtimeApi } from './web-api.js?v=network-recovery-4';
+import { initBackendPanel } from './backend-panel.js?v=network-recovery-4';
+import { initVerificationPanel } from './verification-panel.js?v=network-recovery-4';
 import { WiringCanvas, layoutPart } from './canvas.js';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
   buildDiagnoseRequest, buildPartRequest, parseReply, demoReply
-} from './agent.js?v=circuit-display-3';
+} from './agent.js?v=network-recovery-4';
 
 const $ = (id) => document.getElementById(id);
 const api = runtimeApi;
@@ -673,6 +673,7 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
     let reply;
     const res = await api.sendToAgent(message, buildCatalog(state.defs), (progress) => {
       waitingStage = progress.stage === 'opening' ? 'Copilot 대화 연결 중'
+        : progress.stage === 'reconnecting' ? 'Microsoft 연결 재확인 중'
         : progress.stage === 'receiving' ? 'Copilot 응답 수신 중' : 'Copilot 응답 대기 중';
       refreshWaiting();
     });

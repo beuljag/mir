@@ -1,5 +1,5 @@
 import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js';
-import { runtimeApi } from './web-api.js?v=circuit-display-3';
+import { runtimeApi } from './web-api.js?v=network-recovery-4';
 
 export function initBackendPanel({ getState, replace, renderParts, message }) {
   const $ = (id) => document.getElementById(id);

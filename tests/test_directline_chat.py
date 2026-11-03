@@ -258,3 +258,49 @@ def test_design_question_marker_finishes_without_inventing_connections(chat):
         {'id':'question','type':'message','from':{'role':'bot'},'text':'어떤 센서를 연결할까요?<!--MIR_TURN_COMPLETE-->'}]}))
     result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
     assert result['status']=='completed' and result['reply']=='어떤 센서를 연결할까요?'
+
+
+def test_single_get_network_error_recovers_without_resending_message(chat):
+    client,service,env,calls=chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'one'}).json()['request_id']
+    reads=[]
+    def flaky(request):
+        reads.append(request)
+        if len(reads)==1: raise httpx.ConnectError('transient '+SECRET+TOKEN)
+        return httpx.Response(200,json={'activities':[{'id':'answer','type':'message','from':{'role':'bot'},'text':'복구됨'}]})
+    service.transport=httpx.MockTransport(flaky)
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='completed' and result['reply']=='복구됨'
+    assert len(reads)==2 and all(r.method=='GET' for r in reads)
+    assert len([r for r in calls if r.method=='POST' and r.url.path.endswith('/activities')])==1
+    assert SECRET not in str(result) and TOKEN not in str(result)
+
+
+def test_temporary_poll_outage_keeps_session_and_recovers(chat):
+    client,service,env,calls=chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'one'}).json()['request_id']
+    def offline(request): raise httpx.ReadError('temporary')
+    service.transport=httpx.MockTransport(offline)
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='waiting' and result['recovering_connection']
+    service.transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'activities':[
+        {'id':'answer','type':'message','from':{'role':'bot'},'text':'완료'}]}))
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='completed' and not result['recovering_connection']
+    assert service.sessions[sid].network_failures==0
+
+
+def test_persistent_network_outage_is_bounded(chat):
+    client,service,env,calls=chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'one'}).json()['request_id']
+    reads=[]
+    def offline(request):
+        reads.append(request);raise httpx.ReadError('offline')
+    service.transport=httpx.MockTransport(offline)
+    for expected in ['waiting','waiting','failed']:
+        result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+        assert result['status']==expected
+    assert result['error']=='DIRECT_LINE_NETWORK_ERROR' and len(reads)==9
