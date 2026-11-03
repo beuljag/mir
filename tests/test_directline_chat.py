@@ -76,7 +76,8 @@ def test_secret_and_tokens_stay_on_server_chat_roundtrip(chat):
     posted = [r for r in calls if r.method == 'POST' and r.url.path.endswith('/activities')]
     posted_text = json.loads(posted[0].content)['text']
     assert posted_text.startswith('부품 목록\n\n라즈베리파이 펌프\n\n')
-    assert '[미르 확인 질문 형식]' in posted_text and 'clarification' in posted_text
+    assert '[미르 조사 우선·확인 질문 규칙]' in posted_text and 'clarification' in posted_text
+    assert '질문보다 조사를 먼저' in posted_text and '핀 이름·핀 개수·핀 기능을 전부 나열하도록 요구하지 않습니다' in posted_text
     assert client.delete(f'/chat/sessions/{sid}').json() == {'ok': True}
 
 

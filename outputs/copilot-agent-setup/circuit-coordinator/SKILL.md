@@ -10,7 +10,7 @@ description: "부품이 없으면 검색·미검증 DB 등록·이미지 저장�
 1. SearchComponents와 GetComponentDetails로 기존 부품을 찾습니다. 초기 화면 목록은 스냅샷이므로, 도구로 나중에 생성한 DB 부품도 사용할 수 있습니다.
 2. 부품이 없으면 검색 에이전트에 제조사·모델·용도와 필요한 사양을 전달해 공식 자료를 조사하게 합니다. 웹 검색이 준비돼 있으면 제조사 자료를 우선 검색하고 실제 URL·출처와 확인된 핀을 받습니다. ResearchComponent/AnalyzeDatasheet는 근거를 수집하고 GetJobStatus로 완료를 확인합니다.
 3. 조사 결과를 CreateComponent로 저장합니다. component_json에는 request_id, model, category, 확인된 manufacturer/revision/pins/source_references/notes/unresolved_fields와 선택 candidate_id를 넣습니다. 반환된 id가 회로와 이미지에 쓸 component_id입니다. pending_review는 조사 후보 상태이며 미검증 부품 저장·외형 제작을 막는 이유가 아닙니다.
-4. 모델·핀·정격이 부족하거나 검색이 실패해도 임의 사양을 만들지 않습니다. 현재 알 수 있는 정보로 미검증 설계 부품을 저장하고, 모르는 핀은 pins=[]로 둡니다. 개념 부품은 is_virtual=true, 미확인 사항은 unresolved_fields와 notes에 기록합니다. 외형 초안과 그림을 만든 뒤 추가 자료를 요청합니다. 사용자가 조사 결과만 요청한 경우에는 불필요한 부품·그림을 만들지 않습니다.
+4. 모델·핀·정격이 부족하면 먼저 공식 자료를 조사합니다. 한 검색 수단이 실패해도 사용 가능한 다른 공식 페이지·데이터시트나 검색 에이전트 경로를 확인하며, 조사할 수 있는 핀·정격을 사용자에게 대신 찾게 하지 않습니다. 끝내 확인하지 못한 사양은 임의로 만들지 않습니다. 현재 알 수 있는 정보로 미검증 설계 부품을 저장하고, 모르는 핀은 pins=[]로 둡니다. 개념 부품은 is_virtual=true, 미확인 사항은 unresolved_fields와 notes에 기록합니다. 외형 초안과 그림을 만든 뒤 추가 자료를 요청합니다. 사용자가 조사 결과만 요청한 경우에는 불필요한 부품·그림을 만들지 않습니다.
 5. 새 component_id를 이미지 에이전트에 전달해 GetComponentImageSpec → SVG 직접 작성 → SaveComponentSvg → GetComponentImage → ApplyComponentImage까지 실행하게 합니다. 기존에 적합한 완료 이미지가 있으면 재사용합니다. 이미지 기본 제작에는 별도 OpenAI 키가 필요 없습니다.
 6. 등록한 부품 정의를 회로 설계 에이전트에 전달합니다. 확인된 핀만 nets에 연결하고, 핀이 없는 부품은 배치만 합니다. CreateCircuitDraft로 component_instances/nets/layout을 저장하고 반환 id/version을 유지합니다.
 7. ValidateCircuit으로 검사합니다. failed는 실제 오류를 고쳐 최대 3회 재검증하고, unknown은 미확인 사양을 표시합니다. 미검증 부품이 포함된 설계를 verified/passed라고 말하지 않습니다. 사용자 요청의 2D 설계 초안을 표시할 때는 상태를 알리고 allow_unvalidated_draft=true로 ApplyCircuitLayout을 사용합니다.
@@ -40,5 +40,5 @@ ngspice completed는 모델의 수치 계산 완료이며 실제 안전성 판�
 - 최종 응답은 실제 circuit_id를 담은 circuit_reference JSON을 제공한다. component_id나 asset_id만 주면서 배선을 그렸다고 말하지 않는다.
 
 ## 모델·사양 확인 질문
-필수 모델명이나 사양이 부족해 사용자 확인이 필요하면 필요한 부품명과 항목만 간단히 질문합니다. 오류 위치·실패 원인·내부 도구·검증 과정·정격 제한 설명은 이 확인 질문에 덧붙이지 않습니다. 예: 태양광 패널의 모델명과 개방전압(Voc)을 알려주세요. 이 경우 마지막 JSON은 {"type":"clarification","questions":["태양광 패널의 모델명과 개방전압(Voc)을 알려주세요."]} 형식으로 반환합니다. 여러 부품이면 부품별 질문을 나눕니다. 모르는 사양을 추측하거나 확인 전 배선을 확정하지 않습니다.
+질문보다 조사를 먼저 합니다. 1) SearchComponents/GetComponentDetails로 DB와 출처를 확인하고, 모델로 찾을 수 있는 핀맵·핀 기능·동작 전압·정격·데이터시트는 검색 에이전트와 웹 검색/ResearchComponent/AnalyzeDatasheet로 직접 조사합니다. 비어 있는 pins나 unresolved_fields를 그대로 사용자에게 채우라고 요구하지 않습니다. 2) 조회한 실제 공식 자료와 작업 결과를 확인해 부품 정의를 보완하고 설계를 계속합니다. 검색 수단이 없거나 실패하면 성공했다고 꾸미지 않습니다. 3) 조사해도 실제 사용할 제품을 특정할 수 없을 때만 최소한의 식별 정보(모델명·제조사·모듈 변형)를 묻습니다. 예: 태양광 패널의 모델명을 알려주세요. 모델을 받으면 Voc와 핀 정보는 다시 직접 조사하고, 공개 자료로 알 수 없는 실제 제품의 값만 추가로 묻습니다. 사용자가 핀 이름·핀 개수·핀 기능을 전부 나열하도록 요구하지 않습니다. 사용자 제작 보드처럼 공식 자료가 없는 경우에만 자료 링크나 핀맵을 요청할 수 있습니다. 4) 이 확인 질문에는 필요한 부품명과 항목만 짧게 쓰고 오류 위치·내부 도구·실패 원인 설명을 붙이지 않습니다. 최종 JSON은 {"type":"clarification","questions":["태양광 패널의 모델명을 알려주세요."]}로 반환합니다. 사양을 추측하거나 확인 전 배선을 확정하지 않습니다.
 이 확인 질문은 회로 생성 실패나 완료를 의미하지 않는다. 실제 검증 상태는 그대로 유지한다.
