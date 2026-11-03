@@ -1,14 +1,14 @@
 import { applyAgentResult } from './agent-result.js';
-import { runtimeApi } from './web-api.js?v=research-first-6';
-import { initBackendPanel } from './backend-panel.js?v=research-first-6';
-import { initVerificationPanel } from './verification-panel.js?v=research-first-6';
+import { runtimeApi } from './web-api.js?v=research-evidence-7';
+import { initBackendPanel } from './backend-panel.js?v=research-evidence-7';
+import { initVerificationPanel } from './verification-panel.js?v=research-evidence-7';
 import { WiringCanvas, layoutPart } from './canvas.js';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
   buildDiagnoseRequest, buildPartRequest, parseReply, demoReply
-} from './agent.js?v=research-first-6';
+} from './agent.js?v=research-evidence-7';
 
 const $ = (id) => document.getElementById(id);
 const api = runtimeApi;

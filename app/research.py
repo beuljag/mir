@@ -42,25 +42,31 @@ class TextHTML(HTMLParser):
         super().__init__()
         self.parts = []
         self.hidden = 0
+        self.in_title = False
+        self.title_parts = []
 
     def handle_starttag(self, tag, attrs):
+        if tag == "title": self.in_title = True
         if tag in ("script", "style", "noscript"):
             self.hidden += 1
-        if tag in ("p", "div", "tr", "br", "h1", "h2", "li"):
+        if tag in ("p", "div", "tr", "td", "th", "br", "h1", "h2", "h3", "h4", "li"):
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
+        if tag == "title": self.in_title = False
         if tag in ("script", "style", "noscript"):
             self.hidden = max(0, self.hidden - 1)
 
     def handle_data(self, data):
+        if self.in_title: self.title_parts.append(data)
         if not self.hidden:
             self.parts.append(data)
 
 
 def parse_pdf_bounded(body):
     child = subprocess.Popen([sys.executable, "-m", "app.extract_pdf"], cwd=ROOT,
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     job_handle = None
     try:
         if sys.platform == "win32":
@@ -101,11 +107,21 @@ def analyze_document(url, model, manufacturer=None, fetcher=fetch_public):
     elif "html" in fetched["content_type"] or fetched["content_type"].startswith("text/plain"):
         parser = TextHTML()
         parser.feed(body.decode("utf-8", errors="replace"))
-        document = {"pages": [{"page": None, "text": "".join(parser.parts)[:200000]}], "total_pages": None, "truncated": len(body) > 200000, "title": "", "document_date": ""}
+        document = {"pages": [{"page": None, "text": "".join(parser.parts)[:200000]}], "total_pages": None, "truncated": len(body) > 200000, "title": "".join(parser.title_parts).strip()[:300], "document_date": ""}
     else:
         raise ResearchError("UNSUPPORTED_DOCUMENT_TYPE")
+    # 긴 판매 페이지의 첫 핀 문구는 상품 정보가 아닌 카테고리 메뉴일 수 있다.
+    title_identifiers = re.findall(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9-]*[0-9][A-Za-z0-9-]*(?![A-Za-z0-9])", document["title"])
+    if len(document["pages"]) == 1 and document["pages"][0]["page"] is None:
+        page = document["pages"][0]
+        if len(page["text"]) > 12000:
+            starts = [m.start() for identifier in title_identifiers for m in re.finditer(re.escape(identifier), page["text"], re.I)
+                      if m.start() > len(document["title"]) + 100]
+            if starts: page["text"] = page["text"][min(starts):]
     text = "\n".join(page["text"] for page in document["pages"])
     matched = bool(re.search(r"(?<![A-Za-z0-9])" + re.escape(model) + r"(?![A-Za-z0-9])", text, re.I))
+    identifiers = list(dict.fromkeys(re.findall(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9-]*[0-9][A-Za-z0-9-]*(?![A-Za-z0-9])", model)))
+    identifier_matches = [item for item in identifiers if re.search(r"(?<![A-Za-z0-9])" + re.escape(item) + r"(?![A-Za-z0-9])", text, re.I)]
     warnings = ["자동 추출한 근거 발췌이며 핀 배치·전압 수치를 확정한 부품 정의가 아닙니다."]
     if not matched:
         warnings.append("MODEL_NOT_FOUND: 요청한 정확한 모델명을 문서 텍스트에서 확인하지 못했습니다.")
@@ -116,7 +132,7 @@ def analyze_document(url, model, manufacturer=None, fetcher=fetch_public):
     is_official = official_domain(fetched["url"], manufacturer)
     if not is_official:
         warnings.append("OFFICIAL_SOURCE_UNCONFIRMED: 제조사와 공식 도메인의 대응을 확인하지 못했습니다.")
-    patterns = {"pin_information": r"\bpin\b|pinout|terminal|핀",
+    patterns = {"pin_information": r"\bpin\b|pinout|terminal|\b(?:OUT|VCC|GND|SIG|SDA|SCL)\b|핀",
                 "recommended_operation": r"recommended operating|operating voltage|supply voltage|권장|동작 전압",
                 "absolute_maximum": r"absolute maximum|절대 최대",
                 "current_or_interface": r"\bcurrent\b|\bI2C\b|\bSPI\b|UART|전류"}
@@ -127,7 +143,7 @@ def analyze_document(url, model, manufacturer=None, fetcher=fetch_public):
             lines = page["text"].splitlines()
             for index, line in enumerate(lines):
                 if re.search(pattern, line, re.I):
-                    excerpt = "\n".join(lines[max(0, index - 1):index + 3]).strip()[:600]
+                    excerpt = "\n".join(lines[max(0, index - 2):index + 12]).strip()[:1200]
                     if excerpt:
                         evidence.append({"category": category, "page": page["page"], "excerpt": excerpt})
                         selected += 1
@@ -135,13 +151,29 @@ def analyze_document(url, model, manufacturer=None, fetcher=fetch_public):
                         break
             if selected >= 3:
                 break
+    # 발췌만으로 표가 잘리지 않도록 관련 원문을 함께 제공한다. 사용자 필수 입력 목록이 아니다.
+    sections, budget = [], 16000
+    for page in document["pages"]:
+        page_text = page["text"]
+        hits = [match.start() for pattern in patterns.values() for match in re.finditer(pattern, page_text, re.I)]
+        if not hits: continue
+        start = max(0, min(hits) - 300)
+        excerpt = page_text[start:start + min(6000, budget)]
+        sections.append({"page": str(page["page"]) if page["page"] is not None else None, "text": excerpt})
+        budget -= len(excerpt)
+        if budget <= 0 or len(sections) >= 4: break
+    unresolved = []
+    if not matched: unresolved.append('exact_module_variant' if identifier_matches else 'document_model_match')
+    if len(text.strip()) < 80: unresolved.append('document_text_extraction')
     return {"source": {"title": document["title"] or model + " source document", "reference": fetched["url"],
                        "revision": None, "page": None, "sha256": hashlib.sha256(body).hexdigest(), "retrieved_at": now()},
-            "requested_model": model, "model_match": matched, "official_domain_match": is_official,
+            "requested_model": model, "model_match": matched, "identifier_matches": identifier_matches, "source_title_identifiers": title_identifiers, "official_domain_match": is_official,
             "document_date_raw": document["document_date"], "total_pages": document["total_pages"],
-            "analyzed_pages": len(document["pages"]), "evidence": evidence,
+            "analyzed_pages": len(document["pages"]), "evidence": evidence, "document_sections": sections,
             "verification_status": "unverified", "warnings": warnings,
-            "unresolved_fields": ["exact_model_and_revision", "package_and_pin_numbers", "pin_directions", "recommended_voltage_and_current", "logic_levels", "required_auxiliary_parts"]}
+            "unresolved_fields": unresolved,
+            "agent_extraction_tasks": ["package_and_pin_numbers", "pin_directions", "recommended_voltage_and_current", "logic_levels", "required_auxiliary_parts"],
+            "extraction_note": "agent_extraction_tasks는 에이전트가 원문에서 추출할 항목이며 사용자에게 요구할 입력 목록이 아닙니다. 사진·실크에서 확인한 핀 이름과 불확실한 전기 정격을 구분하세요. model_match=false여도 identifier_matches와 관련 본문을 확인하되 다른 모듈의 정격·핀 순서를 동일하다고 확정하지 않습니다."}
 
 
 class ResearchService:
@@ -189,6 +221,13 @@ class ResearchService:
                 urls.extend(result_urls)
                 methods.append("brave_unconfirmed_sources")
             methods.append("brave_official_domain_search")
+        if not urls:
+            catalog_path = ROOT / "config" / "research-sources.json"
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8")) if catalog_path.exists() else {}
+            for identifier, entry in catalog.items():
+                if re.search(r"(?<![A-Za-z0-9])" + re.escape(identifier) + r"(?![A-Za-z0-9])", request.model, re.I):
+                    urls.extend(entry["urls"])
+                    methods.append("reference_catalog:" + entry["scope"])
         if not urls:
             raise ResearchError("SEARCH_CONFIGURATION_OR_SOURCE_URL_REQUIRED")
         return list(dict.fromkeys(urls))[:3], methods

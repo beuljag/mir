@@ -186,3 +186,34 @@ def test_worker_parser_can_handle_a_real_pdf_process():
     buffer = BytesIO()
     writer.write(buffer)
     assert parse_pdf_bounded(buffer.getvalue())["total_pages"] == 1
+
+
+def test_pin_labels_and_table_content_are_evidence_not_user_required_fields():
+    def fetch(url,**kwargs):
+        return {'url':url,'content_type':'text/html','body':b'<title>TEMT6000 module</title><h1>TEMT6000</h1><p>Ambient light analog output module documentation and connection information.</p><table><tr><td>OUT</td><td>Analog output</td></tr><tr><td>VCC</td><td>Power supply</td></tr><tr><td>GND</td><td>Ground</td></tr></table>'}
+    result=analyze_document('https://example.com/module','TEMT6000',fetcher=fetch)
+    assert result['model_match']
+    assert result['unresolved_fields']==[]
+    assert result['agent_extraction_tasks']
+    assert result['document_sections']
+    evidence=' '.join(e['excerpt'] for e in result['evidence'] if e['category']=='pin_information')
+    assert all(label in evidence for label in ['OUT','VCC','GND'])
+    assert result['source']['title']=='TEMT6000 module'
+    composite=analyze_document('https://example.com/module','TEMT6000 analog module [SEN060103]',fetcher=fetch)
+    assert not composite['model_match'] and 'TEMT6000' in composite['identifier_matches']
+    assert composite['unresolved_fields']==['exact_module_variant']
+
+
+def test_shop_navigation_is_not_selected_as_product_pin_evidence():
+    body='<title>TEMT6000 Module</title>'+('<div>Pin headers and UART category</div>'*600)+'<h1>TEMT6000 Module</h1><p>Actual module has three connections.</p><table><tr><td>OUT</td><td>Analog output</td></tr><tr><td>VCC</td><td>Power supply</td></tr><tr><td>GND</td><td>Ground</td></tr></table>'
+    result=analyze_document('https://example.com/shop','TEMT6000',fetcher=lambda url:{'url':url,'content_type':'text/html','body':body.encode()})
+    evidence=' '.join(e['excerpt'] for e in result['evidence'])
+    assert 'Analog output' in evidence and 'UART category' not in evidence
+
+
+def test_reference_catalog_is_related_document_lookup_not_general_search(client):
+    from app.models import ResearchRequest
+    urls,methods=client.app.state.research.discover(ResearchRequest(model='TEMT6000 analog light module',manufacturer='YWRobot'))
+    assert any('dfrobot.com' in url for url in urls)
+    assert 'reference_catalog:related_module_reference' in methods
+    assert not any(method.startswith('brave') for method in methods)
