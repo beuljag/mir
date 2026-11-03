@@ -74,7 +74,9 @@ def test_secret_and_tokens_stay_on_server_chat_roundtrip(chat):
     assert SECRET not in json.dumps(diagnostics) and TOKEN not in json.dumps(diagnostics)
     assert client.get('/.env').status_code in (401, 404)
     posted = [r for r in calls if r.method == 'POST' and r.url.path.endswith('/activities')]
-    assert json.loads(posted[0].content)['text'] == '부품 목록\n\n라즈베리파이 펌프'
+    posted_text = json.loads(posted[0].content)['text']
+    assert posted_text.startswith('부품 목록\n\n라즈베리파이 펌프\n\n')
+    assert '[미르 확인 질문 형식]' in posted_text and 'clarification' in posted_text
     assert client.delete(f'/chat/sessions/{sid}').json() == {'ok': True}
 
 
@@ -304,3 +306,14 @@ def test_persistent_network_outage_is_bounded(chat):
         result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
         assert result['status']==expected
     assert result['error']=='DIRECT_LINE_NETWORK_ERROR' and len(reads)==9
+
+
+def test_specification_question_is_a_final_design_reply(chat):
+    client,service,env,calls=chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'[요청 종류: 배선 추천] 태양광 패널'}).json()['request_id']
+    answer=json.dumps({'type':'clarification','questions':['태양광 패널의 모델명과 개방전압(Voc)을 알려주세요.']},ensure_ascii=False)
+    service.transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'activities':[
+        {'id':'specs','type':'message','from':{'role':'bot'},'text':'```json\n'+answer+'\n```'}]}))
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='completed' and 'clarification' in result['reply']

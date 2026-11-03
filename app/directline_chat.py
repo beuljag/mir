@@ -72,7 +72,10 @@ def has_design_result(text):
     for candidate in candidates:
         try: data = json.loads(candidate)
         except (ValueError, TypeError): continue
-        if isinstance(data, dict) and (isinstance(data.get('circuit_id'), str)
+        if isinstance(data, dict) and (
+                (data.get('type') == 'clarification' and isinstance(data.get('questions'), list)
+                 and data['questions'] and all(isinstance(q, str) and q.strip() for q in data['questions']))
+                or isinstance(data.get('circuit_id'), str)
                 or (data.get('type') == 'wiring' and isinstance(data.get('parts'), list) and data['parts'])):
             return True
     return False
@@ -235,6 +238,7 @@ class DirectLineChat:
             session.requires_design_result = '[요청 종류: 배선 추천]' in message
             session.final_result_seen = False
             text = (catalog + '\n\n' if catalog and not session.catalog_sent else '') + message
+            text += '\n\n[미르 확인 질문 형식] '+'필수 모델명이나 사양이 부족해 사용자 확인이 필요하면 필요한 부품명과 항목만 간단히 질문합니다. 오류 위치·실패 원인·내부 도구·검증 과정·정격 제한 설명은 이 확인 질문에 덧붙이지 않습니다. 예: 태양광 패널의 모델명과 개방전압(Voc)을 알려주세요. 이 경우 마지막 JSON은 {"type":"clarification","questions":["태양광 패널의 모델명과 개방전압(Voc)을 알려주세요."]} 형식으로 반환합니다. 여러 부품이면 부품별 질문을 나눕니다. 모르는 사양을 추측하거나 확인 전 배선을 확정하지 않습니다.'
             if session.requires_design_result:
                 text += '\n\n[미르 응답 계약] 진행 중 안내는 최종 결과가 아닙니다. 실제 회로 저장 결과 또는 화면용 배선 JSON까지 실행하세요. 최종 답변은 한국어로 작성하고 맨 마지막에 ' + FINAL_MARKER + '를 붙이세요. 정보가 부족해 작업을 멈추고 질문하는 경우에도 마지막에 이 표식을 붙이세요. 단순 중간 안내에는 표식을 붙이지 마세요.'
             if len(text.encode('utf-8')) > 200000:

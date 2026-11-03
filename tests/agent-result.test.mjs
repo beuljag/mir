@@ -58,3 +58,12 @@ test('DB 불러오기 버튼 경로가 실제 회로를 조회하여 선과 배�
   assert.deepEqual(replaced.wires.map(w=>[w.from,w.to]),[['U1.D2','U1.GND']]);
   assert.ok(state.defs.has('new-board'));
 });
+
+
+test('사양 확인은 내부 진단 설명을 표시하지 않고 필요한 질문만 반환',async()=>{
+  const result=parseReply('INA219 검증 단계에서 사양 오류가 발생했습니다.\n```json\n{"type":"clarification","questions":["태양광 패널의 모델명과 개방전압(Voc)을 알려주세요."]}\n```');
+  assert.equal(result.text,'태양광 패널의 모델명과 개방전압(Voc)을 알려주세요.');
+  assert.equal(result.circuit,undefined);assert.equal(result.wiring,undefined);
+  const applied=await applyAgentResult(result,{backend:{refreshAfterAgent:async()=>assert.fail('확인 질문에서 DB 실패 안내를 추가하지 않음')},hasInstances:()=>false});
+  assert.equal(applied,'clarification');
+});

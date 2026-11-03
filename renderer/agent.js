@@ -7,7 +7,7 @@ export const FORMAT_REMINDER = `[응답 형식]
 2. MCP를 사용할 수 있으면 CreateCircuitDraft(수정은 UpdateCircuit)로 component_instances/nets/layout을 실제 저장하고, ValidateCircuit의 상태를 설명합니다. 미검증 초안 표시에는 ApplyCircuitLayout의 allow_unvalidated_draft=true를 사용합니다. 검증 통과를 꾸며내지 않습니다.
 3. 마지막에 실제 저장 결과를 JSON 코드블록으로 반환합니다: {"type":"circuit_reference","circuit_id":"저장된 실제 회로 ID","version":실제버전}. 부품 ID나 이미지 ID를 회로 ID로 쓰지 마세요. 미르가 이 ID로 배선 그림을 불러옵니다.
 4. MCP로 회로를 저장하지 못했으나 확인된 핀으로 화면용 초안을 만들 수 있으면 기존 형식 {"type":"wiring","title":"...","parts":[{"ref":"U1","part":"부품id","label":"역할"}],"connections":[{"from":"U1.핀id","to":"R1.핀id","note":"이유"}],"steps":["..."],"warnings":["..."],"code":"..."}을 JSON 코드블록으로 반환합니다. 이때 DB 저장 완료라고 말하지 마세요.
-5. 핀이나 필수 사양이 부족하면 임의 배선을 만들지 말고, 부족한 정보와 실제 저장한 초안의 상태를 설명하고 질문하세요. 단순 질문이나 부품 등록만 요청한 경우 불필요한 회로를 만들지 않습니다.`;
+5. 필수 모델명이나 사양이 부족해 사용자 확인이 필요하면 필요한 부품명과 항목만 간단히 질문합니다. 오류 위치·실패 원인·내부 도구·검증 과정·정격 제한 설명은 이 확인 질문에 덧붙이지 않습니다. 예: 태양광 패널의 모델명과 개방전압(Voc)을 알려주세요. 이 경우 마지막 JSON은 {"type":"clarification","questions":["태양광 패널의 모델명과 개방전압(Voc)을 알려주세요."]} 형식으로 반환합니다. 여러 부품이면 부품별 질문을 나눕니다. 모르는 사양을 추측하거나 확인 전 배선을 확정하지 않습니다. 단순 질문이나 부품 등록만 요청한 경우 불필요한 회로를 만들지 않습니다.`;
 
 
 export function buildCatalog(defs) {
@@ -97,6 +97,9 @@ export function parseReply(text) {
   const wiring = blocks.find((b) => b && (b.type === 'wiring' || Array.isArray(b.connections)));
   const part = blocks.find((b) => b && (b.type === 'part' || (Array.isArray(b.pins) && b.id)));
   const circuit = blocks.find((b) => b && (typeof b.circuit_id === 'string' || (typeof b.id === 'string' && Array.isArray(b.component_instances))));
+  const clarification = blocks.find((b) => b?.type === 'clarification' && Array.isArray(b.questions)
+    && b.questions.length > 0 && b.questions.every((q) => typeof q === 'string' && q.trim()));
+  if (clarification) return { text: clarification.questions.map((q) => q.trim()).join('\n'), clarification };
   return { text: plain.trim(), wiring, part, circuit };
 }
 

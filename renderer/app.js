@@ -1,14 +1,14 @@
 import { applyAgentResult } from './agent-result.js';
-import { runtimeApi } from './web-api.js?v=network-recovery-4';
-import { initBackendPanel } from './backend-panel.js?v=network-recovery-4';
-import { initVerificationPanel } from './verification-panel.js?v=network-recovery-4';
+import { runtimeApi } from './web-api.js?v=clarification-5';
+import { initBackendPanel } from './backend-panel.js?v=clarification-5';
+import { initVerificationPanel } from './verification-panel.js?v=clarification-5';
 import { WiringCanvas, layoutPart } from './canvas.js';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
   buildDiagnoseRequest, buildPartRequest, parseReply, demoReply
-} from './agent.js?v=network-recovery-4';
+} from './agent.js?v=clarification-5';
 
 const $ = (id) => document.getElementById(id);
 const api = runtimeApi;
@@ -685,7 +685,7 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
       reply = res.reply;
     }
     typing.remove();
-    const { text, wiring, part, circuit } = parseReply(reply);
+    const { text, wiring, part, circuit, clarification } = parseReply(reply);
     let extra = circuit ? null : wiring ? wiringCard(wiring) : part ? partCard(part) : null;
     if (circuit) {
       extra = document.createElement('button');
@@ -693,7 +693,7 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
       extra.onclick = () => backend.openCircuit(circuit.circuit_id || circuit.id);
     }
     addMessage('agent', text || (circuit ? '회로 ID가 반환되었습니다. 저장된 배선을 확인합니다.' : wiring ? '배선을 제안합니다.' : '(빈 응답)'), extra);
-    const applied = await applyAgentResult({ wiring, circuit }, { backend,
+    const applied = await applyAgentResult({ wiring, circuit, clarification }, { backend,
       hasInstances: () => state.instances.length > 0, drawWiring: proposeWiring, isDemo: !!res.demo });
     if (applied === 'text-only' && !part && message.includes('[요청 종류: 배선 추천]')) {
       addMessage('system', '에이전트 응답에 회로 ID나 배선 데이터가 없어 그림을 만들지 못했습니다. 부품 등록과 배선 설계는 별도 단계입니다. 응답의 확인 질문이나 부족한 사양을 확인해 주세요.');
