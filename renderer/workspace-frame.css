@@ -1,0 +1,111 @@
+/* V21 editor preserved inside a continuous top-and-left workspace frame. */
+:root { --frame-width:220px; --frame-bg:#edf2f7; }
+:root[data-theme="dark"] { --frame-bg:#172332; }
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--frame-bg:#172332;}}
+body { background:var(--frame-bg); }
+.topbar { height:80px; min-height:80px; padding:0 24px 0 calc(var(--frame-width) + 24px); background:var(--frame-bg); border:0; flex-wrap:nowrap; }
+.frame-heading { display:flex; align-items:center; gap:22px; min-width:0; }
+.frame-heading > span { display:flex; gap:14px; color:var(--text-muted); white-space:nowrap; }
+.frame-heading strong { color:var(--text); max-width:260px; overflow:hidden; text-overflow:ellipsis; }
+.workspace-rail { position:fixed; inset:0 auto 0 0; width:var(--frame-width); background:var(--frame-bg); padding:28px 18px 20px; display:flex; flex-direction:column; gap:28px; z-index:32; overflow:auto; }
+.frame-brand .brand { gap:14px; padding:4px 12px 10px; }
+.frame-brand .brand-name { font-size:27px; }
+.frame-brand .brand-sub { font-size:11px; max-width:125px; }
+.workspace-rail button { text-align:left; padding:14px; border:0; background:transparent; border-radius:10px; }
+.workspace-rail button:hover { background:var(--primary-soft); }
+.workspace-rail .frame-new { background:var(--text); color:var(--surface); font-weight:700; font-size:15px; }
+.workspace-rail button span[aria-hidden] { margin-right:12px; font-size:21px; }
+.workspace-rail nav { display:grid; gap:10px; }
+.workspace-rail .frame-current { background:var(--border); font-weight:700; }
+.frame-project { border-top:1px solid var(--border); padding:24px 12px 0; display:grid; gap:15px; }
+.frame-project > span,.workspace-rail footer { color:var(--text-muted); font-size:12px; }
+.frame-project strong { overflow-wrap:anywhere; }
+.frame-project button { border:1px solid var(--border-strong); padding:10px 12px; justify-self:start; }
+.workspace-rail footer { margin-top:auto; padding:14px 12px 0; display:grid; gap:10px; }
+.layout,body.chat-collapsed .layout { margin-left:var(--frame-width); margin-right:12px; margin-bottom:12px; padding:0; grid-template-columns:minmax(0,1fr)!important; border:1px solid var(--border); border-radius:22px; overflow:hidden; }
+.stage-body { border-radius:22px 22px 0 0; }
+.stage-toolbar { right:16px; }
+.legend { padding-right:16px; }
+@media(max-width:1100px){:root{--frame-width:180px;} .topbar{padding-right:12px;gap:10px;} .frame-heading>span{display:none;} .workspace-rail{padding:20px 12px;} .frame-brand .brand-sub{display:none;} .top-actions{gap:4px;} .top-actions button{padding:6px 8px;} }
+/* The workspace menu starts collapsed; the existing parts drawer remains available. */
+body { --frame-space:0px; }
+body.frame-open { --frame-space:var(--frame-width); }
+.topbar { padding-left:calc(var(--frame-space) + 24px); }
+.workspace-rail { transform:translateX(-100%); visibility:hidden; transition:none; }
+body.frame-open .workspace-rail { transform:translateX(0); visibility:visible; }
+.layout,body.chat-collapsed .layout { margin-left:var(--frame-space); }
+@media(prefers-reduced-motion:reduce){.workspace-rail{transition:none;}}
+
+/* JS coordinates only transform motion across the rail, canvas and header. */
+.workspace-rail { visibility:visible; }
+.workspace-rail[inert] { pointer-events:none; }
+
+/* A permanent icon rail; expanding its labels never resizes the editor. */
+body,body.frame-open { --frame-space:64px; }
+.workspace-rail { transform:none; width:var(--frame-width); padding:24px 8px 18px; clip-path:inset(0 calc(100% - 64px) 0 0); transition:clip-path 180ms cubic-bezier(.32,.72,0,1); gap:24px; }
+body.frame-open .workspace-rail { transform:none; clip-path:inset(0); transition-duration:240ms; box-shadow:8px 0 24px rgba(16,32,48,.08); }
+.workspace-rail button { display:flex; align-items:center; width:48px; height:48px; padding:12px; white-space:nowrap; overflow:hidden; gap:16px; transition:background-color 120ms; }
+body.frame-open .workspace-rail button { width:100%; }
+.workspace-rail button span[aria-hidden] { display:grid; place-items:center; width:24px; min-width:24px; margin:0; font-size:22px; }
+.frame-label { opacity:0; transition:opacity 100ms; }
+body.frame-open .frame-label { opacity:1; transition-delay:60ms; }
+.frame-brand .brand { padding:0 8px; gap:18px; white-space:nowrap; }
+.frame-brand .logo { width:32px; min-width:32px; height:32px; }
+.frame-brand .brand>div,.frame-project,.workspace-rail footer { visibility:hidden; opacity:0; }
+body.frame-open .frame-brand .brand>div,body.frame-open .frame-project,body.frame-open .workspace-rail footer { visibility:visible; opacity:1; }
+.workspace-rail .frame-new { color:var(--text); background:transparent; }
+body.frame-open .workspace-rail .frame-new { background:var(--text); color:var(--surface); }
+.frame-project button { width:100%; }
+body.frame-no-motion .workspace-rail,body.frame-no-motion .frame-label { transition:none; }
+@media(prefers-reduced-motion:reduce){.workspace-rail,.frame-label{transition:none!important;}}
+.frame-heading { position:relative; z-index:34; transition:transform 180ms cubic-bezier(.32,.72,0,1); }
+body.frame-open .frame-heading { transform:translateX(calc(var(--frame-width) - 64px)); transition-duration:240ms; }
+body.frame-no-motion .frame-heading { transition:none; }
+@media(prefers-reduced-motion:reduce){.frame-heading{transition:none!important;}}
+
+/* Reserve the expanded rail's lane so it never masks tools or board contents. */
+.layout,body.chat-collapsed .layout { margin-left:var(--frame-width); }
+/* Keep the compact rail equally wide in layout; only its visible surface folds. */
+body:not(.frame-open) .layout { margin-left:var(--frame-width); }
+.frame-brand .brand-sub { white-space:normal; max-width:150px; overflow-wrap:anywhere; }
+
+/* The editor follows the actual visible rail width; no empty expanded lane. */
+body { --frame-space:64px; }
+body.frame-open { --frame-space:var(--frame-width); }
+.layout,body.chat-collapsed .layout,body:not(.frame-open) .layout { margin-left:var(--frame-space); transition:margin-left 180ms cubic-bezier(.32,.72,0,1); }
+body.frame-open .layout { transition-duration:240ms; }
+body.frame-no-motion .layout { transition:none; }
+@media(prefers-reduced-motion:reduce){.layout{transition:none!important;}}
+.topbar { padding-left:88px; }
+#btnMenu, #btnMenu:hover, #btnMenu:focus-visible, #btnMenu:active { color:#000; }
+#btnBackend, #btnBackend:hover, #btnBackend:focus-visible, #btnBackend:active { color:#000; }
+#linkConnectGuide, #linkConnectGuide:hover, #linkConnectGuide:visited { color:#000; }
+.mir-confirm { width:400px; max-width:calc(100vw - 48px); padding:24px; border:1px solid var(--border); border-radius:22px; background:var(--surface); color:var(--text); box-shadow:var(--shadow-lg); }
+.mir-confirm::backdrop { background:rgba(15,23,42,.32); }
+.mir-confirm h2 { margin:0 0 14px; font-size:18px; }
+.mir-confirm p { margin:0 0 24px; line-height:1.7; }
+.mir-confirm .modal-actions { display:flex; justify-content:flex-end; gap:10px; }
+.workspace-rail .frame-new { transition:transform 160ms cubic-bezier(.23,1,.32,1),background-color 160ms; }
+.workspace-rail .frame-new > span[aria-hidden] { transition:transform 200ms cubic-bezier(.23,1,.32,1); }
+@media(hover:hover) and (pointer:fine) {
+  .workspace-rail .frame-new:hover { transform:translateY(-2px); background:var(--primary-soft); }
+  body.frame-open .workspace-rail .frame-new:hover { background:var(--text); }
+  .workspace-rail .frame-new:hover > span[aria-hidden] { transform:rotate(90deg); }
+}
+.workspace-rail .frame-new:active { transform:scale(.97); }
+@media(prefers-reduced-motion:reduce) {
+  .workspace-rail .frame-new,.workspace-rail .frame-new > span[aria-hidden] { transition:none; }
+  .workspace-rail .frame-new:hover,.workspace-rail .frame-new:active,.workspace-rail .frame-new:hover > span[aria-hidden] { transform:none; }
+}
+.frame-brand .brand-sub { display:none; }
+/* Confirmation dialogs enter gently without delaying actions or dismissal. */
+.mir-confirm { opacity:1; transform:scale(1); transition:opacity 160ms cubic-bezier(.23,1,.32,1),transform 180ms cubic-bezier(.23,1,.32,1); }
+.mir-confirm::backdrop { background:rgba(15,23,42,.32); transition:background-color 160ms; }
+@starting-style {
+  .mir-confirm[open] { opacity:0; transform:scale(.97); }
+  .mir-confirm[open]::backdrop { background:rgba(15,23,42,0); }
+}
+@media(prefers-reduced-motion:reduce) {
+  .mir-confirm { transform:none; transition:opacity 100ms; }
+  @starting-style { .mir-confirm[open] { transform:none; } }
+}

@@ -1,3 +1,4 @@
+import { confirmAction } from './confirm-dialog.js';
 // 2D 가상 실습 화면 (SVG). 부품 배치, 배선 그리기/삭제, 핀 정보, 가상 전원 표시를 담당한다.
 import { pinKey, splitKey } from './sim.js';
 import { drawArt, lookOf, BARE, isBareArt, labelInset } from './art.js';
@@ -243,10 +244,10 @@ export class WiringCanvas {
     this.onSelect(sel);
   }
 
-  deleteSelected() {
+  async deleteSelected() {
     const s = this.selected;
     if (!s) return false;
-    if (!confirm(s.type === 'part' ? '선택한 부품과 연결된 선을 삭제할까요?' : '선택한 선을 삭제할까요?')) return false;
+    if (!await confirmAction(s.type === 'part' ? '선택한 부품과 연결된 선을 삭제할까요?' : '선택한 선을 삭제할까요?')) return false;
     if (s.type === 'wire') this.wires = this.wires.filter((w) => w.id !== s.id);
     if (s.type === 'part') {
       this.instances = this.instances.filter((i) => i.ref !== s.ref);

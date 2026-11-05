@@ -1,3 +1,4 @@
+import { confirmAction } from './confirm-dialog.js';
 import { runtimeApi } from './web-api.js?v=chat-recovery-2';
 import './appearance.js';
 import { initBackendPanel } from './backend-panel.js?v=chat-recovery-2';
@@ -858,7 +859,7 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
     typing.remove();
     if (requestGeneration !== projectGeneration) return;
     if (shown && !$('chatInput').value.trim()) $('chatInput').value = shown;
-    addMessage('system', `에이전트 호출 실패: ${e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\n⚙ 설정에서 연결 정보를 확인하세요.`, null, true);
+    addMessage('system', `에이전트 호출 실패: ${String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\n⚙ 설정에서 연결 정보를 확인하세요.`, null, true);
   } finally {
     clearInterval(waitingTimer);
     state.busy = false;
@@ -1104,7 +1105,7 @@ projectMenu.addEventListener('cancel', e => { e.preventDefault(); closeProjectMe
 projectMenu.addEventListener('click', e => { const r = projectMenu.getBoundingClientRect(); if (e.target === projectMenu && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) closeProjectMenu(); });
 $('btnNew').onclick = async () => {
   closeProjectMenu();
-  if (hasUnsavedChanges() && !confirm('저장하지 않은 작업이 사라집니다. 새로 시작할까요?')) return;
+  if (hasUnsavedChanges() && !await confirmAction('저장하지 않은 작업이 사라집니다. 새로 시작할까요?')) return;
   await api.newProject();
   projectGeneration++;
   state.instances = []; state.wires = []; state.title = ''; state.gpio = {}; state.requirements = '';
@@ -1128,7 +1129,7 @@ $('btnSave').onclick = () => saveProject();
 $('btnSaveAs').onclick = () => saveProject(true);
 $('btnOpen').onclick = async () => {
   closeProjectMenu();
-  if (hasUnsavedChanges() && !confirm('현재 작업을 열려는 파일로 바꿀까요? 저장하지 않은 변경은 사라집니다.')) return;
+  if (hasUnsavedChanges() && !await confirmAction('현재 작업을 열려는 파일로 바꿀까요? 저장하지 않은 변경은 사라집니다.')) return;
   let d;
   try { d = await api.openProject(); } catch (err) { addMessage('system', `열지 못했어요: ${err.message}`); return; }
   if (!d) return;
@@ -1189,7 +1190,7 @@ $('btnTest').onclick = async () => {
     t.textContent = await api.testAgent();
     t.classList.add('ok');
   } catch (e) {
-    t.textContent = `실패: ${e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`;
+    t.textContent = `실패: ${String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`;
     t.classList.add('bad');
   }
 };
@@ -1361,4 +1362,14 @@ if (api.browserMode) {
   retry.textContent = '다시 시작';
   retry.onclick = () => location.reload();
   $('messages').appendChild(retry);
+});
+
+let closePromptOpen=false;
+window.api?.onConfirmClose?.(async()=>{
+  if(closePromptOpen)return;
+  closePromptOpen=true;
+  try {
+    const exit=await confirmAction('저장하지 않은 작업이 있어요. 종료할까요?', {title:'미르 종료',cancelLabel:'계속 편집',acceptLabel:'저장하지 않고 종료'});
+    if(exit)await window.api.closeConfirmed();
+  } finally {closePromptOpen=false;}
 });

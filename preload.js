@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  onConfirmClose: callback => ipcRenderer.on('app:confirmClose', () => callback()),
+  closeConfirmed: () => ipcRenderer.invoke('app:closeConfirmed'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
   sendToAgent: (text, catalog) => ipcRenderer.invoke('agent:send', { text, catalog }),

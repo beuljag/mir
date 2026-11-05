@@ -211,14 +211,8 @@ function createWindow() {
     }
   });
   win.setMenuBarVisibility(false);
-  win.webContents.on('will-prevent-unload', (event) => {
-    const choice = dialog.showMessageBoxSync(win, {
-      type: 'question', title: '미르 종료',
-      message: '저장하지 않은 작업이 있어요. 종료할까요?',
-      detail: '계속 편집을 선택하면 돌아가서 작업을 저장할 수 있어요.',
-      buttons: ['계속 편집', '저장하지 않고 종료'], defaultId: 0, cancelId: 0
-    });
-    if (choice === 1) event.preventDefault();
+  win.webContents.on('will-prevent-unload', () => {
+    win.webContents.send('app:confirmClose');
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
@@ -341,3 +335,5 @@ ipcMain.handle('docs:open', (_e, name) => {
 app.whenReady().then(createWindow);
 ipcMain.handle('agent:openWebsite', (_e, url) => shell.openExternal(validateWebChatUrl(url)));
 app.on('window-all-closed', () => app.quit());
+
+ipcMain.handle('app:closeConfirmed', event => { const win = BrowserWindow.fromWebContents(event.sender); if(win) win.destroy(); });
