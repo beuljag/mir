@@ -1,5 +1,5 @@
 import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js';
-import { runtimeApi } from './web-api.js?v=research-evidence-7';
+import { runtimeApi } from './web-api.js?v=v21-shared-1';
 
 export function initBackendPanel({ getState, replace, renderParts, message }) {
   const $ = (id) => document.getElementById(id);
@@ -99,7 +99,9 @@ export function initBackendPanel({ getState, replace, renderParts, message }) {
   });
   const linked = new URLSearchParams(location.search).get('circuit');
   if (linked) { $('dbCircuitId').value = linked; $('backendModal').classList.remove('hidden'); }
-  return { reset, connectAutomatically: () => run(connect), refreshAfterAgent: () => client ? run(connect) : Promise.resolve(),
+  return { reset, connectAutomatically: async () => {
+    if ((await runtimeApi.getAutoAuthStatus?.())?.ready) await run(connect);
+  }, refreshAfterAgent: () => client ? run(connect) : Promise.resolve(),
     openCircuit: (id, { showPanel = true } = {}) => {
       $('dbCircuitId').value = id;
       if (showPanel) $('backendModal').classList.remove('hidden');

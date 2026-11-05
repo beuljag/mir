@@ -1,14 +1,16 @@
-import { applyAgentResult } from './agent-result.js';
-import { runtimeApi } from './web-api.js?v=research-evidence-7';
-import { initBackendPanel } from './backend-panel.js?v=clear-layout-1';
-import { initVerificationPanel } from './verification-panel.js?v=research-evidence-7';
-import { WiringCanvas, layoutPart, separateParts } from './canvas.js?v=clear-layout-1';
+import { applyAgentResult } from './agent-result.js?v=v21-shared-1';
+import { runtimeApi } from './web-api.js?v=v21-shared-1';
+import './appearance.js';
+import { initBackendPanel } from './backend-panel.js?v=v21-shared-1';
+import { initVerificationPanel } from './verification-panel.js?v=v21-shared-1';
+import { WiringCanvas, layoutPart, separateParts } from './canvas.js?v=v21-shared-1';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
+import { defFor, cleanProps, editableKind, LED_COLORS, RESISTOR_PRESETS, formatOhms, parseOhms } from './props.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
   buildDiagnoseRequest, buildPartRequest, parseReply, demoReply
-} from './agent.js?v=motor-power-policy-1';
+} from './agent.js';
 
 const $ = (id) => document.getElementById(id);
 const api = runtimeApi;
@@ -43,7 +45,7 @@ const tooltip = {
   showPin(key, e) {
     const [ref, pid] = splitKey(key);
     const inst = state.instances.find((i) => i.ref === ref);
-    const def = inst && state.defs.get(inst.part);
+    const def = inst && defFor(state.defs, inst);
     const pin = def?.pins.find((p) => p.id === pid);
     if (!pin) return;
     const conns = state.wires.filter((w) => w.from === key || w.to === key).map((w) => (w.from === key ? w.to : w.from));
@@ -77,6 +79,7 @@ const tooltip = {
     if (!w) return;
     let html = `<b>${escapeHtml(w.from)} ↔ ${escapeHtml(w.to)}</b><br>${w.origin === 'ai' ? 'AI 추천 배선' : '직접 연결한 배선'}`;
     if (w.note) html += `<br>${escapeHtml(w.note)}`;
+    if (canvas.routeWarnings.has(id)) html += '<br><span class="warn">부품이 겹치거나 핀 주변 여백이 부족해요. 부품을 조금 떨어뜨려 주세요.</span>';
     if (state.power && canvas.sim) {
       const v = canvas.sim.netByPin[w.from]?.voltage;
       html += `<div class="meter">전압: <span class="v">${v == null ? '-' : v.toFixed(2) + ' V'}</span></div>`;
@@ -87,10 +90,22 @@ const tooltip = {
   },
   move(e) {
     if (tooltipEl.classList.contains('hidden')) return;
-    const x = Math.min(e.clientX + 16, window.innerWidth - tooltipEl.offsetWidth - 8);
-    const y = Math.min(e.clientY + 16, window.innerHeight - tooltipEl.offsetHeight - 8);
-    tooltipEl.style.left = `${x}px`;
-    tooltipEl.style.top = `${y}px`;
+    const gap=12, top=document.querySelector('.stage-toolbar').getBoundingClientRect().bottom+gap;
+    const bottom=document.querySelector('.legend').getBoundingClientRect().top-gap;
+    const visible = el => el && !el.hidden && getComputedStyle(el).display !== 'none';
+    const panels=[$('agentPanel'),$('compactReply'),$('btnChatToggle')].filter(visible).map(el=>el.getBoundingClientRect());
+    const width=tooltipEl.offsetWidth,height=tooltipEl.offsetHeight;
+    const clamp=(n,min,max)=>Math.max(min,Math.min(n,Math.max(min,max)));
+    const candidates=[{x:e.clientX+16,y:e.clientY+16},{x:e.clientX-width-16,y:e.clientY+16}];
+    for(const r of panels) candidates.push({x:r.left-width-gap,y:e.clientY+16},{x:e.clientX-width/2,y:r.top-height-gap});
+    let best=null;
+    for(const p of candidates){
+      const x=clamp(p.x,8,innerWidth-width-8),y=clamp(p.y,top,bottom-height);
+      const overlap=panels.reduce((sum,r)=>sum+Math.max(0,Math.min(x+width,r.right+gap)-Math.max(x,r.left-gap))*Math.max(0,Math.min(y+height,r.bottom+gap)-Math.max(y,r.top-gap)),0);
+      const score=overlap*10000+Math.abs(x-e.clientX)+Math.abs(y-e.clientY);
+      if(!best||score<best.score)best={x,y,score};
+    }
+    tooltipEl.style.left=`${best.x}px`;tooltipEl.style.top=`${best.y}px`;
   },
   hide() { tooltipEl.classList.add('hidden'); }
 };
@@ -103,7 +118,7 @@ const canvas = new WiringCanvas($('canvas'), {
   onPartClick: (ref) => {
     // 가상 전원이 켜져 있을 때 버튼을 클릭하면 눌림/떼기
     const inst = state.instances.find((i) => i.ref === ref);
-    const def = inst && state.defs.get(inst.part);
+    const def = inst && defFor(state.defs, inst);
     if (state.power && def?.behavior?.kind === 'button') {
       state.pressed.has(ref) ? state.pressed.delete(ref) : state.pressed.add(ref);
       refresh();
@@ -127,6 +142,11 @@ function syncToCanvas() {
 function snapshotState() {
   return JSON.stringify({ instances: state.instances, wires: state.wires, title: state.title });
 }
+let savedSnapshot = snapshotState();
+function hasUnsavedChanges() { return snapshotState() !== savedSnapshot; }
+window.addEventListener('beforeunload', (event) => {
+  if (hasUnsavedChanges()) { event.preventDefault(); event.returnValue = false; }
+});
 
 function pushHistory() {
   const s = snapshotState();
@@ -172,6 +192,75 @@ function refresh() {
 
 // ---------- 부품함 ----------
 let paletteCat = 'all';
+// 부품함은 작업 공간 위에 잠깐 펼치며, 캔버스의 너비와 배선 위치는 바꾸지 않는다.
+function setPartsOpen(open, restoreFocus = false) {
+  const panel = $('partsPalette');
+  const toggle = $('btnPaletteToggle');
+  if (open) applyPaletteSize();
+  panel.hidden = !open;
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.setAttribute('aria-label', open ? '부품함 닫기' : '부품함 열기');
+  toggle.title = open ? '부품함 닫기' : '부품함 열기';
+  if (open) $('partSearch').focus({ preventScroll: true });
+  else {
+    $('partMenu').classList.add('hidden');
+    if (restoreFocus) toggle.focus({ preventScroll: true });
+  }
+}
+let paletteSize = { width:300, height:560 };
+try {
+  const saved = JSON.parse(localStorage.getItem('mir-palette-size'));
+  if (saved && Number.isFinite(saved.width) && Number.isFinite(saved.height)) paletteSize = saved;
+} catch { /* Use the default size when storage is unavailable. */ }
+function applyPaletteSize() {
+  const area = document.querySelector('.stage-body').getBoundingClientRect();
+  const maxW = Math.max(1, area.width - 40), maxH = Math.max(1, area.height - 120);
+  const width = Math.min(maxW, Math.max(Math.min(280,maxW),paletteSize.width));
+  const height = Math.min(maxH, Math.max(Math.min(220,maxH),paletteSize.height));
+  $('partsPalette').style.width = `${width}px`;
+  $('partsPalette').style.height = `${height}px`;
+  for (const handle of document.querySelectorAll('[data-palette-resize]')) {
+    if (handle.dataset.paletteResize === 'ne') continue;
+    const horizontal = handle.dataset.paletteResize === 'e';
+    handle.setAttribute('aria-valuemin', horizontal ? Math.min(280,maxW) : Math.min(220,maxH));
+    handle.setAttribute('aria-valuemax', horizontal ? maxW : maxH);
+    handle.setAttribute('aria-valuenow', horizontal ? width : height);
+  }
+  return {width,height};
+}
+function savePaletteSize() {
+  try { localStorage.setItem('mir-palette-size',JSON.stringify(paletteSize)); } catch { /* Retain this session's size. */ }
+}
+for (const handle of document.querySelectorAll('[data-palette-resize]')) {
+  let drag = null;
+  const edge = handle.dataset.paletteResize;
+  handle.addEventListener('pointerdown',e=>{
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const rect = $('partsPalette').getBoundingClientRect();
+    drag = {x:e.clientX,y:e.clientY,width:rect.width,height:rect.height};
+    handle.setPointerCapture(e.pointerId);
+    document.body.classList.add('palette-resizing');
+  });
+  handle.addEventListener('pointermove',e=>{
+    if (!drag) return;
+    paletteSize = {width:drag.width+(edge.includes('e')?e.clientX-drag.x:0),height:drag.height+(edge.includes('n')?drag.y-e.clientY:0)};
+    paletteSize = applyPaletteSize();
+  });
+  const finish = ()=>{ if (!drag) return; drag=null;document.body.classList.remove('palette-resizing');savePaletteSize(); };
+  handle.addEventListener('pointerup',finish);
+  handle.addEventListener('pointercancel',finish);
+  handle.addEventListener('lostpointercapture',finish);
+  handle.addEventListener('keydown',e=>{
+    if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    const size = applyPaletteSize(), step = e.shiftKey?40:20;
+    paletteSize = {width:size.width+(edge.includes('e')?(e.key==='ArrowRight'?step:e.key==='ArrowLeft'?-step:0):0),height:size.height+(edge.includes('n')?(e.key==='ArrowUp'?step:e.key==='ArrowDown'?-step:0):0)};
+    paletteSize = applyPaletteSize();savePaletteSize();
+  });
+}
+new ResizeObserver(()=>applyPaletteSize()).observe(document.querySelector('.stage-body'));
+
 const paletteCollapsed = new Set((() => { try { return JSON.parse(localStorage.getItem('mir-palette-collapsed') || '[]'); } catch { return []; } })());
 
 async function loadParts() {
@@ -261,8 +350,8 @@ function partItem(d) {
   info.innerHTML = `<div class="pn">${escapeHtml(d.name)}${d.source === 'user' ? '<span class="badge b-info">내 부품</span>' : ''}</div>
     <div class="pbadges">${partBadges(d).map((t) => `<span class="pbadge">${escapeHtml(t)}</span>`).join('')}</div>`;
   item.append(thumb, info);
-  item.onclick = () => addPart(d.id);
-  item.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addPart(d.id); } };
+  item.onclick = () => { addPart(d.id); setPartsOpen(false, true); };
+  item.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addPart(d.id); setPartsOpen(false, true); } };
   item.ondragstart = (e) => {
     e.dataTransfer.setData('application/x-mir-part', d.id);
     e.dataTransfer.effectAllowed = 'copy';
@@ -380,6 +469,7 @@ function addPart(partId, at) {
 // 부품함에서 끌어다 캔버스에 놓기
 const stageBody = document.querySelector('.stage-body');
 stageBody.addEventListener('dragover', (e) => {
+  if (e.target.closest('.palette')) return;
   if (!e.dataTransfer.types.includes('application/x-mir-part')) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'copy';
@@ -390,10 +480,12 @@ stageBody.addEventListener('dragleave', (e) => {
 });
 stageBody.addEventListener('drop', (e) => {
   stageBody.classList.remove('drop-target');
+  if (e.target.closest('.palette')) return;
   const id = e.dataTransfer.getData('application/x-mir-part');
   if (!id) return;
   e.preventDefault();
   addPart(id, canvas.toWorld(e));
+  setPartsOpen(false);
 });
 
 // ---------- 선택 정보 ----------
@@ -403,13 +495,15 @@ function showSelection(sel) {
   box.classList.remove('hidden');
   if (sel.type === 'part') {
     const inst = state.instances.find((i) => i.ref === sel.ref);
-    const def = state.defs.get(inst?.part);
+    const def = inst && defFor(state.defs, inst);
     if (!def) return box.classList.add('hidden');
     box.innerHTML = `<h4>${escapeHtml(inst.ref)} · ${escapeHtml(def.name)}</h4>
       <div>${escapeHtml(def.description || '')}</div>
       ${inst.label ? `<div class="muted">역할: ${escapeHtml(inst.label)}</div>` : ''}
       ${def.sources?.length ? `<div class="muted">근거: ${escapeHtml(def.sources.join(', '))}</div>` : ''}
+      ${propsEditorHtml(inst, def)}
       <div class="row"><button id="selDelete">부품 삭제</button></div>`;
+    bindPropsEditor(inst, def, sel);
   } else {
     const w = state.wires.find((x) => x.id === sel.id);
     if (!w) return box.classList.add('hidden');
@@ -419,6 +513,59 @@ function showSelection(sel) {
       <div class="row"><button id="selDelete">선 삭제</button></div>`;
   }
   $('selDelete').onclick = () => canvas.deleteSelected();
+}
+
+// ---------- 부품 값 바꾸기 (LED 색, 저항값) ----------
+function propsEditorHtml(inst, def) {
+  const kind = editableKind(def);
+  if (!kind) return '';
+  const reset = inst.props ? '<button class="ghost small" id="propReset">원래 값으로</button>' : '';
+  if (kind === 'led') {
+    const cur = def.behavior.color;
+    const sw = LED_COLORS.map((c) => `<button class="swatch ${cur === c.hex ? 'on' : ''}" data-color="${c.id}" title="${c.label} (약 ${c.vf}V)" style="--sw:${c.hex}"></button>`).join('');
+    return `<div class="prop-edit"><div class="prop-head">LED 색 ${reset}</div>
+      <div class="swatches">${sw}<label class="swatch custom" title="직접 고르기"><input type="color" id="propColor" value="${cur || '#ff3b30'}"></label></div>
+      <div class="muted">켜지는 전압(순방향 전압) 약 ${def.behavior.forwardVoltage || 2}V</div></div>`;
+  }
+  const quick = [220, 330, 1000, 10000].map((o) => `<button class="chip ${def.behavior.ohms === o ? 'on' : ''}" data-ohms="${o}">${formatOhms(o)}</button>`).join('');
+  return `<div class="prop-edit"><div class="prop-head">저항값 ${reset}</div>
+    <div class="prop-row"><input id="propOhms" list="ohmPresets" value="${formatOhms(def.behavior.ohms || 0)}" placeholder="예: 220, 4.7k, 1M"><button id="propOhmsApply">바꾸기</button></div>
+    <datalist id="ohmPresets">${RESISTOR_PRESETS.map((o) => `<option value="${formatOhms(o)}">`).join('')}</datalist>
+    <div class="chips">${quick}</div>
+    <div class="muted" id="propMsg">숫자 뒤에 k(천), M(백만)을 붙일 수 있어요. 색띠는 값에 맞게 바뀝니다.</div></div>`;
+}
+
+function bindPropsEditor(inst, def, sel) {
+  const kind = editableKind(def);
+  if (!kind) return;
+  const base = state.defs.get(inst.part);
+  const commit = (props) => {
+    const clean = cleanProps(base, props);
+    if (clean) inst.props = clean; else delete inst.props;
+    pushHistory();
+    refresh();
+    showSelection(sel);
+  };
+  const box = $('selInfo');
+  const reset = $('propReset');
+  if (reset) reset.onclick = () => commit(null);
+  if (kind === 'led') {
+    box.querySelectorAll('.swatch[data-color]').forEach((b) => { b.onclick = () => commit({ color: b.dataset.color }); });
+    $('propColor').onchange = (e) => commit({ color: e.target.value });
+    return;
+  }
+  const apply = (v) => {
+    const ohms = parseOhms(v);
+    if (ohms == null) {
+      $('propMsg').textContent = `"${v}"은(는) 저항값으로 읽을 수 없어요. 예: 220, 4.7k, 1M`;
+      $('propMsg').classList.add('error');
+      return;
+    }
+    commit({ ohms });
+  };
+  $('propOhmsApply').onclick = () => apply($('propOhms').value);
+  $('propOhms').onkeydown = (e) => { if (e.key === 'Enter') apply(e.target.value); };
+  box.querySelectorAll('.chip[data-ohms]').forEach((b) => { b.onclick = () => commit({ ohms: +b.dataset.ohms }); });
 }
 
 // ---------- 가상 전원 / GPIO ----------
@@ -500,7 +647,7 @@ function normalizeWiring(wiring) {
   for (const p of wiring.parts || []) {
     if (!p.ref || !p.part) continue;
     if (!state.defs.has(p.part)) { warnings.push(`부품함에 없는 부품: ${p.part} (${p.ref}) — 부품 JSON을 추가해야 그릴 수 있어요`); continue; }
-    parts.push({ ref: String(p.ref), part: p.part, label: p.label });
+    parts.push({ ref: String(p.ref), part: p.part, label: p.label, props: cleanProps(state.defs.get(p.part), p.props) });
   }
   const conns = [];
   for (const c of wiring.connections || []) {
@@ -538,7 +685,9 @@ function proposeWiring(wiring) {
   const removedParts = state.instances.filter((i) => !parts.some((p) => p.ref === i.ref && p.part === i.part));
   placeNew(addedParts, state.instances);
 
-  if (!removed.size && !added.length && !addedParts.length && !removedParts.length) {
+  const changedProps = parts.filter((p) => p.props && state.instances.some((i) => i.ref === p.ref && i.part === p.part && JSON.stringify(i.props) !== JSON.stringify(p.props)));
+
+  if (!removed.size && !added.length && !addedParts.length && !removedParts.length && !changedProps.length) {
     addMessage('system', '제안된 배선이 현재 배선과 같습니다.');
     return;
   }
@@ -548,6 +697,7 @@ function proposeWiring(wiring) {
   if (added.length) desc.push(`<span class="add">+ 선 ${added.length}개</span>`);
   if (removed.size) desc.push(`<span class="del">− 선 ${removed.size}개</span>`);
   if (addedParts.length) desc.push(`<span class="add">+ 부품 ${escapeHtml(addedParts.map((p) => p.ref).join(', '))}</span>`);
+  if (changedProps.length) desc.push(`<span class="add">값 변경 ${changedProps.map((p) => p.ref).join(', ')}</span>`);
   if (removedParts.length) desc.push(`<span class="del">− 부품 ${escapeHtml(removedParts.map((p) => p.ref).join(', '))}</span>`);
   $('previewText').innerHTML = `<b>AI 수정안 미리보기</b> — ${desc.join(' · ')}<br><span class="muted">초록 점선=추가, 빨간 점선=삭제. 적용하기 전에 확인하세요.</span>`;
   $('previewBar').classList.remove('hidden');
@@ -559,7 +709,7 @@ function applyProposal({ parts, conns, title, addedParts = [] }) {
   const placed = new Map(addedParts.map((p) => [`${p.ref}|${p.part}`, p]));
   const instances = parts.map((p) => {
     const old = keep.get(`${p.ref}|${p.part}`) || placed.get(`${p.ref}|${p.part}`);
-    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y, rotation: old?.rotation ?? 0 };
+    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y, ...((p.props || old?.props) ? { props: p.props || old.props } : {}) };
   });
   placeNew(instances, instances.filter((i) => i.x != null));
   state.instances = instances;
@@ -603,7 +753,7 @@ function codeBlock(code) {
   return `<pre><button class="copy small" data-copy="${escapeHtml(code)}">복사</button><code>${escapeHtml(code)}</code></pre>`;
 }
 
-function addMessage(role, text, extra) {
+function addMessage(role, text, extra, notifyCompact = false) {
   if (state.settings.mode === 'web' && role === 'system') {
     const entry = document.createElement('p'); entry.textContent = text;
     $('webActivity').appendChild(entry);
@@ -613,6 +763,11 @@ function addMessage(role, text, extra) {
   m.innerHTML = role === 'agent' ? renderMarkdown(text) : escapeHtml(text);
   if (extra) m.appendChild(extra);
   $('messages').appendChild(m);
+  if (notifyCompact && document.body.classList.contains('chat-collapsed')) showCompactReply(text);
+  // Animate only new, visible messages; reopening the panel keeps history still.
+  if (!document.body.classList.contains('chat-collapsed') && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    m.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 200, easing: 'ease-out' });
+  }
   m.querySelectorAll('[data-copy]').forEach((b) => {
     b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); b.textContent = '복사됨'; };
   });
@@ -661,9 +816,12 @@ function partCard(part) {
   return card;
 }
 
+let projectGeneration = 0;
 async function askAgent(message, { shown, ctx = {} } = {}) {
   if (state.busy) return;
+  const requestGeneration = projectGeneration;
   state.busy = true;
+  $('compactReply').hidden = true;
   $('btnSend').disabled = true;
   if (shown) addMessage('user', shown);
   const typing = addMessage('agent', '에이전트가 생각하는 중…');
@@ -676,7 +834,6 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
     let reply;
     const res = await api.sendToAgent(message, buildCatalog(state.defs), (progress) => {
       waitingStage = progress.stage === 'opening' ? 'Copilot 대화 연결 중'
-        : progress.stage === 'reconnecting' ? 'Microsoft 연결 재확인 중'
         : progress.stage === 'receiving' ? 'Copilot 응답 수신 중' : 'Copilot 응답 대기 중';
       refreshWaiting();
     });
@@ -688,6 +845,7 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
       reply = res.reply;
     }
     typing.remove();
+    if (requestGeneration !== projectGeneration) return;
     const { text, wiring, part, circuit, clarification } = parseReply(reply);
     let extra = circuit ? null : wiring ? wiringCard(wiring) : part ? partCard(part) : null;
     if (circuit) {
@@ -695,15 +853,18 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
       extra.textContent = '에이전트 회로를 DB에서 불러오기';
       extra.onclick = () => backend.openCircuit(circuit.circuit_id || circuit.id);
     }
-    addMessage('agent', text || (circuit ? '회로 ID가 반환되었습니다. 저장된 배선을 확인합니다.' : wiring ? '배선을 제안합니다.' : '(빈 응답)'), extra);
+    addMessage('agent', text || (circuit ? '회로 ID가 반환되었습니다. 저장된 배선을 확인합니다.' : wiring ? '배선을 제안합니다.' : '(빈 응답)'), extra, true);
     const applied = await applyAgentResult({ wiring, circuit, clarification }, { backend,
-      hasInstances: () => state.instances.length > 0, drawWiring: proposeWiring, isDemo: !!res.demo });
-    if (applied === 'text-only' && !part && message.includes('[요청 종류: 배선 추천]')) {
+      hasInstances: () => state.instances.length > 0, drawWiring: proposeWiring, isDemo: !!res.demo,
+      isCurrent: () => requestGeneration === projectGeneration });
+    if (requestGeneration === projectGeneration && applied === 'text-only' && !part && message.includes('[요청 종류: 배선 추천]')) {
       addMessage('system', '에이전트 응답에 회로 ID나 배선 데이터가 없어 그림을 만들지 못했습니다. 부품 등록과 배선 설계는 별도 단계입니다. 응답의 확인 질문이나 부족한 사양을 확인해 주세요.');
     }
   } catch (e) {
     typing.remove();
-    addMessage('system', `에이전트 호출 실패: ${e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\n⚙ 설정에서 연결 정보를 확인하세요.`);
+    if (requestGeneration !== projectGeneration) return;
+    if (shown && !$('chatInput').value.trim()) $('chatInput').value = shown;
+    addMessage('system', `에이전트 호출 실패: ${e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\n⚙ 설정에서 연결 정보를 확인하세요.`, null, true);
   } finally {
     clearInterval(waitingTimer);
     state.busy = false;
@@ -712,6 +873,7 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
 }
 
 function sendChat() {
+  if (state.busy) return;
   const text = $('chatInput').value.trim();
   if (!text) return;
   $('chatInput').value = '';
@@ -772,6 +934,7 @@ function demoProblems(sim) {
 // 사람이 가상환경에서 테스트한 뒤, 측정값과 배선을 보내 원인·수정안을 받는다.
 // 입력창에 적은 내용(무엇이 이상했는지)이 있으면 함께 보낸다.
 async function requestDiagnosis() {
+  if (state.busy) return;
   if (!state.instances.length) {
     addMessage('system', '먼저 배선을 만들어 주세요.');
     return;
@@ -875,35 +1038,121 @@ document.querySelectorAll('[data-example]').forEach((b) => {
   b.onclick = () => { $('chatInput').value = b.dataset.example; sendChat(); };
 });
 $('partSearch').oninput = renderPalette;
+$('btnPaletteToggle').onclick = () => setPartsOpen($('partsPalette').hidden, true);
+$('btnPaletteClose').onclick = () => setPartsOpen(false, true);
+document.addEventListener('pointerdown', (e) => {
+  if ($('partsPalette').hidden || document.querySelector('.modal:not(.hidden)')) return;
+  if (!$('partsPalette').contains(e.target) && !$('btnPaletteToggle').contains(e.target)) setPartsOpen(false);
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || $('partsPalette').hidden || document.querySelector('.modal:not(.hidden)')) return;
+  setPartsOpen(false, true);
+  e.preventDefault();
+  e.stopImmediatePropagation();
+});
 
 $('btnPreviewApply').onclick = () => state.pendingProposal && applyProposal(state.pendingProposal);
 $('btnPreviewCancel').onclick = () => { clearPreview(); refresh(); };
 
 $('btnDiagnose').onclick = requestDiagnosis;
 
-$('btnNew').onclick = () => {
-  if (state.instances.length && !confirm('지금 배선을 지우고 새로 시작할까요?')) return;
+// Keep chat below the work toolbar, including when font/window sizes change.
+function alignAgentBelowToolbar() {
+  const bottom = document.querySelector('.stage-toolbar').getBoundingClientRect().bottom;
+  document.documentElement.style.setProperty('--agent-top', `${Math.ceil(bottom + 12)}px`);
+  const footerTop = document.querySelector('.legend').getBoundingClientRect().top;
+  document.documentElement.style.setProperty('--agent-bottom', `${Math.ceil(window.innerHeight - footerTop + 12)}px`);
+}
+const toolbarObserver = new ResizeObserver(alignAgentBelowToolbar);
+toolbarObserver.observe(document.querySelector('.stage-toolbar'));
+toolbarObserver.observe(document.querySelector('.topbar'));
+toolbarObserver.observe(document.querySelector('.legend'));
+window.addEventListener('resize', alignAgentBelowToolbar);
+alignAgentBelowToolbar();
+
+function showCompactReply(text) {
+  const bubble = $('compactReply');
+  $('compactReplyText').textContent = text;
+  bubble.hidden = false;
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) bubble.animate([{ opacity:0,transform:'translateY(12px)' },{ opacity:1,transform:'translateY(0)' }],{duration:200,easing:'ease-out'});
+}
+$('btnReplyClose').onclick = () => { $('compactReply').hidden = true; $('chatInput').focus(); };
+// Chat controls must not trigger canvas keyboard shortcuts or drag movement.
+for (const overlay of [$('agentPanel'), $('compactReply')]) {
+  for (const event of ['keydown','mousedown','mousemove','wheel','dblclick']) overlay.addEventListener(event,e=>e.stopPropagation());
+}
+
+// Keep the same composer and messages alive while the panel is folded.
+$('btnChatToggle').onclick = () => {
+  const collapsed = document.body.classList.toggle('chat-collapsed');
+  if (!collapsed) $('compactReply').hidden = true;
+  $('btnChatToggle').setAttribute('aria-expanded', String(!collapsed));
+  $('btnChatToggle').textContent = collapsed ? '대화창 펼치기 ↗' : '대화창 접기 ↘';
+  $('btnChatToggle').title = collapsed ? '에이전트 대화창 펼치기' : '에이전트 대화창 접기';
+  $('chatInput').focus({ preventScroll: true });
+};
+
+try { canvas.wireStyle = localStorage.getItem('mir-wire-shape-v2') === 'straight' ? 'straight' : 'curve'; } catch {}
+function updateWirePreview() {
+  const curve = $('wireShapeToggle').checked;
+  $('wirePreviewPath').setAttribute('d',curve ? 'M72 50 C146 50 214 114 288 114' : 'M72 50 L174 50 Q180 50 180 56 L180 108 Q180 114 186 114 L288 114');
+  $('wirePreviewLabel').textContent=curve?'곡선':'직선';
+  $('wirePreviewPath').parentElement.setAttribute('aria-label',curve?'부드럽게 휘어지는 곡선 배선 미리보기':'모서리가 살짝 둥근 직선 배선 미리보기');
+}
+$('btnWireSettings').onclick = () => { closeProjectMenu(); $('wireShapeToggle').checked=canvas.wireStyle==='curve'; updateWirePreview(); $('wireSettings').showModal(); };
+$('btnWireSettingsClose').onclick = () => $('wireSettings').close();
+$('wireShapeToggle').onchange=()=>{updateWirePreview();canvas.wireStyle=$('wireShapeToggle').checked?'curve':'straight';try{localStorage.setItem('mir-wire-shape-v2',canvas.wireStyle);}catch{}canvas.render();};
+const projectMenu = $('projectMenu');
+function closeProjectMenu() { projectMenu.close(); $('btnMenu').setAttribute('aria-expanded', 'false'); $('btnMenu').focus(); }
+$('btnMenu').onclick = () => { projectMenu.showModal(); $('btnMenu').setAttribute('aria-expanded', 'true'); };
+$('btnMenuClose').onclick = closeProjectMenu;
+projectMenu.addEventListener('cancel', e => { e.preventDefault(); closeProjectMenu(); });
+projectMenu.addEventListener('click', e => { const r = projectMenu.getBoundingClientRect(); if (e.target === projectMenu && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) closeProjectMenu(); });
+$('btnNew').onclick = async () => {
+  closeProjectMenu();
+  if (hasUnsavedChanges() && !confirm('저장하지 않은 작업이 사라집니다. 새로 시작할까요?')) return;
+  await api.newProject();
+  projectGeneration++;
   state.instances = []; state.wires = []; state.title = ''; state.gpio = {}; state.requirements = '';
   backend.reset();
   clearPreview(); syncToCanvas(); pushHistory(); setPower(false);
+  savedSnapshot = snapshotState();
   api.resetAgent();
   $('messages').replaceChildren();
   greet();
 };
-$('btnSave').onclick = () => api.saveProject({ format: 'mir-wiring/1', title: state.title, instances: state.instances, wires: state.wires });
+async function saveProject(saveAs = false) {
+  closeProjectMenu();
+  try {
+    const savingSnapshot = snapshotState();
+    const saved = await api.saveProject({ format: 'mir-wiring/1', title: state.title, instances: state.instances, wires: state.wires }, saveAs);
+    if (saved) { savedSnapshot = savingSnapshot; addMessage('system', '프로젝트를 저장했어요.', null, true); }
+  }
+  catch (err) { addMessage('system', `저장하지 못했어요: ${err.message}`); }
+}
+$('btnSave').onclick = () => saveProject();
+$('btnSaveAs').onclick = () => saveProject(true);
 $('btnOpen').onclick = async () => {
-  const d = await api.openProject();
+  closeProjectMenu();
+  if (hasUnsavedChanges() && !confirm('현재 작업을 열려는 파일로 바꿀까요? 저장하지 않은 변경은 사라집니다.')) return;
+  let d;
+  try { d = await api.openProject(); } catch (err) { addMessage('system', `열지 못했어요: ${err.message}`); return; }
   if (!d) return;
+  projectGeneration++;
   state.instances = d.instances || []; state.wires = d.wires || []; state.title = d.title || ''; state.requirements = '';
   backend.reset();
   clearPreview(); syncToCanvas(); pushHistory(); refresh(); canvas.fit();
+  savedSnapshot = snapshotState();
+  await api.resetAgent();
 };
 
 $('btnImportPart').onclick = async () => {
+  try {
   const r = await api.importParts();
   if (r.added.length) addMessage('system', `부품 추가됨: ${r.added.join(', ')}`);
   if (r.errors.length) addMessage('system', `부품 추가 실패\n${r.errors.join('\n')}`);
   await loadParts();
+  } catch (e) { addMessage('system', `부품 가져오기 실패: ${e.message}`, null, true); }
 };
 $('btnPartMenu').onclick = (e) => { e.stopPropagation(); $('partMenu').classList.toggle('hidden'); };
 document.addEventListener('click', () => $('partMenu').classList.add('hidden'));
@@ -916,9 +1165,12 @@ $('partMenu').onclick = async (e) => {
   if (act === 'datasheet') $('partModal').classList.remove('hidden');
 };
 $('btnPartCancel').onclick = () => $('partModal').classList.add('hidden');
+$('partSource').addEventListener('input', () => $('partSource').setCustomValidity(''));
 $('btnPartAsk').onclick = () => {
   const text = $('partSource').value.trim();
-  if (!text) return;
+  if (!text) { $('partSource').setCustomValidity('데이터시트 내용을 입력해 주세요.'); $('partSource').reportValidity(); return; }
+  if (state.busy) { $('partSource').setCustomValidity('진행 중인 요청이 끝난 뒤 다시 시도해 주세요.'); $('partSource').reportValidity(); return; }
+  $('partSource').setCustomValidity('');
   $('partModal').classList.add('hidden');
   $('partSource').value = '';
   askAgent(buildPartRequest(text), { shown: '데이터시트 내용으로 새 부품을 만들어줘' });
@@ -957,35 +1209,48 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
 });
 
-// ---------- 양쪽 패널 너비 조절 ----------
-const PANEL_LIMITS = { left: [180, 420, 248], right: [300, 680, 392] };
+// ---------- 떠 있는 AI 채팅창 너비 조절 ----------
+const PANEL_LIMITS = { right: [300, 680, 360] };
 
 function setPanelWidth(side, px) {
-  const [min, max] = PANEL_LIMITS[side];
+  const [min, limit] = PANEL_LIMITS[side];
+  const max = Math.max(min, Math.min(limit, document.querySelector('.layout').clientWidth - 632));
   const v = Math.round(Math.min(max, Math.max(min, px)));
   document.querySelector('.layout').style.setProperty(`--${side}-w`, `${v}px`);
+  document.documentElement.style.setProperty('--agent-width', `${v}px`);
+  const bar = document.querySelector(`.resizer[data-side="${side}"]`);
+  bar.setAttribute('aria-valuemin', min);
+  bar.setAttribute('aria-valuemax', max);
+  bar.setAttribute('aria-valuenow', v);
   return v;
 }
 
 function initResizers() {
-  for (const side of ['left', 'right']) {
+  for (const side of Object.keys(PANEL_LIMITS)) {
+    let width = PANEL_LIMITS[side][2];
     try {
       const saved = Number(localStorage.getItem(`mir-panel-${side}`));
-      if (saved) setPanelWidth(side, saved);
+      if (saved) width = saved;
     } catch { /* 저장된 값 없이 기본 너비 */ }
+    setPanelWidth(side, width);
   }
+  window.addEventListener('resize', () => {
+    const width = parseFloat(document.querySelector('.layout').style.getPropertyValue('--right-w'));
+    setPanelWidth('right', width || PANEL_LIMITS.right[2]);
+  });
   document.querySelectorAll('.resizer').forEach((bar) => {
     const side = bar.dataset.side;
     bar.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
       e.preventDefault();
-      const panel = side === 'left' ? document.querySelector('.palette') : document.querySelector('.side');
+      const panel = document.querySelector('.side');
       const startX = e.clientX;
       const startW = panel.getBoundingClientRect().width;
       bar.classList.add('dragging');
       document.body.classList.add('resizing');
       const move = (ev) => {
         const dx = ev.clientX - startX;
-        const v = setPanelWidth(side, side === 'left' ? startW + dx : startW - dx);
+        const v = setPanelWidth(side, startW - dx);
         try { localStorage.setItem(`mir-panel-${side}`, v); } catch { /* 무시 */ }
       };
       const up = () => {
@@ -996,6 +1261,15 @@ function initResizers() {
       };
       window.addEventListener('mousemove', move);
       window.addEventListener('mouseup', up);
+    });
+    bar.addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault();
+      const current = document.querySelector('.side').getBoundingClientRect().width;
+      const px = e.key === 'Home' ? PANEL_LIMITS[side][0] : e.key === 'End' ? PANEL_LIMITS[side][1]
+        : current + (e.key === 'ArrowLeft' ? 20 : -20);
+      const v = setPanelWidth(side, px);
+      try { localStorage.setItem(`mir-panel-${side}`, v); } catch { /* 무시 */ }
     });
     bar.addEventListener('dblclick', () => {
       setPanelWidth(side, PANEL_LIMITS[side][2]);
@@ -1014,7 +1288,8 @@ function currentTheme() {
 
 function applyTheme(theme) {
   if (theme) document.documentElement.dataset.theme = theme;
-  $('btnTheme').textContent = currentTheme() === 'dark' ? '☀ 화이트 모드' : '☾ 블랙 모드';
+  $('btnTheme').textContent = currentTheme() === 'dark' ? '☀ 라이트 모드로 전환' : '☾ 다크 모드로 전환';
+  $('btnTheme').setAttribute('aria-pressed', String(currentTheme() === 'dark'));
 }
 
 $('btnTheme').onclick = () => {
@@ -1064,7 +1339,9 @@ const backend = initBackendPanel({
   message: (text) => addMessage('system', text),
   replace: (next) => {
     separateParts(next.instances, state.defs);
+    projectGeneration++;
     Object.assign(state, next); state.gpio = {};
+    savedSnapshot = snapshotState();
     state.history = []; state.future = [];
     clearPreview(); syncToCanvas(); pushHistory(); setPower(false); canvas.fit();
   }
@@ -1085,4 +1362,10 @@ if (api.browserMode) {
   initResizers();
   applyAppIcon();
   greet();
-})();
+})().catch((error) => {
+  addMessage('system', `미르 초기화 실패: ${error.message}\n앱을 다시 실행하거나 연결 설정을 확인해 주세요.`, null, true);
+  const retry = document.createElement('button');
+  retry.textContent = '다시 시작';
+  retry.onclick = () => location.reload();
+  $('messages').appendChild(retry);
+});

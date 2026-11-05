@@ -4,11 +4,12 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: http://127.0.0.1:8002 http://localhost:8002; frame-src https://copilotstudio.microsoft.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'">
   <title>미르</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=v21-shared-1">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
+      <button id="btnMenu" class="ghost" aria-label="메뉴 열기" aria-controls="projectMenu" aria-expanded="false">☰</button>
       <span id="logo" class="logo">⚡</span>
       <div>
         <div class="brand-name">미르</div>
@@ -16,41 +17,18 @@
       </div>
     </div>
     <div class="top-actions">
-      <button id="btnNew" class="ghost" title="새 배선">새로 만들기</button>
-      <button id="btnOpen" class="ghost" title="저장한 배선 열기">열기</button>
-      <button id="btnSave" class="ghost" title="배선 파일로 저장">저장</button>
       <button id="btnBackend" class="ghost">배선 API · DB</button>
-      <span class="sep"></span>
       <span id="connPill" class="badge b-mute">데모 · AI 미연결</span>
-      <button id="btnTheme" title="화이트/블랙 모드 전환">☾ 블랙 모드</button>
       <button id="btnSettings" title="에이전트 연결 설정">⚙ 연결 설정</button>
     </div>
   </header>
 
+  <dialog id="projectMenu" class="project-menu" aria-labelledby="projectMenuTitle">
+    <div class="project-menu-heading"><h2 id="projectMenuTitle">메뉴</h2><button id="btnMenuClose" class="ghost" aria-label="메뉴 닫기">×</button></div>
+    <nav aria-label="파일"><button id="btnNew">새로 만들기</button><button id="btnOpen">열기</button><button id="btnSave">저장</button><button id="btnSaveAs">다른 이름으로 저장</button></nav>
+<div class="project-menu-footer">    <button id="btnTheme" class="project-menu-theme" aria-pressed="false">다크 모드로 전환</button><button id="btnWireSettings" aria-label="설정">⚙ 설정</button></div>
+  </dialog>
   <main class="layout">
-    <!-- 부품함 -->
-    <aside class="palette">
-      <div class="panel-head">
-        <span class="label">부품함</span>
-        <div class="head-actions">
-          <button id="btnImportPart" class="small" title="양식에 맞춘 부품 JSON 파일 추가">+ 파일</button>
-          <button id="btnPartMenu" class="small" title="부품 메뉴">⋯</button>
-        </div>
-      </div>
-      <div id="partMenu" class="menu hidden">
-        <button data-act="template">부품 양식 파일 저장</button>
-        <button data-act="folder">내 부품 폴더 열기</button>
-        <button data-act="datasheet">데이터시트로 부품 만들기 (AI)</button>
-        <button data-act="guide">부품 JSON 양식 안내</button>
-        <button data-act="reload">부품 다시 불러오기</button>
-      </div>
-      <input id="partSearch" type="search" placeholder="부품 검색 (예: 릴레이, I2C, 5V)">
-      <div id="partCats" class="chips" role="toolbar" aria-label="부품 분류"></div>
-      <div id="partList" class="part-list"></div>
-      <div id="partErrors" class="part-errors"></div>
-    </aside>
-    <div class="resizer" data-side="left" title="드래그해서 너비 조절 (더블클릭: 원래대로)"></div>
-
     <!-- 2D 가상 실습 화면 -->
     <section class="stage">
       <div class="stage-toolbar">
@@ -67,11 +45,45 @@
         <span id="stageTitle" class="stage-title"></span>
       </div>
       <div class="stage-body">
+        <!-- 필요할 때만 펼치는 부품함 -->
+        <aside id="partsPalette" class="palette" aria-labelledby="paletteTitle" hidden>
+          <div class="panel-head">
+            <span id="paletteTitle" class="label">부품함</span>
+            <div class="head-actions">
+              <button id="btnImportPart" class="small" title="양식에 맞춘 부품 JSON 파일 추가">+ 파일</button>
+              <button id="btnPaletteClose" class="small" aria-label="부품함 닫기" title="부품함 닫기">×</button>
+              <button id="btnPartMenu" class="small" title="부품 메뉴">⋯</button>
+            </div>
+          </div>
+          <div id="partMenu" class="menu hidden">
+            <button data-act="template">부품 양식 파일 저장</button>
+            <button data-act="folder">내 부품 폴더 열기</button>
+            <button data-act="datasheet">데이터시트로 부품 만들기 (AI)</button>
+            <button data-act="guide">부품 JSON 양식 안내</button>
+            <button data-act="reload">부품 다시 불러오기</button>
+          </div>
+          <input id="partSearch" type="search" placeholder="부품 검색 (예: 릴레이, I2C, 5V)">
+          <div id="partCats" class="chips" role="toolbar" aria-label="부품 분류"></div>
+          <div id="partList" class="part-list"></div>
+          <div id="partErrors" class="part-errors"></div>
+          <div class="palette-resize palette-resize-n" data-palette-resize="n" role="separator" tabindex="0" aria-label="부품함 높이 조절" aria-orientation="horizontal" title="위아래로 드래그해서 높이 조절"></div>
+          <div class="palette-resize palette-resize-e" data-palette-resize="e" role="separator" tabindex="0" aria-label="부품함 너비 조절" aria-orientation="vertical" title="좌우로 드래그해서 너비 조절"></div>
+          <button class="palette-resize palette-resize-ne" data-palette-resize="ne" aria-label="부품함 크기 조절" title="드래그 또는 방향키로 크기 조절">⤢</button>
+        </aside>
+        <button id="btnPaletteToggle" class="palette-toggle" aria-label="부품함 열기" aria-controls="partsPalette" aria-expanded="false" title="부품함 열기">
+          <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+            <path d="M15 29v11m9-11v14m9-14v11" fill="none" stroke="var(--text-muted)" stroke-width="3" stroke-linecap="round"/>
+            <path d="M10 29V18a14 14 0 0 1 28 0v11a3 3 0 0 1-3 3H13a3 3 0 0 1-3-3Z" fill="var(--primary)"/>
+            <path d="M13 18a11 11 0 0 1 22 0" fill="none" stroke="var(--on-primary)" stroke-opacity=".35" stroke-width="2"/>
+            <path d="M18 23h5m0-5v10m0-5 7-5m-7 5 7 5m-4-1 4 1-1-4" fill="none" stroke="var(--on-primary)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>부품함</span>
+        </button>
         <svg id="canvas" class="canvas"></svg>
         <div id="emptyHint" class="empty-hint">
           <h3>무엇을 만들고 싶나요?</h3>
           <p>오른쪽 채팅에 목표를 말하면 AI가 배선을 추천해 여기에 그려 줍니다.<br>
-            왼쪽 부품함에서 부품을 눌러 직접 놓고, 핀을 차례로 클릭해 선을 이을 수도 있어요.</p>
+            왼쪽 아래 트랜지스터 버튼으로 부품함을 열어 부품을 놓고, 핀을 차례로 연결해 보세요.</p>
           <div class="examples">
             <button data-example="ESP32를 사용해서 외부 전력으로 밸브를 켜는 회로 짜줘">ESP32로 12V 밸브 켜기</button>
             <button data-example="온도 센서를 읽어서 화면에 띄우고 싶어">온도를 읽어 화면에 띄우기</button>
@@ -103,10 +115,11 @@
       </div>
     </section>
 
-    <div class="resizer" data-side="right" title="드래그해서 너비 조절 (더블클릭: 원래대로)"></div>
+    <div class="resizer" data-side="right" role="separator" aria-label="AI 채팅창 너비 조절" aria-orientation="vertical" tabindex="0" title="드래그해서 너비 조절 (더블클릭: 원래대로)"></div>
 
     <!-- AI 에이전트 채팅 -->
-    <aside class="side">
+    <aside id="agentPanel" class="side" aria-label="AI 에이전트 대화창">
+      <button id="btnChatToggle" aria-controls="agentPanel" aria-expanded="true" title="에이전트 대화창 접기">대화창 접기 ↘</button>
       <div class="panel-head"><span class="label">AI 에이전트</span></div>
 
       <div id="webChatPanel" class="web-chat-panel hidden">
@@ -135,6 +148,11 @@
     </aside>
   </main>
 
+  <aside id="compactReply" class="compact-reply" aria-label="미르의 새 답변" hidden>
+    <div class="compact-reply-head"><strong>미르</strong><button id="btnReplyClose" class="small" aria-label="답변 말풍선 닫기">×</button></div>
+    <div id="compactReplyText" class="compact-reply-text" role="status" aria-live="polite"></div>
+  </aside>
+  <dialog id="wireSettings" aria-labelledby="wireSettingsTitle"><div class="project-menu-heading"><h2 id="wireSettingsTitle">설정</h2><button id="btnWireSettingsClose" aria-label="설정 닫기">×</button></div><div class="wiring-options"><span id="wireShapeLabel">배선 형태</span><label class="wire-shape-choice"><span>직선</span><input id="wireShapeToggle" type="checkbox" role="switch" aria-label="곡선 배선 사용" checked><span>곡선 · 기본</span></label></div><div class="wire-preview"><div class="wire-preview-heading"><span>미리보기</span><span id="wirePreviewLabel">곡선</span></div><svg viewBox="0 0 360 160" role="img" aria-label="선택한 배선 형태 미리보기"><defs><pattern id="previewDots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="var(--border-strong)"/></pattern></defs><rect width="360" height="160" fill="url(#previewDots)"/><rect x="16" y="28" width="56" height="44" rx="10" class="preview-part"/><rect x="288" y="92" width="56" height="44" rx="10" class="preview-part"/><path id="wirePreviewPath" d="M72 50 C146 50 214 114 288 114"/><circle cx="72" cy="50" r="5" class="preview-port"/><circle cx="288" cy="114" r="5" class="preview-port"/></svg></div></dialog>
   <!-- 설정 -->
   <div id="settingsModal" class="modal hidden">
     <div class="modal-card">
@@ -176,7 +194,7 @@
       </div>
       <div id="testResult" class="test-result"></div>
       <div class="modal-actions">
-        <button id="btnTest">연결 테스트</button>
+        <button id="btnTest">저장하고 연결 테스트</button>
         <div class="grow"></div>
         <button id="btnSettingsCancel">닫기</button>
         <button id="btnSettingsSave" class="primary">저장</button>
@@ -240,6 +258,6 @@
       <div class="modal-actions"><button id="btnVerificationRun" class="primary">검사 실행</button><button id="btnVerificationClose">닫기</button></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=clear-layout-1"></script>
+  <script type="module" src="app.js?v=v21-shared-1"></script>
 </body>
 </html>

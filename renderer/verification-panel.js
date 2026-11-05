@@ -1,4 +1,4 @@
-import { runtimeApi } from './web-api.js?v=research-evidence-7';
+import { runtimeApi } from './web-api.js?v=v21-shared-1';
 
 // KiCad 파일은 기존 키 자동 연결을 통해 서버로 보낸다. 원본 파일을 수정하지 않는다.
 export function initVerificationPanel({ message }) {
@@ -66,7 +66,15 @@ export function initVerificationPanel({ message }) {
     for (let i = 0; i < 150; i++) {
       const state = await call(`/jobs/${job.id}`);
       if (!['queued', 'running'].includes(state.status)) {
-        show(state);
+        const summary = document.createElement('p');
+        summary.textContent = `검사 상태: ${state.status} · ${state.result?.note || state.error?.code || '아래 상세 결과를 확인하세요.'}`;
+        const details = document.createElement('details');
+        const heading = document.createElement('summary');
+        heading.textContent = '상세 결과 보기';
+        const raw = document.createElement('pre');
+        raw.textContent = JSON.stringify(state, null, 2);
+        details.append(heading, raw);
+        $('verificationResult').replaceChildren(summary, details);
         message(`KiCad 파일 검사 ${state.status}\nproject_id: ${id}\njob_id: ${job.id}\n${state.result?.note || state.error?.code || ''}`);
         return;
       }

@@ -52,15 +52,46 @@ ipcMain.handle('circuit:autoStatus', async () => {
 ipcMain.handle('circuit:request', (_e, { path: route, options = {} }) => requestCircuit(route, options));
 
 // ---------- 설정 (비밀 키는 Windows 자격 증명으로 암호화해 저장) ----------
-function loadSettings() {
+function readEnvSecret() {
+  const dir = app.isPackaged
+    ? process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath)
+    : __dirname;
+  try {
+    for (const line of fs.readFileSync(path.join(dir, '.env'), 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*COPILOT_DIRECT_LINE_SECRET\s*=(.*)$/);
+      if (m) return m[1].trim();
+    }
+  } catch {}
+  return '';
+}
+
+// ---------- 배포용 서버 주소 (app-config.json의 serverUrl, 예: https://내서버 — /token 은 자동으로 붙음) ----------
+function readServerUrl() {
+  try {
+    return String(JSON.parse(fs.readFileSync(path.join(__dirname, 'app-config.json'), 'utf8')).serverUrl || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+// ---------- 설정 (비밀 키는 Windows 자격 증명으로 암호화해 저장) ----------
+// ⚙에서 저장한 키가 없으면 .env의 키를 쓴다.
+// 설정을 한 번도 저장하지 않았으면 .env 키 → app-config.json 서버 → 데모 모드 순서로 고른다.
+function loadSettings(withEnv = true) {
+  const envSecret = withEnv ? readEnvSecret() : "";
   try {
     const raw = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
     if (raw.secretEnc && safeStorage.isEncryptionAvailable()) {
       raw.secret = safeStorage.decryptString(Buffer.from(raw.secretEnc, 'base64'));
     }
     delete raw.secretEnc;
+    raw.secret = raw.secret || envSecret;
+    raw.tokenEndpoint = raw.tokenEndpoint || readServerUrl();
     return raw;
   } catch {
+    if (envSecret) return { mode: 'secret', secret: envSecret, tokenEndpoint: '' };
+    const legacyServer = readServerUrl();
+    if (legacyServer) return { mode: 'token', secret: '', tokenEndpoint: legacyServer };
     try { return readWebChatDefaults(JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'agent-config.json'), 'utf8'))); }
     catch { return { mode: 'demo', secret: '', tokenEndpoint: '' }; }
   }
@@ -180,6 +211,15 @@ function createWindow() {
     }
   });
   win.setMenuBarVisibility(false);
+  win.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'question', title: '미르 종료',
+      message: '저장하지 않은 작업이 있어요. 종료할까요?',
+      detail: '계속 편집을 선택하면 돌아가서 작업을 저장할 수 있어요.',
+      buttons: ['계속 편집', '저장하지 않고 종료'], defaultId: 0, cancelId: 0
+    });
+    if (choice === 1) event.preventDefault();
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
@@ -194,7 +234,7 @@ ipcMain.handle('settings:get', () => {
 });
 
 ipcMain.handle('settings:set', (_e, s) => {
-  const prev = loadSettings();
+  const prev = loadSettings(false);
   saveSettings({ ...s, secret: s.secret || (s.mode === 'secret' ? prev.secret : '') });
   return true;
 });
@@ -271,25 +311,26 @@ ipcMain.handle('parts:template', async () => {
   return true;
 });
 
-ipcMain.handle('project:save', async (_e, data) => {
-  const r = await dialog.showSaveDialog({
-    title: '배선 저장',
-    defaultPath: 'wiring.mir.json',
-    filters: [{ name: '미르 배선', extensions: ['json'] }]
-  });
-  if (r.canceled) return false;
-  fs.writeFileSync(r.filePath, JSON.stringify(data, null, 2));
+let projectPath = null;
+ipcMain.handle('project:new', () => { projectPath = null; });
+ipcMain.handle('project:save', async (_e, data, saveAs = false) => {
+  let target = projectPath;
+  if (saveAs || !target) {
+    const r = await dialog.showSaveDialog({ title: saveAs ? '다른 이름으로 저장' : '배선 저장', defaultPath: target || 'wiring.mir.json', filters: [{ name: '미르 배선', extensions: ['json'] }] });
+    if (r.canceled) return false;
+    target = r.filePath;
+  }
+  await fs.promises.writeFile(target, JSON.stringify(data, null, 2));
+  projectPath = target;
   return true;
 });
-
 ipcMain.handle('project:open', async () => {
-  const r = await dialog.showOpenDialog({
-    title: '배선 열기',
-    filters: [{ name: '미르 배선', extensions: ['json'] }],
-    properties: ['openFile']
-  });
+  const r = await dialog.showOpenDialog({ title: '배선 열기', filters: [{ name: '미르 배선', extensions: ['json'] }], properties: ['openFile'] });
   if (r.canceled) return null;
-  return JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8'));
+  const data = JSON.parse(await fs.promises.readFile(r.filePaths[0], 'utf8'));
+  if (!data || data.format !== 'mir-wiring/1' || !Array.isArray(data.instances) || !Array.isArray(data.wires)) throw new Error('미르 배선 파일을 선택해 주세요.');
+  projectPath = r.filePaths[0];
+  return data;
 });
 
 ipcMain.handle('docs:open', (_e, name) => {

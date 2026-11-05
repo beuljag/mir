@@ -80,9 +80,17 @@ class ComponentCreateRequest(Model):
         return self
 
 
+class ComponentProperties(Model):
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    ohms: float | None = Field(default=None, gt=0, le=1e8)
+    forwardVoltage: float | None = Field(default=None, gt=0, lt=10)
+
+
 class ComponentInstance(Model):
     instance_id: str = Field(min_length=1, max_length=80)
     component_definition_id: str
+    label: str = Field(default="", max_length=200)
+    props: ComponentProperties | None = None
 
 
 class PinRef(Model):

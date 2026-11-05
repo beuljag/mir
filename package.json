@@ -7,15 +7,37 @@
   "author": "PLAYLABS (아산스마트팩토리마이스터고)",
   "license": "MIT",
   "scripts": {
-    "test": "node --test tests/*.test.mjs",
     "start": "electron .",
-    "dist": "electron-builder --win portable"
+    "dist": "electron-builder --win portable",
+    "test": "node --test tests/*.test.cjs tests/*.test.mjs"
   },
   "build": {
     "appId": "kr.playlabs.mir",
-    "files": ["main.js", "preload.js", "src/**", "renderer/**", "parts/**", "docs/**", "build/icon.*"],
-    "extraResources": [{ "from": "parts", "to": "parts" }],
-    "win": { "target": "portable" }
+    "files": [
+      "main.js",
+      "preload.js",
+      "app-config.json",
+      "src/**",
+      "renderer/**",
+      "parts/**",
+      "docs/**",
+      "build/icon.*"
+    ],
+    "extraResources": [
+      {
+        "from": "parts",
+        "to": "parts"
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.ico"
+    },
+    "directories": {
+      "output": "release-shared-integrated"
+    },
+    "artifactName": "mir-integrated.exe",
+    "electronDist": "node_modules/electron/dist"
   },
   "devDependencies": {
     "electron": "^33.2.1",

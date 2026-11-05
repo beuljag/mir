@@ -49,7 +49,8 @@ export function toCircuitDraft(state, original = null) {
   return {
     name: state.title || '미르 배선 초안',
     requirements: state.requirements ?? original?.requirements ?? '',
-    component_instances: state.instances.map((i) => ({ instance_id: i.ref, component_definition_id: i.part })),
+    component_instances: state.instances.map((i) => ({ instance_id: i.ref, component_definition_id: i.part,
+      ...(i.props ? { props: i.props } : {}), ...(i.label ? { label: i.label } : {}) })),
     nets,
     layout: state.instances.map((i) => ({ instance_id: i.ref, x: i.x ?? 0, y: i.y ?? 0, rotation: i.rotation ?? 0 }))
   };
@@ -61,6 +62,7 @@ export function fromCircuit(circuit) {
     if (i.instance_id.includes('.')) throw new Error('미르에서는 ref에 점(.)이 포함된 회로를 편집할 수 없습니다.');
     const p = layout.get(i.instance_id);
     return { ref: i.instance_id, part: i.component_definition_id,
+      ...(i.props && Object.keys(i.props).length ? { props: i.props } : {}), ...(i.label ? { label: i.label } : {}),
       x: p?.x ?? (n % 3) * 360, y: p?.y ?? Math.floor(n / 3) * 240, rotation: p?.rotation ?? 0 };
   });
   const seen = new Set(), wires = [];

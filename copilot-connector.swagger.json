@@ -65,6 +65,16 @@
             "minimum": 1,
             "default": 20,
             "title": "Limit"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "maximum": 10000,
+            "minimum": 0,
+            "default": 0,
+            "title": "Offset"
           }
         ],
         "responses": {
@@ -534,6 +544,531 @@
           }
         }
       }
+    },
+    "/components": {
+      "post": {
+        "operationId": "CreateComponent",
+        "summary": "Create Component",
+        "tags": [
+          "components"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ComponentCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "schema": {
+              "$ref": "#/definitions/ComponentDefinition"
+            }
+          }
+        }
+      }
+    },
+    "/component-images/config": {
+      "get": {
+        "operationId": "GetImageGenerationConfig",
+        "summary": "Config",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/component-images/generate": {
+      "post": {
+        "operationId": "GenerateComponentImage",
+        "summary": "Generate",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ImageRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "schema": {
+              "$ref": "#/definitions/JobRecord"
+            }
+          }
+        }
+      }
+    },
+    "/component-images": {
+      "get": {
+        "operationId": "ListComponentImages",
+        "summary": "Listing",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 1,
+            "default": 50,
+            "title": "Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ComponentImage"
+              },
+              "title": "Response Listcomponentimages"
+            }
+          }
+        }
+      }
+    },
+    "/components/{component_id}/image-spec": {
+      "get": {
+        "operationId": "GetComponentImageSpec",
+        "summary": "Spec",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "component_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Component Id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/component-images/svg": {
+      "post": {
+        "operationId": "SaveComponentSvg",
+        "summary": "Save Svg",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SvgSaveRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "schema": {
+              "$ref": "#/definitions/JobRecord"
+            }
+          }
+        }
+      }
+    },
+    "/component-images/spec": {
+      "get": {
+        "operationId": "image_spec_component_images_spec_get",
+        "summary": "Image Spec",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "component_id",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "x-nullable": true
+          },
+          {
+            "name": "candidate_id",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "x-nullable": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      },
+      "post": {
+        "operationId": "custom_spec_component_images_spec_post",
+        "summary": "Custom Spec",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ImageSpecRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/component-images/{asset_id}": {
+      "get": {
+        "operationId": "GetComponentImage",
+        "summary": "Detail",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Asset Id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {
+              "$ref": "#/definitions/ComponentImage"
+            }
+          }
+        }
+      }
+    },
+    "/component-images/{asset_id}/content": {
+      "get": {
+        "operationId": "content_component_images__asset_id__content_get",
+        "summary": "Content",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Asset Id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/components/{component_id}/image": {
+      "put": {
+        "operationId": "ApplyComponentImage",
+        "summary": "Apply",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "component_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Component Id"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ImageApplyRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      },
+      "get": {
+        "operationId": "active_components__component_id__image_get",
+        "summary": "Active",
+        "tags": [
+          "images"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "component_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Component Id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/verification/config": {
+      "get": {
+        "operationId": "GetCircuitVerificationConfig",
+        "summary": "Config",
+        "tags": [
+          "verification"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/verification/projects": {
+      "post": {
+        "operationId": "ImportKiCadProject",
+        "summary": "Upload",
+        "tags": [
+          "verification"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/KiCadImport"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/verification/projects/{project_id}": {
+      "get": {
+        "operationId": "GetKiCadProject",
+        "summary": "Project",
+        "tags": [
+          "verification"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Project Id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/verification/projects/{project_id}/verify": {
+      "post": {
+        "operationId": "VerifyKiCadProject",
+        "summary": "Verify",
+        "tags": [
+          "verification"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Project Id"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/KiCadChecks"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
+    },
+    "/verification/jobs/{job_id}/artifacts/{name}": {
+      "get": {
+        "operationId": "artifact_verification_jobs__job_id__artifacts__name__get",
+        "summary": "Artifact",
+        "tags": [
+          "verification"
+        ],
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Job Id"
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "title": "Name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "schema": {}
+          }
+        }
+      }
     }
   },
   "securityDefinitions": {
@@ -841,6 +1376,101 @@
       ],
       "title": "CircuitUpdate"
     },
+    "ComponentCreateRequest": {
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 8,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Request Id"
+        },
+        "manufacturer": {
+          "type": "string",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Manufacturer",
+          "default": "미확인"
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Model"
+        },
+        "revision": {
+          "type": "string",
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Revision",
+          "default": "unconfirmed"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "board",
+            "sensor",
+            "display",
+            "output",
+            "input",
+            "module",
+            "actuator",
+            "power",
+            "passive"
+          ],
+          "title": "Category"
+        },
+        "pins": {
+          "items": {
+            "$ref": "#/definitions/Pin"
+          },
+          "type": "array",
+          "maxItems": 100,
+          "title": "Pins"
+        },
+        "source_references": {
+          "items": {
+            "$ref": "#/definitions/Source"
+          },
+          "type": "array",
+          "maxItems": 20,
+          "title": "Source References"
+        },
+        "candidate_id": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "x-nullable": true
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 4000,
+          "title": "Notes",
+          "default": ""
+        },
+        "is_virtual": {
+          "type": "boolean",
+          "title": "Is Virtual",
+          "default": false
+        },
+        "unresolved_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "maxItems": 30,
+          "title": "Unresolved Fields"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "request_id",
+        "model",
+        "category"
+      ],
+      "title": "ComponentCreateRequest"
+    },
     "ComponentDefinition": {
       "properties": {
         "id": {
@@ -882,7 +1512,6 @@
             "$ref": "#/definitions/Pin"
           },
           "type": "array",
-          "minItems": 1,
           "title": "Pins"
         },
         "source_references": {
@@ -896,6 +1525,22 @@
           "type": "string",
           "title": "Notes",
           "default": ""
+        },
+        "is_draft": {
+          "type": "boolean",
+          "title": "Is Draft",
+          "default": false
+        },
+        "unresolved_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Unresolved Fields"
+        },
+        "research_candidate_id": {
+          "type": "string",
+          "x-nullable": true
         }
       },
       "additionalProperties": false,
@@ -906,10 +1551,118 @@
         "model",
         "revision",
         "category",
-        "verification_status",
-        "pins"
+        "verification_status"
       ],
       "title": "ComponentDefinition"
+    },
+    "ComponentImage": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "Id"
+        },
+        "job_id": {
+          "type": "string",
+          "title": "Job Id"
+        },
+        "component_id": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "candidate_id": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "label": {
+          "type": "string",
+          "title": "Label"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "generating",
+            "completed",
+            "failed"
+          ],
+          "title": "Status",
+          "default": "generating"
+        },
+        "created_at": {
+          "type": "string",
+          "title": "Created At"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model"
+        },
+        "width": {
+          "type": "number",
+          "x-nullable": true
+        },
+        "height": {
+          "type": "number",
+          "x-nullable": true
+        },
+        "sha256": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "has_transparency": {
+          "type": "boolean",
+          "title": "Has Transparency",
+          "default": false
+        },
+        "illustrative_only": {
+          "type": "boolean",
+          "title": "Illustrative Only",
+          "default": true
+        },
+        "error_code": {
+          "type": "string",
+          "x-nullable": true
+        },
+        "format": {
+          "type": "string",
+          "title": "Format",
+          "default": "svg",
+          "enum": [
+            "svg"
+          ]
+        },
+        "layout": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-nullable": true
+        },
+        "prompt_source": {
+          "type": "string",
+          "title": "Prompt Source",
+          "default": "mir/docs/부품-그림-제작-안내.md"
+        },
+        "design_version": {
+          "type": "string",
+          "enum": [
+            "v1",
+            "v2"
+          ],
+          "title": "Design Version",
+          "default": "v1"
+        },
+        "presentation": {
+          "$ref": "#/definitions/ImagePresentation",
+          "x-nullable": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "job_id",
+        "label",
+        "created_at",
+        "model"
+      ],
+      "title": "ComponentImage"
     },
     "ComponentInstance": {
       "properties": {
@@ -922,6 +1675,16 @@
         "component_definition_id": {
           "type": "string",
           "title": "Component Definition Id"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 200,
+          "title": "Label",
+          "default": ""
+        },
+        "props": {
+          "$ref": "#/definitions/ComponentProperties",
+          "x-nullable": true
         }
       },
       "additionalProperties": false,
@@ -931,6 +1694,30 @@
         "component_definition_id"
       ],
       "title": "ComponentInstance"
+    },
+    "ComponentProperties": {
+      "properties": {
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "x-nullable": true
+        },
+        "ohms": {
+          "type": "number",
+          "maximum": 100000000.0,
+          "exclusiveMinimum": 0.0,
+          "x-nullable": true
+        },
+        "forwardVoltage": {
+          "type": "number",
+          "exclusiveMaximum": 10.0,
+          "exclusiveMinimum": 0.0,
+          "x-nullable": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "title": "ComponentProperties"
     },
     "DatasheetRequest": {
       "properties": {
@@ -959,6 +1746,120 @@
         "model"
       ],
       "title": "DatasheetRequest"
+    },
+    "ImageApplyRequest": {
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$",
+          "title": "Asset Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "asset_id"
+      ],
+      "title": "ImageApplyRequest"
+    },
+    "ImagePresentation": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "pcb",
+            "bare"
+          ],
+          "title": "Kind",
+          "default": "pcb"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "title": "Color",
+          "default": "#1d3557"
+        },
+        "pin_sides": {
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "top",
+              "bottom"
+            ]
+          },
+          "type": "object",
+          "maxProperties": 100,
+          "title": "Pin Sides"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "title": "ImagePresentation"
+    },
+    "ImageRequest": {
+      "properties": {
+        "component_id": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "x-nullable": true
+        },
+        "candidate_id": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "x-nullable": true
+        },
+        "presentation": {
+          "$ref": "#/definitions/ImagePresentation",
+          "x-nullable": true
+        },
+        "appearance": {
+          "type": "string",
+          "maxLength": 2000,
+          "minLength": 10,
+          "title": "Appearance"
+        },
+        "request_id": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 8,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Request Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "appearance",
+        "request_id"
+      ],
+      "title": "ImageRequest"
+    },
+    "ImageSpecRequest": {
+      "properties": {
+        "component_id": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "x-nullable": true
+        },
+        "candidate_id": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "x-nullable": true
+        },
+        "presentation": {
+          "$ref": "#/definitions/ImagePresentation",
+          "x-nullable": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "title": "ImageSpecRequest"
     },
     "Issue": {
       "properties": {
@@ -1006,7 +1907,9 @@
           "type": "string",
           "enum": [
             "research",
-            "datasheet"
+            "datasheet",
+            "component_image",
+            "kicad_verification"
           ],
           "title": "Kind"
         },
@@ -1049,6 +1952,87 @@
         "updated_at"
       ],
       "title": "JobRecord"
+    },
+    "KiCadChecks": {
+      "properties": {
+        "run_erc": {
+          "type": "boolean",
+          "title": "Run Erc",
+          "default": true
+        },
+        "run_ngspice": {
+          "type": "boolean",
+          "title": "Run Ngspice",
+          "default": false
+        },
+        "analysis": {
+          "type": "string",
+          "enum": [
+            "op",
+            "transient"
+          ],
+          "title": "Analysis",
+          "default": "op"
+        },
+        "timestep": {
+          "type": "number",
+          "maximum": 100.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Timestep",
+          "default": 1e-05
+        },
+        "duration": {
+          "type": "number",
+          "maximum": 10000.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Duration",
+          "default": 0.01
+        },
+        "vectors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "maxItems": 8,
+          "title": "Vectors"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "title": "KiCadChecks"
+    },
+    "KiCadImport": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name"
+        },
+        "main_file": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Main File"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/definitions/VerificationFile"
+          },
+          "type": "array",
+          "maxItems": 40,
+          "minItems": 1,
+          "title": "Files"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "main_file",
+        "files"
+      ],
+      "title": "KiCadImport"
     },
     "Net": {
       "properties": {
@@ -1346,6 +2330,53 @@
       ],
       "title": "Source"
     },
+    "SvgSaveRequest": {
+      "properties": {
+        "component_id": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "x-nullable": true
+        },
+        "candidate_id": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "x-nullable": true
+        },
+        "presentation": {
+          "$ref": "#/definitions/ImagePresentation",
+          "x-nullable": true
+        },
+        "appearance": {
+          "type": "string",
+          "maxLength": 2000,
+          "minLength": 10,
+          "title": "Appearance"
+        },
+        "request_id": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 8,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Request Id"
+        },
+        "svg": {
+          "type": "string",
+          "maxLength": 200000,
+          "minLength": 10,
+          "title": "Svg"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "appearance",
+        "request_id",
+        "svg"
+      ],
+      "title": "SvgSaveRequest"
+    },
     "ValidationResult": {
       "properties": {
         "circuit_id": {
@@ -1403,6 +2434,28 @@
         "excluded_checks"
       ],
       "title": "ValidationResult"
+    },
+    "VerificationFile": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 5000000,
+          "title": "Content"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "content"
+      ],
+      "title": "VerificationFile"
     },
     "VersionRequest": {
       "properties": {

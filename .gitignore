@@ -19,3 +19,5 @@ tools/devtunnel.exe
 
 config/tunnel.json
 renderer/server-connection.json
+.ux/
+release*/

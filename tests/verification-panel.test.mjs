@@ -3,17 +3,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../renderer/verification-panel.js', import.meta.url), 'utf8')
-  .replace("import { runtimeApi } from './web-api.js?v=research-evidence-7';", 'const runtimeApi = globalThis.verificationTestApi;');
+  .replace("import { runtimeApi } from './web-api.js?v=v21-shared-1';", 'const runtimeApi = globalThis.verificationTestApi;');
 
 test('폴더의 상대 경로를 보존하고 검사 결과·작업 ID를 키 없이 표시', async () => {
   const elements = new Map();
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, { value: '', textContent: '', checked: false, files: [], disabled: false,
-      classList: { add() {}, remove() {} }, replaceChildren() { this.value = ''; },
+      classList: { add() {}, remove() {} }, replaceChildren(...children) {
+        this.value = '';
+        this.textContent = children.map((child) => child.textContent).join('');
+      },
       appendChild(option) { if (!this.value) this.value = option.value; } });
     return elements.get(id);
   };
-  globalThis.document = { getElementById: element, createElement: () => ({ value: '', textContent: '' }) };
+  globalThis.document = { getElementById: element, createElement: () => ({
+    value: '', textContent: '',
+    append(...children) { this.textContent += children.map((child) => child.textContent).join(''); }
+  }) };
   const calls = [];
   const projectId = 'a'.repeat(32);
   const jobId = '11111111-1111-1111-1111-111111111111';

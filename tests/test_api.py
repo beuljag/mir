@@ -50,6 +50,17 @@ def test_auth_and_component_search(client):
     assert client.get("/components/missing").status_code == 404
 
 
+def test_custom_properties_db_roundtrip(client, draft):
+    draft["component_instances"][0]["props"] = {"ohms": 4700}
+    draft["component_instances"][0]["label"] = "custom value"
+    cid = create(client, draft)
+    record = client.get(f"/circuits/{cid}").json()
+    assert record["component_instances"][0]["props"]["ohms"] == 4700
+    updated = client.put(f"/circuits/{cid}", json={**draft, "expected_version": 1})
+    assert updated.status_code == 200
+    assert updated.json()["component_instances"][0]["label"] == "custom value"
+
+
 def test_virtual_is_unknown_and_draft_apply_requires_opt_in(client, draft):
     cid = create(client, draft)
     result = check(client, cid).json()
