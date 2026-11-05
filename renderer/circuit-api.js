@@ -81,6 +81,7 @@ export function definitionToPart(def) {
   const types = { ground: 'gnd', bidirectional: 'gpio' };
   return {
     id: def.id, name: def.model, category: def.category,
+    ...(['board', 'controller'].includes(def.category) ? { behavior: { kind: 'board' } } : {}),
     description: `${def.manufacturer} · ${def.verification_status}${def.is_draft ? ' · 미검증 설계 부품' : ''}${def.is_virtual ? ' · 가상 부품' : ''}${!def.pins.length ? ' · 핀 정보 미확인' : ''}`,
     isDraft: !!def.is_draft,
     unresolvedFields: def.unresolved_fields || [],

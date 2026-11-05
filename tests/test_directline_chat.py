@@ -229,6 +229,41 @@ def test_progress_message_does_not_end_turn_before_final_answer(chat):
     assert final['status']=='completed' and 'component_id: pico' in final['reply']
 
 
+def test_turn_complete_delivers_plain_design_reply_without_marker(chat):
+    client, service, env, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages', json={
+        'message': '[요청 종류: 배선 추천] 사용할 모터를 확인해 주세요.'
+    }).json()['request_id']
+    session = service.sessions[sid]
+    def activities(request):
+        return httpx.Response(200, json={'activities': [
+            {'id': 'answer', 'type': 'message', 'from': {'id': 'copilot'},
+             'replyToId': session.sent_activity_id, 'text': '모터의 종류와 모델명을 알려주세요.'},
+            {'id': 'complete', 'type': 'event', 'name': 'turn.complete',
+             'from': {'id': 'copilot'}, 'replyToId': session.sent_activity_id}
+        ]})
+    service.transport = httpx.MockTransport(activities)
+    result = client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status'] == 'completed'
+    assert result['reply'] == '모터의 종류와 모델명을 알려주세요.'
+    client.post(f'/chat/sessions/{sid}/messages', json={'message': '후속 요청'})
+    assert not session.turn_complete_seen
+
+
+def test_unrelated_event_keeps_design_progress_waiting(chat):
+    client, service, env, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages', json={
+        'message': '[요청 종류: 배선 추천] 모터'
+    }).json()['request_id']
+    service.transport = httpx.MockTransport(lambda request: httpx.Response(200, json={'activities': [
+        {'id': 'progress', 'type': 'message', 'from': {'role': 'bot'}, 'text': '자료를 조사합니다.'},
+        {'id': 'event', 'type': 'event', 'name': 'progress', 'from': {'role': 'bot'}}
+    ]}))
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status'] == 'waiting'
+
+
 def test_input_hint_marks_intermediate_reply():
     from app.directline_chat import is_progress_message
     assert is_progress_message('작업을 실행할 예정입니다.','ignoringInput')

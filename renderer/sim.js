@@ -84,7 +84,10 @@ function solve({ inst, wires, defs, gpio, pressed, relayState }) {
     if (p.type === 'power_out' && (kind === 'board' || kind === 'supply')) addSource(k, p.voltage, 'power', k);
     if (p.type === 'gnd' && (kind === 'board' || kind === 'supply')) addSource(k, 0, 'power', k);
     if (kind === 'board' && (p.type === 'gpio') && gpio[k]) {
-      addSource(k, gpio[k] === 'HIGH' ? p.voltage : 0, 'drive', `${k} ${gpio[k]}`);
+      const voltage = gpio[k] === 'HIGH' ? p.voltage : 0;
+      if (typeof voltage === 'number' && Number.isFinite(voltage)) {
+        addSource(k, voltage, 'drive', `${k} ${gpio[k]}`);
+      }
     }
   }
 

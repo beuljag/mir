@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { layoutPart, separateParts } from '../renderer/canvas.js';
+import { simulate } from '../renderer/sim.js';
 
 const source = readFileSync(new URL('../renderer/circuit-api.js', import.meta.url), 'utf8');
-const { fromCircuit, toCircuitDraft, CircuitApi } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const { fromCircuit, toCircuitDraft, CircuitApi, definitionToPart } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const agentSource = readFileSync(new URL('../renderer/agent.js', import.meta.url), 'utf8');
 const { parseReply } = await import('data:text/javascript;base64,' + Buffer.from(agentSource).toString('base64'));
 const record = {
@@ -14,6 +15,30 @@ const record = {
   layout: [{ instance_id: 'S', x: 150, y: 200, rotation: 90 }]
 };
 const netSignatures = (nets) => nets.map((n) => n.connected_pin_refs.map((p) => `${p.instance_id}.${p.pin_id}`).sort().join('|')).sort();
+
+test('DB 보드의 양방향 GPIO가 HIGH/LOW를 구동하고 입력 전용 핀은 보존된다', () => {
+  for (const category of ['board', 'controller']) {
+    const board = definitionToPart({
+      id: 'db-board', model: 'DB board', category, manufacturer: 'test',
+      verification_status: 'unverified', source_references: [], pins: [
+        { id: 'GPIO25', label: 'GPIO25', direction: 'bidirectional', output_voltage: 3.3 },
+        { id: 'GPIO34', label: 'GPIO34', direction: 'input' },
+        { id: 'GPIO26', label: 'GPIO26', direction: 'bidirectional' }
+      ]
+    });
+    assert.equal(board.behavior.kind, 'board');
+    assert.equal(board.pins[0].type, 'gpio');
+    assert.equal(board.pins[1].type, 'input');
+    const state = { instances: [{ ref: 'U1', part: board.id }], wires: [],
+      defs: new Map([[board.id, board]]) };
+    for (const [mode, expected] of [['HIGH', 3.3], ['LOW', 0]]) {
+      const result = simulate({ ...state, gpio: { 'U1.GPIO25': mode, 'U1.GPIO34': mode, 'U1.GPIO26': 'HIGH' } });
+      assert.equal(result.netByPin['U1.GPIO25'].voltage, expected);
+      assert.equal(result.netByPin['U1.GPIO34'].voltage, null);
+      assert.equal(result.netByPin['U1.GPIO26'].voltage, null);
+    }
+  }
+});
 
 test('긴 핀 설명이 보드 폭을 늘리지 않고 겹치는 DB 배치만 이동한다', () => {
   const board = { name: 'ESP32 DevKitC', behavior: { kind: 'board' }, pins: [

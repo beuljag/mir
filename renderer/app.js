@@ -1,11 +1,11 @@
 import { applyAgentResult } from './agent-result.js?v=v21-shared-1';
 import { runtimeApi } from './web-api.js?v=v21-shared-1';
 import './appearance.js';
-import { initBackendPanel } from './backend-panel.js?v=v21-shared-1';
+import { initBackendPanel } from './backend-panel.js?v=gpio-control-1';
 import { initVerificationPanel } from './verification-panel.js?v=v21-shared-1';
-import { WiringCanvas, layoutPart, separateParts } from './canvas.js?v=v21-shared-1';
+import { WiringCanvas, layoutPart, separateParts } from './canvas.js?v=gpio-control-1';
 import { drawArt, isBareArt } from './art.js';
-import { simulate, splitKey } from './sim.js';
+import { simulate, splitKey } from './sim.js?v=gpio-control-1';
 import { defFor, cleanProps, editableKind, LED_COLORS, RESISTOR_PRESETS, formatOhms, parseOhms } from './props.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,

@@ -1,4 +1,4 @@
-import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js';
+import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js?v=gpio-control-1';
 import { runtimeApi } from './web-api.js?v=v21-shared-1';
 
 export function initBackendPanel({ getState, replace, renderParts, message }) {
