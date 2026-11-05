@@ -1,3 +1,4 @@
+const { validateProject } = require('./renderer/project-validation');
 const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -203,6 +204,8 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     title: '미르',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color:'#edf2f7', symbolColor:'#202124', height:46 },
     backgroundColor: '#f4f6f9',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -211,14 +214,8 @@ function createWindow() {
     }
   });
   win.setMenuBarVisibility(false);
-  win.webContents.on('will-prevent-unload', (event) => {
-    const choice = dialog.showMessageBoxSync(win, {
-      type: 'question', title: '미르 종료',
-      message: '저장하지 않은 작업이 있어요. 종료할까요?',
-      detail: '계속 편집을 선택하면 돌아가서 작업을 저장할 수 있어요.',
-      buttons: ['계속 편집', '저장하지 않고 종료'], defaultId: 0, cancelId: 0
-    });
-    if (choice === 1) event.preventDefault();
+  win.webContents.on('will-prevent-unload', () => {
+    win.webContents.send('app:confirmClose');
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
@@ -230,7 +227,7 @@ ipcMain.handle('app:icon', () => {
 
 ipcMain.handle('settings:get', () => {
   const s = loadSettings();
-  return { mode: s.mode, tokenEndpoint: s.tokenEndpoint, webChatUrl: s.webChatUrl, hasSecret: !!s.secret };
+  return { mode: s.mode, tokenEndpoint: s.tokenEndpoint, webChatUrl: s.webChatUrl, hasSecret: !!s.secret, modeExplicit: fs.existsSync(settingsFile()) };
 });
 
 ipcMain.handle('settings:set', (_e, s) => {
@@ -312,24 +309,76 @@ ipcMain.handle('parts:template', async () => {
 });
 
 let projectPath = null;
-ipcMain.handle('project:new', () => { projectPath = null; });
+let projectPathRevision = 0;
+let pendingProjectPath = null;
+const recentProjectsFile = () => path.join(app.getPath('userData'), 'recent-projects.json');
+function recentProjects() {
+  try {
+    const list = JSON.parse(fs.readFileSync(recentProjectsFile(), 'utf8'));
+    return Array.isArray(list) ? list.filter(item => typeof item?.path === 'string' && typeof item.title === 'string').slice(0, 10) : [];
+  } catch { return []; }
+}
+function rememberProject(filePath, title) {
+  const list = recentProjects();
+  const sameFile = item => item.path.toLowerCase() === filePath.toLowerCase();
+  const alias = list.find(sameFile)?.alias;
+  const entry = { path: filePath, title: alias || title?.trim() || path.basename(filePath), alias };
+  const previous = list.filter(item => !sameFile(item));
+  try { fs.writeFileSync(recentProjectsFile(), JSON.stringify([entry, ...previous].slice(0, 10))); }
+  catch (error) { console.warn('Could not update recent projects:', error.code); }
+}
+ipcMain.handle('project:recent', () => recentProjects());
+ipcMain.handle('project:updateRecent', (_event, filePath, name) => {
+  const list = recentProjects();
+  const item = list.find(entry => entry.path === filePath);
+  if (!item) throw new Error('최근 프로젝트를 찾을 수 없어요.');
+  if (name === null) list.splice(list.indexOf(item), 1);
+  else {
+    if (typeof name !== 'string' || !name.trim() || name.length > 120) throw new Error('이름을 1~120자로 입력하세요.');
+    item.alias = item.title = name.trim();
+  }
+  fs.writeFileSync(recentProjectsFile(), JSON.stringify(list));
+});
+ipcMain.handle('project:new', () => { projectPathRevision++; projectPath = null; pendingProjectPath = null; });
+ipcMain.handle('project:acceptOpen', (_event, title) => {
+  if (!pendingProjectPath) return;
+  projectPathRevision++;
+  projectPath = pendingProjectPath;
+  pendingProjectPath = null;
+  rememberProject(projectPath, title);
+});
 ipcMain.handle('project:save', async (_e, data, saveAs = false) => {
+  const revision = projectPathRevision;
   let target = projectPath;
   if (saveAs || !target) {
     const r = await dialog.showSaveDialog({ title: saveAs ? '다른 이름으로 저장' : '배선 저장', defaultPath: target || 'wiring.mir.json', filters: [{ name: '미르 배선', extensions: ['json'] }] });
-    if (r.canceled) return false;
+    if (r.canceled || revision !== projectPathRevision) return false;
     target = r.filePath;
   }
   await fs.promises.writeFile(target, JSON.stringify(data, null, 2));
-  projectPath = target;
+  if (revision === projectPathRevision) projectPath = target;
+  rememberProject(target, data.title);
   return true;
 });
-ipcMain.handle('project:open', async () => {
-  const r = await dialog.showOpenDialog({ title: '배선 열기', filters: [{ name: '미르 배선', extensions: ['json'] }], properties: ['openFile'] });
-  if (r.canceled) return null;
-  const data = JSON.parse(await fs.promises.readFile(r.filePaths[0], 'utf8'));
-  if (!data || data.format !== 'mir-wiring/1' || !Array.isArray(data.instances) || !Array.isArray(data.wires)) throw new Error('미르 배선 파일을 선택해 주세요.');
-  projectPath = r.filePaths[0];
+ipcMain.handle('project:open', async (_event, recentPath) => {
+  pendingProjectPath = null;
+  let target;
+  if (recentPath !== undefined) {
+    target = recentProjects().find(item => item.path === recentPath)?.path;
+    if (!target) throw new Error('최근 프로젝트 목록에서 파일을 찾을 수 없어요.');
+  } else {
+    const result = await dialog.showOpenDialog({ title: '배선 열기', filters: [{ name: '미르 배선', extensions: ['json'] }], properties: ['openFile'] });
+    if (result.canceled) return null;
+    target = result.filePaths[0];
+  }
+  let data;
+  try { data = JSON.parse(await fs.promises.readFile(target, 'utf8')); }
+  catch (error) {
+    if (error.code === 'ENOENT') throw new Error('파일을 찾을 수 없어요. 이동했다면 파일 메뉴의 ‘외부에서 가져오기’에서 다시 선택하세요.');
+    throw error;
+  }
+  validateProject(data);
+  pendingProjectPath = target;
   return data;
 });
 
@@ -341,3 +390,10 @@ ipcMain.handle('docs:open', (_e, name) => {
 app.whenReady().then(createWindow);
 ipcMain.handle('agent:openWebsite', (_e, url) => shell.openExternal(validateWebChatUrl(url)));
 app.on('window-all-closed', () => app.quit());
+
+ipcMain.handle('app:closeConfirmed', event => { const win = BrowserWindow.fromWebContents(event.sender); if(win) win.destroy(); });
+
+ipcMain.handle('app:titlebarColors', (event, colors) => {
+ if(!/^#[0-9a-f]{6}$/i.test(colors?.color||'') || !/^#[0-9a-f]{6}$/i.test(colors?.symbolColor||''))return;
+ BrowserWindow.fromWebContents(event.sender)?.setTitleBarOverlay({...colors,height:46});
+});

@@ -1,8 +1,13 @@
+import { confirmAction } from './confirm-dialog.js';
 // 2D 가상 실습 화면 (SVG). 부품 배치, 배선 그리기/삭제, 핀 정보, 가상 전원 표시를 담당한다.
-import { pinKey, splitKey } from './sim.js?v=gpio-control-1';
+import { pinKey, splitKey } from './sim.js?v=v84-merge-1';
 import { drawArt, lookOf, BARE, isBareArt, labelInset } from './art.js';
 import { routeWire, routeWires, pointsToPath, softAlignedPath } from './wire-router.js';
 import { defFor } from './props.js';
+
+function selectionBounds(start, end) {
+  return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) };
+}
 
 const NS = 'http://www.w3.org/2000/svg';
 const PIN_GAP = 18;
@@ -15,7 +20,6 @@ function pinCaption(pin, limit = 18) {
   const name = label.split(/\s+\(/, 1)[0] || label;
   return name.length > limit ? name.slice(0, limit - 1) + '…' : name;
 }
-
 
 const el = (tag, attrs = {}, parent) => {
   const e = document.createElementNS(NS, tag);
@@ -51,23 +55,29 @@ export function layoutPart(def) {
 }
 
 // Keep placed parts anchored and move only incoming parts that collide.
-export function separateParts(instances, defs, anchored = []) {
+export function separateParts(instances, defs, anchored = [], { gap = PART_GAP, preservePlaced = false } = {}) {
   const bounds = (i) => {
     const def = defFor(defs, i);
-    return { x: i.x, y: i.y, ...(def ? layoutPart(def) : { w: 140, h: 40 }) };
+    return { x: i.x, y: i.y, ...(def ? layoutPart(def) : { w: 110, h: 40 }) };
   };
   const occupied = anchored.map(bounds);
   const overlaps = (a, b) =>
-    a.x < b.x + b.w + PART_GAP && b.x < a.x + a.w + PART_GAP &&
-    a.y < b.y + b.h + PART_GAP && b.y < a.y + a.h + PART_GAP;
-  for (const instance of instances) {
-    const box = bounds(instance);
+    a.x < b.x + b.w + gap && b.x < a.x + a.w + gap &&
+    a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+  const boxes = instances.map(bounds);
+  for (const [index, instance] of instances.entries()) {
+    const box = boxes[index];
+    if (!occupied.some((part) => overlaps(box, part))) {
+      occupied.push(box);
+      continue;
+    }
+    const obstacles = preservePlaced ? occupied.concat(boxes.slice(index + 1)) : occupied;
     const clearAlong = (axis, size) => {
       const candidate = { ...box };
-      let blockers = occupied.filter((part) => overlaps(candidate, part));
+      let blockers = obstacles.filter((part) => overlaps(candidate, part));
       while (blockers.length) {
-        candidate[axis] = Math.max(...blockers.map((part) => part[axis] + part[size] + PART_GAP));
-        blockers = occupied.filter((part) => overlaps(candidate, part));
+        candidate[axis] = Math.max(...blockers.map((part) => part[axis] + part[size] + gap));
+        blockers = obstacles.filter((part) => overlaps(candidate, part));
       }
       return candidate[axis];
     };
@@ -78,8 +88,6 @@ export function separateParts(instances, defs, anchored = []) {
     occupied.push(box);
   }
 }
-
-const DIR = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] };
 
 export function wireColor(fromPin, toPin) {
   const types = [fromPin?.type, toPin?.type];
@@ -93,12 +101,13 @@ export function wireColor(fromPin, toPin) {
 }
 
 export class WiringCanvas {
-  constructor(svg, { getDefs, onChange, onSelect, onPartClick, tooltip }) {
+  constructor(svg, { getDefs, onChange, onSelect, onPartClick, onPartDoubleClick, tooltip }) {
     this.svg = svg;
     this.getDefs = getDefs;
     this.onChange = onChange;
     this.onSelect = onSelect;
     this.onPartClick = onPartClick;
+    this.onPartDoubleClick = onPartDoubleClick;
     this.tooltip = tooltip;
     this.view = { x: -40, y: -40, k: 1 };
     this.instances = [];
@@ -182,54 +191,114 @@ export class WiringCanvas {
 
   bindEvents() {
     let drag = null;
+    let dragFrame = null;
+    let lastPartClick = null;
+    let armedMarquee = false;
     this.svg.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
-      const t = e.target.closest('[data-kind]');
-      const kind = t?.dataset.kind;
-      if (kind === 'pin') return;
+      const target = e.target.closest('[data-kind]');
+      const kind = target?.dataset.kind;
+      const selectArea = !kind && (e.shiftKey || e.detail === 2 || armedMarquee);
+      armedMarquee = false;
+      if (kind !== 'part') lastPartClick = null;
+      if (kind === 'pin' || kind === 'wire') return;
       if (kind === 'part') {
-        const ref = t.dataset.ref;
+        const ref = target.dataset.ref;
         const inst = this.instances.find((i) => i.ref === ref);
-        const w = this.toWorld(e);
-        drag = { type: 'part', inst, dx: w.x - inst.x, dy: w.y - inst.y, moved: false };
-        return;
+        if (!inst) return;
+        const group = this.selected?.type === 'group' && this.selected.refs.has(ref);
+        const members = group ? this.instances.filter(i => this.selected.refs.has(i.ref)) : [inst];
+        this.draggingPart = ref;
+        drag = { type: 'part', inst, start: this.toWorld(e), sx: e.clientX, sy: e.clientY,
+          members: members.map(i => ({ inst: i, x: i.x, y: i.y })), moved: false };
+      } else if (selectArea) {
+        this.cancelPending();
+        const start = this.toWorld(e);
+        const rect = el('rect', { class: 'part-marquee' }, this.overLayer);
+        drag = { type: 'marquee', start, end: start, rect, armedByDoubleClick: e.detail === 2, moved: false };
+        this.svg.classList.add('selecting-area');
+      } else {
+        drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: this.view.x, vy: this.view.y, moved: false };
       }
-      if (kind === 'wire') return;
-      drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: this.view.x, vy: this.view.y, moved: false };
     });
     window.addEventListener('mousemove', (e) => {
       this.mouse = this.toWorld(e);
       if (this.pending) this.drawOverlay();
       if (!drag) return;
+      if (e.buttons === 0) { finishDrag(true); return; }
+      if (drag.type === 'marquee') {
+        drag.end = this.mouse;
+        const { x, y, width, height } = selectionBounds(drag.start, drag.end);
+        for (const [key, value] of Object.entries({ x, y, width, height })) drag.rect.setAttribute(key, value);
+        drag.moved ||= Math.max(width, height) * this.view.k >= 4;
+        return;
+      }
+      const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      drag.moved ||= Math.hypot(dx, dy) >= 4;
+      if (!drag.moved) return;
       if (drag.type === 'pan') {
-        this.view.x = drag.vx - (e.clientX - drag.sx) / this.view.k;
-        this.view.y = drag.vy - (e.clientY - drag.sy) / this.view.k;
-        drag.moved = true;
+        this.view.x = drag.vx - dx / this.view.k;
+        this.view.y = drag.vy - dy / this.view.k;
+        this.svg.classList.add('panning');
         this.applyView();
-      } else {
-        const w = this.toWorld(e);
-        drag.inst.x = Math.round((w.x - drag.dx) / 10) * 10;
-        drag.inst.y = Math.round((w.y - drag.dy) / 10) * 10;
-        drag.moved = true;
-        this.render();
+        return;
       }
+      const snapX = Math.round((this.mouse.x - drag.start.x) / 10) * 10;
+      const snapY = Math.round((this.mouse.y - drag.start.y) / 10) * 10;
+      for (const member of drag.members) {
+        member.inst.x = member.x + snapX;
+        member.inst.y = member.y + snapY;
+      }
+      if (dragFrame === null) dragFrame = requestAnimationFrame(() => { dragFrame = null; this.render(); });
     });
-    window.addEventListener('mouseup', () => {
-      if (drag?.type === 'part') {
-        if (drag.moved) this.onChange('move');
-        else this.handlePartClick(drag.inst.ref);
-      }
-      if (drag?.type === 'pan' && !drag.moved) {
-        this.select(null);
-        this.cancelPending();
-      }
+    const finishDrag = (interrupted = false) => {
+      if (dragFrame !== null) { cancelAnimationFrame(dragFrame); dragFrame = null; }
+      const finished = drag;
       drag = null;
-    });
+      this.draggingPart = null;
+      if (interrupted) { armedMarquee = false; lastPartClick = null; }
+      if (!finished) return;
+      this.svg.classList.remove('panning', 'selecting-area');
+      if (finished.type === 'part') {
+        if (finished.moved) {
+          lastPartClick = null;
+          this.onChange('move');
+        } else if (!interrupted) {
+          const ref = finished.inst.ref, now = performance.now();
+          const repeat = lastPartClick?.inst === finished.inst && now - lastPartClick.time < 450 &&
+            Math.hypot(finished.sx - lastPartClick.x, finished.sy - lastPartClick.y) < 6;
+          lastPartClick = repeat ? null : { inst: finished.inst, time: now, x: finished.sx, y: finished.sy };
+          if (repeat && this.onPartDoubleClick) this.onPartDoubleClick(ref);
+          else this.handlePartClick(ref);
+        }
+      } else if (finished.type === 'marquee') {
+        finished.rect.remove();
+        if (interrupted) return;
+        if (!finished.moved) {
+          armedMarquee = finished.armedByDoubleClick;
+          return;
+        }
+        const box = selectionBounds(finished.start, finished.end);
+        const refs = new Set();
+        for (const inst of this.instances) {
+          const def = defFor(this.getDefs(), inst);
+          const { w, h } = def ? layoutPart(def) : { w: 140, h: 40 };
+          if (inst.x < box.x + box.width && inst.x + w > box.x && inst.y < box.y + box.height && inst.y + h > box.y) refs.add(inst.ref);
+        }
+        this.select(refs.size === 1 ? { type: 'part', ref: [...refs][0] } : refs.size ? { type: 'group', refs } : null);
+      } else if (!finished.moved && !interrupted) {
+        this.cancelPending();
+        this.select(null);
+      }
+    };
+    window.addEventListener('mouseup', (e) => { if (e.button === 0) finishDrag(); });
+    window.addEventListener('blur', () => finishDrag(true));
+    window.addEventListener('pointercancel', () => finishDrag(true));
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') armedMarquee = false; });
     this.svg.addEventListener('click', (e) => {
-      const t = e.target.closest('[data-kind]');
-      if (!t) return;
-      if (t.dataset.kind === 'pin') this.handlePinClick(t.dataset.key);
-      if (t.dataset.kind === 'wire') this.select({ type: 'wire', id: t.dataset.id });
+      const target = e.target.closest('[data-kind]');
+      if (target?.dataset.kind === 'pin') this.handlePinClick(target.dataset.key);
+      if (target?.dataset.kind === 'wire') this.select({ type: 'wire', id: target.dataset.id });
     });
     this.svg.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -240,6 +309,7 @@ export class WiringCanvas {
       const t = e.target.closest('[data-kind]');
       if (t?.dataset.kind === 'pin') this.tooltip.showPin(t.dataset.key, e);
       else if (t?.dataset.kind === 'wire') this.tooltip.showWire(t.dataset.id, e);
+      else if (t?.dataset.kind === 'part') this.tooltip.showPart(t.dataset.ref,e);
       else this.tooltip.hide();
     });
     this.svg.addEventListener('mousemove', (e) => this.tooltip.move(e));
@@ -264,7 +334,7 @@ export class WiringCanvas {
     if (this.pending === key) return this.cancelPending();
     const exists = this.wires.some((w) => (w.from === this.pending && w.to === key) || (w.from === key && w.to === this.pending));
     if (!exists) {
-      this.wires.push({ id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, from: this.pending, to: key, origin: 'user' });
+      this.wires.push({ id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, from: this.pending, to: key, origin: 'user', ...(this.selectedWireKind ? {kind:this.selectedWireKind} : {}) });
       this.onChange('wire');
     }
     this.pending = null;
@@ -282,14 +352,18 @@ export class WiringCanvas {
     this.onSelect(sel);
   }
 
-  deleteSelected() {
+  async deleteSelected() {
     const s = this.selected;
     if (!s) return false;
-    if (!confirm(s.type === 'part' ? '선택한 부품과 연결된 선을 삭제할까요?' : '선택한 선을 삭제할까요?')) return false;
-    if (s.type === 'wire') this.wires = this.wires.filter((w) => w.id !== s.id);
-    if (s.type === 'part') {
-      this.instances = this.instances.filter((i) => i.ref !== s.ref);
-      this.wires = this.wires.filter((w) => !w.from.startsWith(s.ref + '.') && !w.to.startsWith(s.ref + '.'));
+    const refs = s.type === 'group' ? s.refs : new Set(s.type === 'part' ? [s.ref] : []);
+    const message = refs.size
+      ? `선택한 부품 ${refs.size}개와 연결된 선을 삭제할까요?`
+      : '선택한 선을 삭제할까요?';
+    if (!await confirmAction(message, { defaultAction: refs.size ? 'accept' : 'cancel' }) || this.selected !== s) return false;
+    if (s.type === 'wire') this.wires = this.wires.filter(w => w.id !== s.id);
+    if (refs.size) {
+      this.instances = this.instances.filter(inst => !refs.has(inst.ref));
+      this.wires = this.wires.filter(w => !refs.has(splitKey(w.from)[0]) && !refs.has(splitKey(w.to)[0]));
     }
     this.selected = null;
     this.onSelect(null);
@@ -330,7 +404,7 @@ export class WiringCanvas {
       const flush=()=>{
         if(run.length>=3 && run.at(-1).t-run[0].t>=8){
           const points=run.map(s=>s.p),d=points.map((p,i)=>`${i?'L':'M'}${p.x} ${p.y}`).join(' ');
-          const overlay=el('path',{d,class:'wire-overlap-shade',opacity:path.parentNode.getAttribute('opacity'),style:`stroke:${path.style.stroke};filter:brightness(${rank%2 ? .82 : 1.18})`},this.wireLayer);
+          const overlay=el('path',{d,class:'wire-overlap-shade',style:`stroke:${path.style.stroke};filter:brightness(${rank%2 ? .82 : 1.18})`},path.parentNode);
           overlay.dataset.wireId=path.dataset.id;path.dataset.overlap='true';rank++;
         }
         run=[];
@@ -397,7 +471,7 @@ export class WiringCanvas {
     this.wireLayer.replaceChildren();
     this.partLayer.replaceChildren();
     const shown = [...this.instances, ...(this.preview?.addedParts || [])];
-    this.updateRoutes(shown, [...this.wires, ...(this.preview?.added || [])]);
+    if(!this.draggingPart)this.updateRoutes(shown, [...this.wires, ...(this.preview?.added || [])]);
 
     // 배선: 바탕색 테두리(케이싱) 위에 실선을 그리고, 전원이 흐르면 그 위로 밝은 펄스만 움직인다.
     // 끝이 연결된 핀은 선 색으로 채워서 꽂힌 것처럼 보이게 한다.
@@ -407,10 +481,11 @@ export class WiringCanvas {
       const b = this.pinPos(w.to, shown);
       if (!a || !b) return;
       const net = power ? this.sim.netByPin[w.from] : null;
-      const color = power ? this.netColor(net) : wireColor(a.def, b.def);
+      const chosen = ['power','gnd','sda','scl','signal','contact'].includes(w.kind) ? `var(--wire-${w.kind})` : null;
+      const color = power ? this.netColor(net) : chosen || wireColor(a.def, b.def);
       const sel = this.selected?.type === 'wire' && this.selected.id === w.id;
       const route = this.routingPaths.get(w.id);
-      const d = this.wireStyle === "curve" ? this.wirePath(a,b) : route?.path || this.wirePath(a, b);
+      const d = this.draggingPart || this.wireStyle === "curve" ? this.wirePath(a,b) : route?.path || this.wirePath(a, b);
       const focus = this.selected?.type === 'part' ? this.selected.ref : null;
       const dim = focus && !this.preview && !net?.short &&
         splitKey(w.from)[0] !== focus && splitKey(w.to)[0] !== focus;
@@ -429,7 +504,7 @@ export class WiringCanvas {
     for (const w of this.wires) drawWire(w, this.preview?.removed.has(w.id) ? 'removed' : '');
     if (this.preview) for (const w of this.preview.added) drawWire(w, 'added');
 
-    this.shadeOverlappingWires();
+    if(!this.draggingPart)this.shadeOverlappingWires();
 
     // 부품
     for (const i of shown) {
@@ -443,7 +518,7 @@ export class WiringCanvas {
       }
       const { w, h, pos, top } = layoutPart(def);
       const st = this.sim?.parts[i.ref] || {};
-      const sel = this.selected?.type === 'part' && this.selected.ref === i.ref;
+      const sel = this.selected?.type === 'part' && this.selected.ref === i.ref || this.selected?.type === 'group' && this.selected.refs.has(i.ref);
       const look = lookOf(def);
       const bare = isBareArt(def);
       // 맨 소자(LED·저항 등)는 캔버스 바탕 위에 그리므로 글자색을 화면 테마에 맞춘다

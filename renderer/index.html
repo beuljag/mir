@@ -2,9 +2,10 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: http://127.0.0.1:8002 http://localhost:8002; frame-src https://copilotstudio.microsoft.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: http://127.0.0.1:8002 http://localhost:8002; frame-src 'self' https://copilotstudio.microsoft.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'">
   <title>미르</title>
-  <link rel="stylesheet" href="styles.css?v=v21-shared-1">
+  <link rel="stylesheet" href="styles.css?v=v84-merge-1">
+  <link rel="stylesheet" href="workspace-frame.css?v=v84-merge-1">
 </head>
 <body>
   <header class="topbar">
@@ -79,16 +80,30 @@
           </svg>
           <span>부품함</span>
         </button>
-        <svg id="canvas" class="canvas"></svg>
+        <svg id="canvas" class="canvas" tabindex="-1" aria-label="제작판"></svg>
         <div id="emptyHint" class="empty-hint">
           <h3>무엇을 만들고 싶나요?</h3>
           <p>오른쪽 채팅에 목표를 말하면 AI가 배선을 추천해 여기에 그려 줍니다.<br>
             왼쪽 아래 트랜지스터 버튼으로 부품함을 열어 부품을 놓고, 핀을 차례로 연결해 보세요.</p>
           <div class="examples">
-            <button data-example="ESP32를 사용해서 외부 전력으로 밸브를 켜는 회로 짜줘">ESP32로 12V 밸브 켜기</button>
-            <button data-example="온도 센서를 읽어서 화면에 띄우고 싶어">온도를 읽어 화면에 띄우기</button>
-            <button data-example="라즈베리파이로 LED 깜빡이고 싶어">라즈베리파이 LED</button>
+            <button class="example-card" data-example="valve" disabled>
+              <span class="example-art example-art-valve"><svg viewBox="0 0 168 84" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
+                <path d="M29 59h28m54 0h28" stroke-width="8" opacity=".35"/><path d="M38 51v16m92-16v16"/>
+                <path d="M57 50h54v19H57z" fill="currentColor" fill-opacity=".19"/><path d="M71 50V24a6 6 0 0 1 6-6h25a6 6 0 0 1 6 6v26z" fill="currentColor" fill-opacity=".12"/>
+                <path d="M78 29h23m-23 6h23m-23 6h23M84 18V9m11 9V9"/><path d="M74 59h22m-6-4 6 4-6 4"/>
+              </svg></span>
+              <strong>12V 솔레노이드 밸브</strong><span class="example-description">ESP32와 릴레이로 밸브를 켜고 꺼요.</span>
+            </button>
+            <button class="example-card" data-example="climate" disabled>
+              <span class="example-art example-art-sensor"><svg viewBox="0 0 168 84" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="28" y="17" width="29" height="50" rx="6"/><path d="M35 25h15m-15 7h15m-15 7h15m-15 7h15m-15 7h15m8-11h23m-5-5 5 5-5 5"/><rect x="86" y="18" width="54" height="48" rx="7"/><path d="M97 52h32"/><text x="113" y="42" text-anchor="middle" fill="currentColor" stroke="none" font-size="14" font-weight="700">24°C</text></svg></span>
+              <strong>온습도를 화면에 띄우기</strong><span class="example-description">센서로 읽은 값을 작은 화면에 표시해요.</span>
+            </button>
+            <button class="example-card" data-example="led" disabled>
+              <span class="example-art example-art-led"><svg viewBox="0 0 168 84" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="25" y="21" width="53" height="43" rx="6"/><rect x="39" y="31" width="20" height="19" rx="3"/><path d="M31 26h39M78 41h18v24h14m11-12v12m-11-12v-9a8 8 0 0 1 16 0v9zM118 26v-6m-14 9-4-5m31 5 4-5m-1 15h7"/></svg></span>
+              <strong>LED 깜빡이기</strong><span class="example-description">라즈베리파이로 작은 불빛을 켜고 꺼요.</span>
+            </button>
           </div>
+          <button id="btnBuildManually" class="primary">내가 직접 만들어보기</button>
         </div>
         <div id="previewBar" class="preview-bar hidden">
           <div id="previewText"></div>
@@ -258,6 +273,13 @@
       <div class="modal-actions"><button id="btnVerificationRun" class="primary">검사 실행</button><button id="btnVerificationClose">닫기</button></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=gpio-control-1"></script>
+  <button id="btnManual" hidden>미르 사용 설명서</button>
+  <dialog id="manualDialog" aria-labelledby="manualTitle">
+    <header><h2 id="manualTitle">미르 사용 설명서</h2><button id="btnCloseManual" aria-label="설명서 닫기" autofocus>×</button></header>
+    <iframe title="그림으로 배우는 미르" src="manual.html?v=81"></iframe>
+  </dialog>
+  <script type="module" src="app.js?v=v84-merge-1"></script>
+  <script type="module" src="workspace-frame.js"></script>
+  <script type="module" src="titlebar.js"></script>
 </body>
 </html>

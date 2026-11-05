@@ -1,0 +1,202 @@
+/* V21 editor preserved inside a continuous top-and-left workspace frame. */
+:root { --frame-width:220px; --frame-bg:#edf2f7; }
+:root[data-theme="dark"] { --frame-bg:#172332; }
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--frame-bg:#172332;}}
+body { background:var(--frame-bg); }
+.topbar { height:80px; min-height:80px; padding:0 24px 0 calc(var(--frame-width) + 24px); background:var(--frame-bg); border:0; flex-wrap:nowrap; }
+.frame-heading { display:flex; align-items:center; gap:22px; min-width:0; }
+.frame-heading > span { display:flex; gap:14px; color:var(--text-muted); white-space:nowrap; }
+.frame-heading strong { color:var(--text); max-width:260px; overflow:hidden; text-overflow:ellipsis; }
+.workspace-rail { position:fixed; inset:0 auto 0 0; width:var(--frame-width); background:var(--frame-bg); padding:28px 18px 20px; display:flex; flex-direction:column; gap:28px; z-index:32; overflow:auto; }
+.frame-brand .brand { gap:14px; padding:4px 12px 10px; }
+.frame-brand .brand-name { font-size:27px; }
+.frame-brand .brand-sub { font-size:11px; max-width:125px; }
+.workspace-rail button { text-align:left; padding:14px; border:0; background:transparent; border-radius:10px; }
+.workspace-rail button:hover { background:var(--primary-soft); }
+.workspace-rail .frame-new { background:var(--text); color:var(--surface); font-weight:700; font-size:15px; }
+.workspace-rail button span[aria-hidden] { margin-right:12px; font-size:21px; }
+.workspace-rail nav { display:grid; gap:10px; }
+.workspace-rail .frame-current { background:var(--border); font-weight:700; }
+.frame-project { border-top:1px solid var(--border); padding:24px 12px 0; display:grid; gap:15px; }
+.frame-project > span,.workspace-rail footer { color:var(--text-muted); font-size:12px; }
+.frame-project strong { overflow-wrap:anywhere; }
+.frame-project button { border:1px solid var(--border-strong); padding:10px 12px; justify-self:start; }
+.workspace-rail footer { margin-top:auto; padding:14px 12px 0; display:grid; gap:10px; }
+.layout,body.chat-collapsed .layout { margin-left:var(--frame-width); margin-right:12px; margin-bottom:12px; padding:0; grid-template-columns:minmax(0,1fr)!important; border:1px solid var(--border); border-radius:22px; overflow:hidden; }
+.stage-body { border-radius:22px 22px 0 0; }
+.stage-toolbar { right:16px; }
+.legend { padding-right:16px; }
+@media(max-width:1100px){:root{--frame-width:180px;} .topbar{padding-right:12px;gap:10px;} .frame-heading>span{display:none;} .workspace-rail{padding:20px 12px;} .frame-brand .brand-sub{display:none;} .top-actions{gap:4px;} .top-actions button{padding:6px 8px;} }
+/* The workspace menu starts collapsed; the existing parts drawer remains available. */
+body { --frame-space:0px; }
+body.frame-open { --frame-space:var(--frame-width); }
+.topbar { padding-left:calc(var(--frame-space) + 24px); }
+.workspace-rail { transform:translateX(-100%); visibility:hidden; transition:none; }
+body.frame-open .workspace-rail { transform:translateX(0); visibility:visible; }
+.layout,body.chat-collapsed .layout { margin-left:var(--frame-space); }
+@media(prefers-reduced-motion:reduce){.workspace-rail{transition:none;}}
+
+/* JS coordinates only transform motion across the rail, canvas and header. */
+.workspace-rail { visibility:visible; }
+.workspace-rail[inert] { pointer-events:none; }
+
+/* A permanent icon rail; expanding its labels never resizes the editor. */
+body,body.frame-open { --frame-space:64px; }
+.workspace-rail { transform:none; width:var(--frame-width); padding:24px 8px 18px; clip-path:inset(0 calc(100% - 64px) 0 0); transition:clip-path 180ms cubic-bezier(.32,.72,0,1); gap:24px; }
+body.frame-open .workspace-rail { transform:none; clip-path:inset(0); transition-duration:240ms; box-shadow:8px 0 24px rgba(16,32,48,.08); }
+.workspace-rail button { display:flex; align-items:center; width:48px; height:48px; padding:12px; white-space:nowrap; overflow:hidden; gap:16px; transition:background-color 120ms; }
+body.frame-open .workspace-rail button { width:100%; }
+.workspace-rail button span[aria-hidden] { display:grid; place-items:center; width:24px; min-width:24px; margin:0; font-size:22px; }
+.frame-label { opacity:0; transition:opacity 100ms; }
+body.frame-open .frame-label { opacity:1; transition-delay:60ms; }
+.frame-brand .brand { padding:0 8px; gap:18px; white-space:nowrap; }
+.frame-brand .logo { width:32px; min-width:32px; height:32px; }
+.frame-brand .brand>div,.frame-project,.workspace-rail footer { visibility:hidden; opacity:0; }
+body.frame-open .frame-brand .brand>div,body.frame-open .frame-project,body.frame-open .workspace-rail footer { visibility:visible; opacity:1; }
+.workspace-rail .frame-new { color:var(--text); background:transparent; }
+body.frame-open .workspace-rail .frame-new { background:var(--text); color:var(--surface); }
+.frame-project button { width:100%; }
+body.frame-no-motion .workspace-rail,body.frame-no-motion .frame-label { transition:none; }
+@media(prefers-reduced-motion:reduce){.workspace-rail,.frame-label{transition:none!important;}}
+.frame-heading { position:relative; z-index:34; transition:transform 180ms cubic-bezier(.32,.72,0,1); }
+body.frame-open .frame-heading { transform:translateX(calc(var(--frame-width) - 64px)); transition-duration:240ms; }
+body.frame-no-motion .frame-heading { transition:none; }
+@media(prefers-reduced-motion:reduce){.frame-heading{transition:none!important;}}
+
+/* Reserve the expanded rail's lane so it never masks tools or board contents. */
+.layout,body.chat-collapsed .layout { margin-left:var(--frame-width); }
+/* Keep the compact rail equally wide in layout; only its visible surface folds. */
+body:not(.frame-open) .layout { margin-left:var(--frame-width); }
+.frame-brand .brand-sub { white-space:normal; max-width:150px; overflow-wrap:anywhere; }
+
+/* The editor follows the actual visible rail width; no empty expanded lane. */
+body { --frame-space:64px; }
+body.frame-open { --frame-space:var(--frame-width); }
+.layout,body.chat-collapsed .layout,body:not(.frame-open) .layout { margin-left:var(--frame-space); transition:margin-left 180ms cubic-bezier(.32,.72,0,1); }
+body.frame-open .layout { transition-duration:240ms; }
+body.frame-no-motion .layout { transition:none; }
+@media(prefers-reduced-motion:reduce){.layout{transition:none!important;}}
+.topbar { padding-left:88px; }
+#btnMenu, #btnMenu:hover, #btnMenu:focus-visible, #btnMenu:active { color:#000; }
+#btnBackend, #btnBackend:hover, #btnBackend:focus-visible, #btnBackend:active { color:#000; }
+#linkConnectGuide, #linkConnectGuide:hover, #linkConnectGuide:visited { color:#000; }
+.mir-confirm { width:400px; max-width:calc(100vw - 48px); padding:24px; border:1px solid var(--border); border-radius:22px; background:var(--surface); color:var(--text); box-shadow:var(--shadow-lg); }
+.mir-confirm::backdrop { background:rgba(15,23,42,.32); }
+.mir-confirm h2 { margin:0 0 14px; font-size:18px; }
+.mir-confirm p { margin:0 0 24px; line-height:1.7; }
+.mir-confirm .modal-actions { display:flex; justify-content:flex-end; gap:10px; }
+.workspace-rail .frame-new { transition:transform 160ms cubic-bezier(.23,1,.32,1),background-color 160ms; }
+.workspace-rail .frame-new > span[aria-hidden] { transition:transform 200ms cubic-bezier(.23,1,.32,1); }
+@media(hover:hover) and (pointer:fine) {
+  .workspace-rail .frame-new:hover { transform:translateY(-2px); background:var(--primary-soft); }
+  body.frame-open .workspace-rail .frame-new:hover { background:var(--text); }
+  .workspace-rail .frame-new:hover > span[aria-hidden] { transform:rotate(90deg); }
+}
+.workspace-rail .frame-new:active { transform:scale(.97); }
+@media(prefers-reduced-motion:reduce) {
+  .workspace-rail .frame-new,.workspace-rail .frame-new > span[aria-hidden] { transition:none; }
+  .workspace-rail .frame-new:hover,.workspace-rail .frame-new:active,.workspace-rail .frame-new:hover > span[aria-hidden] { transform:none; }
+}
+.frame-brand .brand-sub { display:none; }
+/* Confirmation dialogs enter gently without delaying actions or dismissal. */
+.mir-confirm { opacity:1; transform:scale(1); transition:opacity 160ms cubic-bezier(.23,1,.32,1),transform 180ms cubic-bezier(.23,1,.32,1); }
+.mir-confirm::backdrop { background:rgba(15,23,42,.32); transition:background-color 160ms; }
+@starting-style {
+  .mir-confirm[open] { opacity:0; transform:scale(.97); }
+  .mir-confirm[open]::backdrop { background:rgba(15,23,42,0); }
+}
+@media(prefers-reduced-motion:reduce) {
+  .mir-confirm { transform:none; transition:opacity 100ms; }
+  @starting-style { .mir-confirm[open] { transform:none; } }
+}
+.desktop-titlebar { height:46px; min-height:46px; display:flex; align-items:center; gap:2px; padding:0 150px 0 18px; background:#f4f4f4; color:#777; -webkit-app-region:drag; position:relative; z-index:100; }
+.desktop-titlebar button,.desktop-titlebar summary { -webkit-app-region:no-drag; border:0; background:transparent; color:inherit; padding:6px 9px; border-radius:6px; cursor:pointer; font-size:14px; }
+.desktop-titlebar>button { font-size:20px; padding:4px 9px; }
+.desktop-titlebar button:hover,.desktop-titlebar summary:hover { background:#e6e6e6; color:#202124; }
+.desktop-menu { position:relative; -webkit-app-region:no-drag; }
+.desktop-menu summary { list-style:none; }
+.desktop-menu summary::-webkit-details-marker { display:none; }
+.desktop-menu-popup { position:absolute; top:34px; left:0; width:210px; padding:6px; border:1px solid var(--border); border-radius:12px; background:var(--surface); color:var(--text); box-shadow:var(--shadow-lg); display:grid; gap:2px; }
+.desktop-menu-popup button { min-width:0; white-space:normal; overflow-wrap:anywhere; word-break:keep-all; line-height:1.4; text-align:left; color:var(--text); }
+.workspace-rail { top:46px; }
+.desktop-titlebar { background:var(--frame-bg); color:var(--text-muted); }
+/* Compact workspace header without the breadcrumb. */
+.frame-heading > span { display:none; }
+.topbar { height:56px; min-height:56px; padding-top:0; padding-bottom:0; padding-left:72px; }
+.frame-heading { gap:0; }
+body.frame-open .frame-heading { transform:none; }
+.frame-heading #btnMenu { padding:4px 6px; }
+/* Compact chrome: menu below brand, connection state beside chat folding. */
+.topbar { display:none; }
+.workspace-rail { gap:16px; }
+.workspace-rail > #btnMenu { width:48px; min-height:40px; padding:6px 12px; font-size:24px; }
+#connPill { position:absolute; right:150px; top:20px; z-index:3; font-size:10px; padding:4px 6px; white-space:nowrap; }
+body.chat-collapsed #connPill { top:-34px; right:150px; }
+#connPill, body.chat-collapsed #connPill { right:190px; }
+
+/* Connection state sits beside the native minimize button. */
+.desktop-titlebar #connPill { position:absolute; top:10px; right:150px; width:max-content; margin:0; padding:0 10px; font-size:11px; line-height:24px; -webkit-app-region:no-drag; }
+body.chat-collapsed .desktop-titlebar #connPill { top:10px; right:150px; }
+.wire-dock { position:absolute; left:50%; bottom:20px; transform:translateX(-50%); display:flex; align-items:center; gap:12px; padding:8px; border:1px solid var(--border); border-radius:16px; background:var(--surface); box-shadow:var(--shadow-md); z-index:40; }
+.wire-kind-tabs { display:flex; gap:4px; }
+.wire-kind-tabs button { width:34px; height:34px; padding:7px; border-color:transparent; background:transparent; }
+.wire-kind-tabs i { display:block; height:5px; width:20px; border-radius:4px; background:var(--kind-color); }
+.wire-kind-tabs [aria-pressed="true"] { border-color:var(--text); background:var(--bg-subtle); }
+.wire-dock #btnAutoConnect { font-size:12px; }
+@media(max-width:1100px){.wire-dock{left:20px;transform:none;gap:6px;} .wire-kind-tabs button{width:28px;padding:4px;}}
+.wire-dock #btnAutoConnect[aria-pressed="true"] { box-shadow:0 0 0 2px var(--text); }
+.part-properties-dialog .sel-info { position:static; width:auto; max-width:none; max-height:60vh; border:0; box-shadow:none; margin:0 0 16px; padding:0; }
+.part-properties-dialog:not([open]) { display:none; }
+/* Remove the bottom legend while keeping its layout anchor for positioning. */
+.legend { visibility:hidden; height:0; min-height:0; padding:0; border:0; overflow:hidden; }
+.wire-dock #btnAutoConnect[aria-pressed="true"] { background:#176b48; border-color:#176b48; color:#fff; box-shadow:0 0 0 2px var(--surface),0 0 0 4px #176b48; }
+.mir-confirm .modal-actions { flex-wrap:wrap; }
+.mir-confirm h2 { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.mir-confirm .confirm-close { font-size:24px; line-height:1; padding:4px 8px; background:transparent; border-color:transparent; }
+.mir-confirm .modal-actions { flex-wrap:nowrap; }
+.part-properties-dialog .prop-edit { margin:18px 0; padding:16px; border:1px solid var(--border); border-radius:14px; background:var(--bg-subtle); }
+.part-properties-dialog .prop-head { display:flex; justify-content:space-between; align-items:center; gap:12px; font-weight:600; margin-bottom:14px; }
+.part-properties-dialog .swatches { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:14px; }
+.part-properties-dialog .swatch { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; min-width:34px; padding:0; border-radius:50%; background:var(--sw); border:2px solid var(--surface); box-shadow:0 0 0 1px var(--border-strong); cursor:pointer; }
+.part-properties-dialog .swatch.on { box-shadow:0 0 0 2px var(--text); }
+.part-properties-dialog .swatch.custom { overflow:hidden; background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red); }
+.part-properties-dialog .swatch.custom input { width:100%; height:100%; padding:0; border:0; opacity:0; cursor:pointer; }
+.part-properties-dialog .prop-row,.part-properties-dialog .chips { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+.part-properties-dialog .prop-row input { min-width:0; flex:1; }
+/* Editable part properties stay open without blocking the work surface. */
+.part-properties-dialog[open] { position:fixed; inset:auto 24px 130px auto; margin:0; z-index:70; max-height:calc(100dvh - 180px); overflow:auto; }
+.part-properties-dialog[open] { width:320px; padding:16px; border-radius:18px; }
+.part-properties-dialog .prop-edit { padding:12px; margin:12px 0; }
+.part-properties-dialog .swatches { gap:8px; margin-bottom:10px; }
+.part-properties-dialog .swatch { width:30px; height:30px; min-width:30px; }
+.properties-drag-handle { cursor:grab; touch-action:none; user-select:none; font-size:12px; font-weight:600; color:var(--text-muted); padding:2px 2px 10px; margin-bottom:12px; border-bottom:1px solid var(--border); }
+.properties-drag-handle:active { cursor:grabbing; }
+.part-properties-dialog[open] { resize:both; min-width:260px; min-height:180px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 70px); overflow:auto; }
+/* V54: preview/actions remain outside the toolbar and the chat overlay. */
+.stage-body .preview-bar { left:12px; transform:none; max-width:none; margin:0; z-index:35; flex-wrap:wrap; max-height:180px; overflow:auto; box-sizing:border-box; }
+.stage-body .wire-dock { transform:none; box-sizing:border-box; flex-wrap:wrap; }
+.wire-dock-actions { display:flex; align-items:center; gap:4px; } .wire-dock-actions button { font-size:12px; padding:6px 8px; }
+.stage-body .wire-dock { gap:10px; padding:0; border:0; background:transparent; box-shadow:none; pointer-events:none; }
+.wire-dock-connection, .wire-dock-actions { display:flex; align-items:center; gap:6px; min-height:48px; padding:6px 8px; border:1px solid var(--border); border-radius:16px; background:var(--surface); box-shadow:var(--shadow-md); pointer-events:auto; }
+.wire-dock-connection { gap:10px; flex-wrap:wrap; }
+.stage-body .wire-dock { left:50%; transform:translateX(-50%); width:max-content; max-width:calc(100% - 24px); justify-content:center; z-index:52; }
+.wire-kind-tabs { flex-wrap:wrap; }
+#recentProjects { display:grid; gap:4px; max-height:230px; overflow:auto; }
+.workspace-rail #recentProjects button { text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; height:auto; min-height:32px; padding:7px 9px; }
+.recent-project-heading { margin-top:8px; }
+#recentProjectStatus { color:var(--text-muted); font-size:12px; margin:0; overflow-wrap:anywhere; }
+#recentProjectStatus:empty, #recentProjects:empty { display:none; }
+.wire-dock-movement svg { display:block; width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.wire-dock-movement button { background:var(--primary-soft); color:var(--primary-text); border-color:var(--primary); }
+.canvas [data-kind="part"] { cursor:move; }
+.canvas [data-kind="wire"] { cursor:pointer; }
+.canvas.panning, .canvas.panning * { cursor:grabbing; }
+.canvas.selecting-area, .canvas.selecting-area * { cursor:crosshair; }
+.part-marquee { fill:var(--primary); fill-opacity:.12; stroke:var(--primary); stroke-dasharray:5 4; vector-effect:non-scaling-stroke; pointer-events:none; }
+.canvas-context-menu { position:fixed; z-index:90; padding:4px; min-width:90px; border:1px solid var(--border); border-radius:10px; background:var(--surface); box-shadow:var(--shadow-md); } .canvas-context-menu button { width:100%; }
+.recent-project-row { display:grid; grid-template-columns:minmax(0,1fr) 30px; gap:4px; } .workspace-rail #recentProjects .recent-project-more { text-align:center; font-size:18px; padding:3px; } .canvas-context-menu button { display:block; }
+.recent-project-row { gap:0; }
+.workspace-rail #recentProjects .recent-project-row > button:first-child { border-top-right-radius:0; border-bottom-right-radius:0; }
+.workspace-rail #recentProjects .recent-project-more { border-top-left-radius:0; border-bottom-left-radius:0; border-left:0; }
+.project-section-divider { width:100%; margin:0; border:0; border-top:1px solid var(--border); }
+.frame-project .recent-project-heading { margin-top:0; }

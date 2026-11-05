@@ -12,9 +12,9 @@ test('부품 등록 뒤 회로 저장 계약을 전달하고 현재 배선 미�
 test('빈 화면은 실제 회로 ID를 불러오고 원시 배선보다 DB 회로를 우선',async()=>{
   const calls=[];
   const result=parseReply('```json\n{"type":"circuit_reference","circuit_id":"saved"}\n```');
-  const backend={refreshAfterAgent:async()=>calls.push('refresh'),openCircuit:async(id,options)=>calls.push([id,options])};
+  const backend={refreshAfterAgent:async()=>calls.push('refresh'),openCircuit:async(id,options)=>{calls.push([id,options]);return true;}};
   assert.equal(await applyAgentResult({...result,wiring:{}},{backend,hasInstances:()=>false,drawWiring:()=>assert.fail('DB 회로 우선')}),'circuit-loaded');
-  assert.deepEqual(calls,['refresh',['saved',{showPanel:false}]]);
+  assert.deepEqual(calls,['refresh',['saved',{showPanel:false,automatic:true}]]);
 });
 test('편집 중인 화면은 DB 회로 응답으로 자동 덮어쓰지 않음',async()=>{
   const backend={refreshAfterAgent:async()=>{},openCircuit:async()=>assert.fail('기존 회로 덮어쓰기 금지')};
@@ -48,7 +48,7 @@ test('DB 불러오기 버튼 경로가 실제 회로를 조회하여 선과 배�
   }};
   globalThis.resultTestCircuit=circuitApi;
   const source=readFileSync(new URL('../renderer/backend-panel.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
-  const prefix='const {CircuitApi,toCircuitDraft,fromCircuit,definitionToPart,loadComponentImage,loadComponentCatalog}=globalThis.resultTestCircuit; const runtimeApi=globalThis.resultTestApi;';
+  const prefix='const confirmAction = globalThis.confirm; const {CircuitApi,toCircuitDraft,fromCircuit,definitionToPart,loadComponentImage,loadComponentCatalog}=globalThis.resultTestCircuit; const runtimeApi=globalThis.resultTestApi;';
   const {initBackendPanel}=await import('data:text/javascript;base64,'+Buffer.from(prefix+source).toString('base64'));
   const state={defs:new Map(),instances:[],wires:[]};let replaced;
   const panel=initBackendPanel({getState:()=>state,replace:value=>{replaced=value;},renderParts(){},message(){}});
