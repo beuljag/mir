@@ -109,3 +109,94 @@ body.frame-no-motion .layout { transition:none; }
   .mir-confirm { transform:none; transition:opacity 100ms; }
   @starting-style { .mir-confirm[open] { transform:none; } }
 }
+.desktop-titlebar { height:46px; min-height:46px; display:flex; align-items:center; gap:2px; padding:0 150px 0 18px; background:#f4f4f4; color:#777; -webkit-app-region:drag; position:relative; z-index:100; }
+.desktop-titlebar button,.desktop-titlebar summary { -webkit-app-region:no-drag; border:0; background:transparent; color:inherit; padding:6px 9px; border-radius:6px; cursor:pointer; font-size:14px; }
+.desktop-titlebar>button { font-size:20px; padding:4px 9px; }
+.desktop-titlebar button:hover,.desktop-titlebar summary:hover { background:#e6e6e6; color:#202124; }
+.desktop-menu { position:relative; -webkit-app-region:no-drag; }
+.desktop-menu summary { list-style:none; }
+.desktop-menu summary::-webkit-details-marker { display:none; }
+.desktop-menu-popup { position:absolute; top:34px; left:0; width:210px; padding:6px; border:1px solid var(--border); border-radius:12px; background:var(--surface); color:var(--text); box-shadow:var(--shadow-lg); display:grid; gap:2px; }
+.desktop-menu-popup button { min-width:0; white-space:normal; overflow-wrap:anywhere; word-break:keep-all; line-height:1.4; text-align:left; color:var(--text); }
+.workspace-rail { top:46px; }
+.desktop-titlebar { background:var(--frame-bg); color:var(--text-muted); }
+/* Compact workspace header without the breadcrumb. */
+.frame-heading > span { display:none; }
+.topbar { height:56px; min-height:56px; padding-top:0; padding-bottom:0; padding-left:72px; }
+.frame-heading { gap:0; }
+body.frame-open .frame-heading { transform:none; }
+.frame-heading #btnMenu { padding:4px 6px; }
+/* Compact chrome: menu below brand, connection state beside chat folding. */
+.topbar { display:none; }
+.workspace-rail { gap:16px; }
+.workspace-rail > #btnMenu { width:48px; min-height:40px; padding:6px 12px; font-size:24px; }
+#connPill { position:absolute; right:150px; top:20px; z-index:3; font-size:10px; padding:4px 6px; white-space:nowrap; }
+body.chat-collapsed #connPill { top:-34px; right:150px; }
+#connPill, body.chat-collapsed #connPill { right:190px; }
+
+/* Connection state sits beside the native minimize button. */
+.desktop-titlebar #connPill { position:absolute; top:10px; right:150px; width:max-content; margin:0; padding:0 10px; font-size:11px; line-height:24px; -webkit-app-region:no-drag; }
+body.chat-collapsed .desktop-titlebar #connPill { top:10px; right:150px; }
+.wire-dock { position:absolute; left:50%; bottom:20px; transform:translateX(-50%); display:flex; align-items:center; gap:12px; padding:8px; border:1px solid var(--border); border-radius:16px; background:var(--surface); box-shadow:var(--shadow-md); z-index:40; }
+.wire-kind-tabs { display:flex; gap:4px; }
+.wire-kind-tabs button { width:34px; height:34px; padding:7px; border-color:transparent; background:transparent; }
+.wire-kind-tabs i { display:block; height:5px; width:20px; border-radius:4px; background:var(--kind-color); }
+.wire-kind-tabs [aria-pressed="true"] { border-color:var(--text); background:var(--bg-subtle); }
+.wire-dock #btnAutoConnect { font-size:12px; }
+@media(max-width:1100px){.wire-dock{left:20px;transform:none;gap:6px;} .wire-kind-tabs button{width:28px;padding:4px;}}
+.wire-dock #btnAutoConnect[aria-pressed="true"] { box-shadow:0 0 0 2px var(--text); }
+.part-properties-dialog .sel-info { position:static; width:auto; max-width:none; max-height:60vh; border:0; box-shadow:none; margin:0 0 16px; padding:0; }
+.part-properties-dialog:not([open]) { display:none; }
+/* Remove the bottom legend while keeping its layout anchor for positioning. */
+.legend { visibility:hidden; height:0; min-height:0; padding:0; border:0; overflow:hidden; }
+.wire-dock #btnAutoConnect[aria-pressed="true"] { background:#176b48; border-color:#176b48; color:#fff; box-shadow:0 0 0 2px var(--surface),0 0 0 4px #176b48; }
+.mir-confirm .modal-actions { flex-wrap:wrap; }
+.mir-confirm h2 { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.mir-confirm .confirm-close { font-size:24px; line-height:1; padding:4px 8px; background:transparent; border-color:transparent; }
+.mir-confirm .modal-actions { flex-wrap:nowrap; }
+.part-properties-dialog .prop-edit { margin:18px 0; padding:16px; border:1px solid var(--border); border-radius:14px; background:var(--bg-subtle); }
+.part-properties-dialog .prop-head { display:flex; justify-content:space-between; align-items:center; gap:12px; font-weight:600; margin-bottom:14px; }
+.part-properties-dialog .swatches { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:14px; }
+.part-properties-dialog .swatch { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; min-width:34px; padding:0; border-radius:50%; background:var(--sw); border:2px solid var(--surface); box-shadow:0 0 0 1px var(--border-strong); cursor:pointer; }
+.part-properties-dialog .swatch.on { box-shadow:0 0 0 2px var(--text); }
+.part-properties-dialog .swatch.custom { overflow:hidden; background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red); }
+.part-properties-dialog .swatch.custom input { width:100%; height:100%; padding:0; border:0; opacity:0; cursor:pointer; }
+.part-properties-dialog .prop-row,.part-properties-dialog .chips { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+.part-properties-dialog .prop-row input { min-width:0; flex:1; }
+/* Editable part properties stay open without blocking the work surface. */
+.part-properties-dialog[open] { position:fixed; inset:auto 24px 130px auto; margin:0; z-index:70; max-height:calc(100dvh - 180px); overflow:auto; }
+.part-properties-dialog[open] { width:320px; padding:16px; border-radius:18px; }
+.part-properties-dialog .prop-edit { padding:12px; margin:12px 0; }
+.part-properties-dialog .swatches { gap:8px; margin-bottom:10px; }
+.part-properties-dialog .swatch { width:30px; height:30px; min-width:30px; }
+.properties-drag-handle { cursor:grab; touch-action:none; user-select:none; font-size:12px; font-weight:600; color:var(--text-muted); padding:2px 2px 10px; margin-bottom:12px; border-bottom:1px solid var(--border); }
+.properties-drag-handle:active { cursor:grabbing; }
+.part-properties-dialog[open] { resize:both; min-width:260px; min-height:180px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 70px); overflow:auto; }
+/* V54: preview/actions remain outside the toolbar and the chat overlay. */
+.stage-body .preview-bar { left:12px; transform:none; max-width:none; margin:0; z-index:35; flex-wrap:wrap; max-height:180px; overflow:auto; box-sizing:border-box; }
+.stage-body .wire-dock { transform:none; box-sizing:border-box; flex-wrap:wrap; }
+.wire-dock-actions { display:flex; align-items:center; gap:4px; } .wire-dock-actions button { font-size:12px; padding:6px 8px; }
+.stage-body .wire-dock { gap:10px; padding:0; border:0; background:transparent; box-shadow:none; pointer-events:none; }
+.wire-dock-connection, .wire-dock-actions { display:flex; align-items:center; gap:6px; min-height:48px; padding:6px 8px; border:1px solid var(--border); border-radius:16px; background:var(--surface); box-shadow:var(--shadow-md); pointer-events:auto; }
+.wire-dock-connection { gap:10px; flex-wrap:wrap; }
+.stage-body .wire-dock { left:50%; transform:translateX(-50%); width:max-content; max-width:calc(100% - 24px); justify-content:center; z-index:52; }
+.wire-kind-tabs { flex-wrap:wrap; }
+#recentProjects { display:grid; gap:4px; max-height:230px; overflow:auto; }
+.workspace-rail #recentProjects button { text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; height:auto; min-height:32px; padding:7px 9px; }
+.recent-project-heading { margin-top:8px; }
+#recentProjectStatus { color:var(--text-muted); font-size:12px; margin:0; overflow-wrap:anywhere; }
+#recentProjectStatus:empty, #recentProjects:empty { display:none; }
+.wire-dock-movement svg { display:block; width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.wire-dock-movement button { background:var(--primary-soft); color:var(--primary-text); border-color:var(--primary); }
+.canvas [data-kind="part"] { cursor:move; }
+.canvas [data-kind="wire"] { cursor:pointer; }
+.canvas.panning, .canvas.panning * { cursor:grabbing; }
+.canvas.selecting-area, .canvas.selecting-area * { cursor:crosshair; }
+.part-marquee { fill:var(--primary); fill-opacity:.12; stroke:var(--primary); stroke-dasharray:5 4; vector-effect:non-scaling-stroke; pointer-events:none; }
+.canvas-context-menu { position:fixed; z-index:90; padding:4px; min-width:90px; border:1px solid var(--border); border-radius:10px; background:var(--surface); box-shadow:var(--shadow-md); } .canvas-context-menu button { width:100%; }
+.recent-project-row { display:grid; grid-template-columns:minmax(0,1fr) 30px; gap:4px; } .workspace-rail #recentProjects .recent-project-more { text-align:center; font-size:18px; padding:3px; } .canvas-context-menu button { display:block; }
+.recent-project-row { gap:0; }
+.workspace-rail #recentProjects .recent-project-row > button:first-child { border-top-right-radius:0; border-bottom-right-radius:0; }
+.workspace-rail #recentProjects .recent-project-more { border-top-left-radius:0; border-bottom-left-radius:0; border-left:0; }
+.project-section-divider { width:100%; margin:0; border:0; border-top:1px solid var(--border); }
+.frame-project .recent-project-heading { margin-top:0; }

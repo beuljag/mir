@@ -63,6 +63,24 @@ def settings(env_file=None):
             'configured': bool(secret)}
 
 
+FINAL_MARKER = '<!--MIR_TURN_COMPLETE-->'
+
+
+def has_design_result(text):
+    candidates = re.findall(r'```(?:json)?\s*([\s\S]*?)```', text)
+    candidates.append(text)
+    for candidate in candidates:
+        try: data = json.loads(candidate)
+        except (ValueError, TypeError): continue
+        if isinstance(data, dict) and (
+                (data.get('type') == 'clarification' and isinstance(data.get('questions'), list)
+                 and data['questions'] and all(isinstance(q, str) and q.strip() for q in data['questions']))
+                or isinstance(data.get('circuit_id'), str)
+                or (data.get('type') == 'wiring' and isinstance(data.get('parts'), list) and data['parts'])):
+            return True
+    return False
+
+
 def is_progress_message(text, input_hint=None):
     # Bot Framework의 ignoringInput과 명확한 진행 안내는 최종 응답이 아니다.
     if input_hint == 'ignoringInput': return True
@@ -121,6 +139,9 @@ class Session:
     received: dict = field(default_factory=dict)
     sent_activity_id: str | None = None
     awaiting_work: bool = False
+    requires_design_result: bool = False
+    final_result_seen: bool = False
+    network_failures: int = 0
 
 
 class DirectLineChat:
@@ -149,14 +170,22 @@ class DirectLineChat:
     async def rpc(self, domain, token, method, path, body=None, params=None):
         started = time.monotonic()
         operation = 'conversation' if path == '/conversations' else 'activities'
-        try:
-            async with httpx.AsyncClient(transport=self.transport, timeout=15, follow_redirects=False, trust_env=False) as client:
-                response = await client.request(method, domain + path,
-                    headers={'Authorization': 'Bearer ' + token}, json=body, params=params)
-        except httpx.HTTPError:
-            self.trace('upstream_network_error', method=method, operation=operation,
-                       duration_ms=round((time.monotonic() - started) * 1000))
-            raise ChatError(502, 'DIRECT_LINE_NETWORK_ERROR') from None
+        # GET만 재시도한다. POST는 수락 여부가 불명확하므로 자동 재전송하지 않는다.
+        attempts = 3 if method == 'GET' else 1
+        for attempt in range(attempts):
+            try:
+                async with httpx.AsyncClient(transport=self.transport, timeout=10 if method == 'GET' else 15,
+                                             follow_redirects=False, trust_env=False) as client:
+                    response = await client.request(method, domain + path,
+                        headers={'Authorization': 'Bearer ' + token}, json=body, params=params)
+                break
+            except httpx.HTTPError as exc:
+                self.trace('upstream_network_error', method=method, operation=operation,
+                           attempt=attempt + 1, error_type=type(exc).__name__,
+                           duration_ms=round((time.monotonic() - started) * 1000))
+                if attempt + 1 == attempts:
+                    raise ChatError(502, 'DIRECT_LINE_NETWORK_ERROR') from None
+                await asyncio.sleep(0.25 if attempt == 0 else 0.75)
         self.trace('upstream_response', method=method, operation=operation, status=response.status_code,
                    duration_ms=round((time.monotonic() - started) * 1000))
         # 제공자가 오류 본문에 키나 토큰을 반사하더라도 브라우저·로그에 내보내지 않는다.
@@ -206,7 +235,12 @@ class DirectLineChat:
                 raise ChatError(409, 'CHAT_REQUEST_IN_PROGRESS')
             if session.status == 'failed':
                 raise ChatError(409, 'CHAT_SESSION_NEEDS_RESET')
+            session.requires_design_result = '[요청 종류: 배선 추천]' in message
+            session.final_result_seen = False
             text = (catalog + '\n\n' if catalog and not session.catalog_sent else '') + message
+            text += '\n\n[미르 조사 우선·확인 질문 규칙] ' + '질문보다 조사를 먼저 합니다. 1) SearchComponents/GetComponentDetails로 DB와 출처를 확인하고, 모델로 찾을 수 있는 핀맵·핀 기능·동작 전압·정격·데이터시트는 검색 에이전트와 웹 검색/ResearchComponent/AnalyzeDatasheet로 직접 조사합니다. 비어 있는 pins나 unresolved_fields를 그대로 사용자에게 채우라고 요구하지 않습니다. 2) 조회한 실제 공식 자료와 작업 결과를 확인해 부품 정의를 보완하고 설계를 계속합니다. 검색 수단이 없거나 실패하면 성공했다고 꾸미지 않습니다. 3) 조사해도 실제 사용할 제품을 특정할 수 없을 때만 최소한의 식별 정보(모델명·제조사·모듈 변형)를 묻습니다. 예: 태양광 패널의 모델명을 알려주세요. 모델을 받으면 Voc와 핀 정보는 다시 직접 조사하고, 공개 자료로 알 수 없는 실제 제품의 값만 추가로 묻습니다. 사용자가 핀 이름·핀 개수·핀 기능을 전부 나열하도록 요구하지 않습니다. 사용자 제작 보드처럼 공식 자료가 없는 경우에만 자료 링크나 핀맵을 요청할 수 있습니다. 4) 이 확인 질문에는 필요한 부품명과 항목만 짧게 쓰고 오류 위치·내부 도구·실패 원인 설명을 붙이지 않습니다. 최종 JSON은 {"type":"clarification","questions":["태양광 패널의 모델명을 알려주세요."]}로 반환합니다. 사양을 추측하거나 확인 전 배선을 확정하지 않습니다.' + ' 조사 후보의 unresolved_fields나 agent_extraction_tasks는 검토·추출 항목이지 사용자 필수 입력 목록이 아닙니다. document_sections와 evidence를 읽어 실제 확인할 수 있는 내용을 먼저 추출합니다. 상품명 전체 문자열이 일치하지 않아도 source.title, source_title_identifiers, identifier_matches로 모델을 재확인합니다. 사용자 메시지에 제시된 OUT·VCC·GND 같은 핀 표기는 근거로 반영하고 같은 표기를 다시 나열하라고 묻지 않습니다. 확인된 핀 역할과 아직 확인되지 않은 전원 정격·제품 변형은 별도로 취급합니다. 모터와 외부 전원에는 다음 규칙을 우선 적용합니다. 모터는 제품 식별에 필요한 종류와 모델명 중 빠진 항목만 묻습니다. 정격 전압·전류, 기동·스톨 전류, 핀맵과 사용법은 모델로 DB와 제조사 자료를 직접 조사합니다. 확인하지 못한 정격은 미확인으로 남기고, 그 값이 필요한 실제 배선은 확정하지 않습니다. 정격이나 핀 정보를 사용자에게 요구하지 않습니다. 외부 전원이 필요하고 사용자가 종류를 지정하지 않으면 배터리를 기본으로 사용합니다. 파워서플라이 등 다른 전원을 지정하거나 나중에 변경하면 그 선택에 맞춰 설계를 갱신합니다. 일반 외부 전원의 모델명이나 전압별 핀 유무를 묻지 않습니다. 확인된 부하와 드라이버 사양에 맞춰 필요한 출력 전압과 전류 용량을 선정합니다. 파워서플라이는 출력 설정값과 +/− 출력 단자로 표현하고, 기기별 단자 배치나 출력 범위를 확인하지 못하면 필요한 조건만 안내합니다.'
+            if session.requires_design_result:
+                text += '\n\n[미르 응답 계약] 진행 중 안내는 최종 결과가 아닙니다. 실제 회로 저장 결과 또는 화면용 배선 JSON까지 실행하세요. 최종 답변은 한국어로 작성하고 맨 마지막에 ' + FINAL_MARKER + '를 붙이세요. 정보가 부족해 작업을 멈추고 질문하는 경우에도 마지막에 이 표식을 붙이세요. 단순 중간 안내에는 표식을 붙이지 마세요.'
             if len(text.encode('utf-8')) > 200000:
                 raise ChatError(422, 'CHAT_MESSAGE_TOO_LARGE')
             # 초기 인사와 이전 응답이 다음 요청의 응답으로 섞이지 않게 현재 위치를 읽는다.
@@ -216,6 +250,7 @@ class DirectLineChat:
             session.status = 'waiting'
             session.replies, session.seen, session.error = [], set(), None
             session.awaiting_work = False
+            session.network_failures = 0
             session.deadline, session.last_reply = time.monotonic() + (settings(self.env_file)['reply_timeout_seconds'] or self.reply_timeout), 0
             session.sent_at, session.polls, session.received = time.monotonic(), 0, {}
             try:
@@ -240,6 +275,7 @@ class DirectLineChat:
                     data = await self.rpc(session.domain, session.token, 'GET', f'/conversations/{quote(session.conversation, safe="")}/activities',
                         params={'watermark': session.watermark} if session.watermark else None)
                     session.watermark = data.get('watermark', session.watermark)
+                    session.network_failures = 0
                     session.polls += 1
                     for activity in data.get('activities', []):
                         if not isinstance(activity, dict) or not isinstance(activity.get('from'), dict):
@@ -269,9 +305,12 @@ class DirectLineChat:
                                    input_hint=activity.get('inputHint') if activity.get('inputHint') in ('acceptingInput','ignoringInput','expectingInput') else None,
                                    attachment_count=len(attachments) if isinstance(attachments, list) else 0)
                         text = activity_text(activity)
+                        final_marked = FINAL_MARKER in text
+                        text = text.replace(FINAL_MARKER, '').strip()
                         if activity.get('type') == 'message' and isinstance(text, str) and text:
                             session.replies.append(text)
-                            session.awaiting_work = is_progress_message(text, activity.get('inputHint'))
+                            session.final_result_seen = session.final_result_seen or final_marked or has_design_result(text) or activity.get('inputHint') == 'expectingInput'
+                            session.awaiting_work = (session.requires_design_result and not session.final_result_seen) or (not session.final_result_seen and is_progress_message(text, activity.get('inputHint')))
                             session.last_reply = time.monotonic()
                             if text.lstrip().startswith('Connection Required') and 'Set up your connection' in text:
                                 session.status, session.error = 'failed', 'COPILOT_TOOL_CONNECTION_REQUIRED'
@@ -285,13 +324,19 @@ class DirectLineChat:
                     elif session.status == 'waiting' and time.monotonic() >= session.deadline:
                         session.status, session.error = 'failed', 'DIRECT_LINE_REPLY_TIMEOUT'
                 except ChatError as exc:
-                    session.status, session.error = 'failed', exc.code
+                    if exc.code == 'DIRECT_LINE_NETWORK_ERROR':
+                        session.network_failures += 1
+                    if exc.code == 'DIRECT_LINE_NETWORK_ERROR' and session.network_failures < 3 and time.monotonic() < session.deadline:
+                        self.trace('poll_reconnecting', session_ref=sid[-8:], failures=session.network_failures)
+                    else:
+                        session.status, session.error = 'failed', exc.code
                 self.trace('reply_progress', session_ref=sid[-8:], status=session.status, polls=session.polls,
                            elapsed_seconds=round(time.monotonic() - session.sent_at, 1),
                            bot_message_count=len(session.replies), activity_counts=session.received, error=session.error)
             result = {'status': session.status, 'polls': session.polls,
                       'elapsed_seconds': round(time.monotonic() - session.sent_at, 1) if session.sent_at else 0,
-                      'bot_message_count': len(session.replies)}
+                      'bot_message_count': len(session.replies),
+                      'recovering_connection': session.status == 'waiting' and session.network_failures > 0}
             if session.status == 'completed':
                 result['reply'] = '\n\n'.join(session.replies)
             if session.error:

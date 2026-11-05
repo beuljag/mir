@@ -74,7 +74,10 @@ def test_secret_and_tokens_stay_on_server_chat_roundtrip(chat):
     assert SECRET not in json.dumps(diagnostics) and TOKEN not in json.dumps(diagnostics)
     assert client.get('/.env').status_code in (401, 404)
     posted = [r for r in calls if r.method == 'POST' and r.url.path.endswith('/activities')]
-    assert json.loads(posted[0].content)['text'] == '부품 목록\n\n라즈베리파이 펌프'
+    posted_text = json.loads(posted[0].content)['text']
+    assert posted_text.startswith('부품 목록\n\n라즈베리파이 펌프\n\n')
+    assert '[미르 조사 우선·확인 질문 규칙]' in posted_text and 'clarification' in posted_text
+    assert '질문보다 조사를 먼저' in posted_text and '핀 이름·핀 개수·핀 기능을 전부 나열하도록 요구하지 않습니다' in posted_text
     assert client.delete(f'/chat/sessions/{sid}').json() == {'ok': True}
 
 
@@ -234,3 +237,84 @@ def test_input_hint_marks_intermediate_reply():
     assert is_progress_message('이미지 제작 에이전트에 맡깁니다.')
     assert not is_progress_message('부품을 저장했습니다.')
     assert not is_progress_message('전압이 몇 V인가요?')
+
+
+def test_design_waits_past_unrecognized_english_progress_until_saved_reference(chat):
+    client, service, env, calls = chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'[요청 종류: 배선 추천] 아두이노 우노'}).json()['request_id']
+    batches=iter([
+        [{'id':'p','type':'message','from':{'role':'bot'},'text':'Now the resistor image.'}],
+        [],
+        [{'id':'f','type':'message','from':{'role':'bot'},'text':'저장 완료\n```json\n{"type":"circuit_reference","circuit_id":"real-id","version":1}\n```'}]])
+    service.transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'activities':next(batches)}))
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='completed'
+
+
+def test_design_question_marker_finishes_without_inventing_connections(chat):
+    client, service, env, calls = chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'[요청 종류: 배선 추천] 미확인 보드'}).json()['request_id']
+    service.transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'activities':[
+        {'id':'question','type':'message','from':{'role':'bot'},'text':'어떤 센서를 연결할까요?<!--MIR_TURN_COMPLETE-->'}]}))
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='completed' and result['reply']=='어떤 센서를 연결할까요?'
+
+
+def test_single_get_network_error_recovers_without_resending_message(chat):
+    client,service,env,calls=chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'one'}).json()['request_id']
+    reads=[]
+    def flaky(request):
+        reads.append(request)
+        if len(reads)==1: raise httpx.ConnectError('transient '+SECRET+TOKEN)
+        return httpx.Response(200,json={'activities':[{'id':'answer','type':'message','from':{'role':'bot'},'text':'복구됨'}]})
+    service.transport=httpx.MockTransport(flaky)
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='completed' and result['reply']=='복구됨'
+    assert len(reads)==2 and all(r.method=='GET' for r in reads)
+    assert len([r for r in calls if r.method=='POST' and r.url.path.endswith('/activities')])==1
+    assert SECRET not in str(result) and TOKEN not in str(result)
+
+
+def test_temporary_poll_outage_keeps_session_and_recovers(chat):
+    client,service,env,calls=chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'one'}).json()['request_id']
+    def offline(request): raise httpx.ReadError('temporary')
+    service.transport=httpx.MockTransport(offline)
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='waiting' and result['recovering_connection']
+    service.transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'activities':[
+        {'id':'answer','type':'message','from':{'role':'bot'},'text':'완료'}]}))
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='completed' and not result['recovering_connection']
+    assert service.sessions[sid].network_failures==0
+
+
+def test_persistent_network_outage_is_bounded(chat):
+    client,service,env,calls=chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'one'}).json()['request_id']
+    reads=[]
+    def offline(request):
+        reads.append(request);raise httpx.ReadError('offline')
+    service.transport=httpx.MockTransport(offline)
+    for expected in ['waiting','waiting','failed']:
+        result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+        assert result['status']==expected
+    assert result['error']=='DIRECT_LINE_NETWORK_ERROR' and len(reads)==9
+
+
+def test_specification_question_is_a_final_design_reply(chat):
+    client,service,env,calls=chat
+    sid=client.post('/chat/sessions').json()['session_id']
+    rid=client.post(f'/chat/sessions/{sid}/messages',json={'message':'[요청 종류: 배선 추천] 태양광 패널'}).json()['request_id']
+    answer=json.dumps({'type':'clarification','questions':['태양광 패널의 모델명과 개방전압(Voc)을 알려주세요.']},ensure_ascii=False)
+    service.transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'activities':[
+        {'id':'specs','type':'message','from':{'role':'bot'},'text':'```json\n'+answer+'\n```'}]}))
+    result=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status']=='completed' and 'clarification' in result['reply']
