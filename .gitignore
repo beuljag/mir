@@ -18,6 +18,7 @@ logs/
 tools/devtunnel.exe
 
 config/tunnel.json
+config/distribution-connection.local.json
 renderer/server-connection.json
 .ux/
 release*/
