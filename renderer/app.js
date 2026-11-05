@@ -5,7 +5,7 @@ import { runtimeApi } from './web-api.js?v=research-evidence-7';
 import './appearance.js';
 import { initBackendPanel } from './backend-panel.js?v=research-evidence-7';
 import { initVerificationPanel } from './verification-panel.js?v=research-evidence-7';
-import { WiringCanvas, layoutPart, separateParts } from './canvas.js';
+import { WiringCanvas, layoutPart, partBounds, rotationDegrees, separateParts } from './canvas.js';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
 import { defFor, cleanProps, editableKind, LED_COLORS, RESISTOR_PRESETS, formatOhms, parseOhms } from './props.js';
@@ -543,6 +543,33 @@ stageBody.addEventListener('drop', (e) => {
   setPartsOpen(false);
 });
 
+const partTransforms = {
+  KeyE: { button: 'rotateLeft', degrees: -90 },
+  KeyR: { button: 'rotateRight', degrees: 90 },
+  KeyT: { button: 'mirrorPart' }
+};
+
+function transformPart(action) {
+  const selection = canvas.selected;
+  if (selection?.type !== 'part' || state.pendingProposal) return false;
+  const inst = state.instances.find((item) => item.ref === selection.ref);
+  if (!inst) return false;
+  if (action.degrees) {
+    inst.rotation = rotationDegrees((inst.rotation ?? 0) + action.degrees);
+  } else {
+    // Reflect horizontally in canvas coordinates, even after the part was rotated.
+    inst.rotation = rotationDegrees(-(inst.rotation ?? 0));
+    if (inst.mirrored) delete inst.mirrored;
+    else inst.mirrored = true;
+  }
+  const focus = document.activeElement;
+  pushHistory();
+  refresh();
+  showSelection(selection);
+  if (focus?.id && !focus.isConnected) $(focus.id)?.focus({ preventScroll: true });
+  return true;
+}
+
 // ---------- 선택 정보 ----------
 function showSelection(sel) {
   const box = $('selInfo');
@@ -557,8 +584,19 @@ function showSelection(sel) {
       ${inst.label ? `<div class="muted">역할: ${escapeHtml(inst.label)}</div>` : ''}
       ${def.sources?.length ? `<div class="muted">근거: ${escapeHtml(def.sources.join(', '))}</div>` : ''}
       ${propsEditorHtml(inst, def)}
+      <div class="prop-edit">
+        <div class="prop-head">부품 회전 <span class="muted">${rotationDegrees(inst.rotation)}°</span></div>
+        <div class="row">
+          <button id="rotateLeft" aria-keyshortcuts="E">↶ 왼쪽 90° · E</button>
+          <button id="rotateRight" aria-keyshortcuts="R">↷ 오른쪽 90° · R</button>
+          <button id="mirrorPart" aria-keyshortcuts="T" aria-pressed="${!!inst.mirrored}">좌우 반전 · T</button>
+        </div>
+      </div>
       <div class="row"><button id="selDelete">부품 삭제</button></div>`;
     bindPropsEditor(inst, def, sel);
+    for (const action of Object.values(partTransforms)) {
+      $(action.button).onclick = () => transformPart(action);
+    }
   } else {
     const w = state.wires.find((x) => x.id === sel.id);
     if (!w) return box.classList.add('hidden');
@@ -679,7 +717,8 @@ function placeNew(instances, keepFrom = []) {
     const def = state.defs.get(i.part);
     if (!def) continue;
     const c = Math.min(2, Math.max(0, Math.round(i.x / 320)));
-    colY[c] = Math.max(colY[c], i.y + layoutPart(def).h + 50);
+    const bounds = partBounds(i, def);
+    colY[c] = Math.max(colY[c], bounds.y + bounds.h + 50);
   }
   const incoming = [];
   for (const i of instances) {
@@ -764,7 +803,7 @@ function applyProposal({ parts, conns, title, addedParts = [], origin = 'ai' }) 
   const placed = new Map(addedParts.map((p) => [`${p.ref}|${p.part}`, p]));
   const instances = parts.map((p) => {
     const old = keep.get(`${p.ref}|${p.part}`) || placed.get(`${p.ref}|${p.part}`);
-    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y, ...((p.props || old?.props) ? { props: p.props || old.props } : {}) };
+    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y, ...(old?.rotation == null ? {} : { rotation: old.rotation }), ...(old?.mirrored ? { mirrored: true } : {}), ...((p.props || old?.props) ? { props: p.props || old.props } : {}) };
   });
   placeNew(instances, instances.filter((i) => i.x != null));
   state.instances = instances;
@@ -1125,7 +1164,18 @@ $('btnBuildManually').onclick = () => {
   setPartsOpen(true);
 };
 const manualDialog = $('manualDialog');
-$('btnManual').onclick = () => manualDialog.showModal();
+const manualFrame = manualDialog.querySelector('iframe');
+function updateManualTheme() {
+  manualFrame.contentWindow?.postMessage({ type: 'mir-manual-theme', theme: currentTheme() }, '*');
+}
+manualFrame.addEventListener('load', updateManualTheme);
+manualDialog.addEventListener('close', () => {
+  manualFrame.contentWindow?.postMessage({ type: 'mir-manual-close' }, '*');
+});
+$('btnManual').onclick = () => {
+  updateManualTheme();
+  manualDialog.showModal();
+};
 $('btnCloseManual').onclick = () => manualDialog.close();
 $('partSearch').oninput = renderPalette;
 $('btnPaletteToggle').onclick = () => setPartsOpen($('partsPalette').hidden, true);
@@ -1364,7 +1414,9 @@ window.addEventListener('keydown', (e) => {
   const props=document.querySelector('.part-properties-dialog[open]');
   if(e.key==='Escape'&&props){props.close();e.preventDefault();return;}
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
-  if (typing) return;
+  if (typing || e.isComposing) return;
+  const action = partTransforms[e.code];
+  if (action && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey && transformPart(action)) e.preventDefault();
   if (e.key === 'Delete' || e.key === 'Backspace') canvas.deleteSelected();
   if (e.key === 'Escape') { canvas.cancelPending(); canvas.select(null); }
   if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
@@ -1452,6 +1504,7 @@ function applyTheme(theme) {
   if (theme) document.documentElement.dataset.theme = theme;
   $('btnTheme').textContent = currentTheme() === 'dark' ? '☀ 라이트 모드로 전환' : '☾ 다크 모드로 전환';
   $('btnTheme').setAttribute('aria-pressed', String(currentTheme() === 'dark'));
+  updateManualTheme();
 }
 
 $('btnTheme').onclick = () => {
