@@ -52,7 +52,7 @@ export function toCircuitDraft(state, original = null) {
     component_instances: state.instances.map((i) => ({ instance_id: i.ref, component_definition_id: i.part,
       ...(i.props ? { props: i.props } : {}), ...(i.label ? { label: i.label } : {}) })),
     nets,
-    layout: state.instances.map((i) => ({ instance_id: i.ref, x: i.x ?? 0, y: i.y ?? 0, rotation: i.rotation ?? 0 }))
+    layout: state.instances.map((i) => ({ instance_id: i.ref, x: i.x ?? 0, y: i.y ?? 0, rotation: i.rotation ?? 0, ...(i.mirrored ? { mirrored: true } : {}) }))
   };
 }
 
@@ -63,7 +63,7 @@ export function fromCircuit(circuit) {
     const p = layout.get(i.instance_id);
     return { ref: i.instance_id, part: i.component_definition_id,
       ...(i.props && Object.keys(i.props).length ? { props: i.props } : {}), ...(i.label ? { label: i.label } : {}),
-      x: p?.x ?? (n % 3) * 360, y: p?.y ?? Math.floor(n / 3) * 240, rotation: p?.rotation ?? 0 };
+      x: p?.x ?? (n % 3) * 360, y: p?.y ?? Math.floor(n / 3) * 240, rotation: p?.rotation ?? 0, ...(p?.mirrored ? { mirrored: true } : {}) };
   });
   const seen = new Set(), wires = [];
   for (const net of circuit.nets) {

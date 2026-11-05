@@ -90,16 +90,19 @@
               <span class="example-art example-art-valve"><svg viewBox="0 0 168 84" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
                 <path d="M29 59h28m54 0h28" stroke-width="8" opacity=".35"/><path d="M38 51v16m92-16v16"/>
                 <path d="M57 50h54v19H57z" fill="currentColor" fill-opacity=".19"/><path d="M71 50V24a6 6 0 0 1 6-6h25a6 6 0 0 1 6 6v26z" fill="currentColor" fill-opacity=".12"/>
-                <path d="M78 29h23m-23 6h23m-23 6h23M84 18V9m11 9V9"/><path d="M74 59h22m-6-4 6 4-6 4"/>
+                <path d="M78 29h23m-23 6h23m-23 6h23M84 18V9m11 9V9"/><path class="example-flow" d="M74 59h22m-6-4 6 4-6 4"/>
               </svg></span>
               <strong>12V 솔레노이드 밸브</strong><span class="example-description">ESP32와 릴레이로 밸브를 켜고 꺼요.</span>
             </button>
             <button class="example-card" data-example="climate" disabled>
-              <span class="example-art example-art-sensor"><svg viewBox="0 0 168 84" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="28" y="17" width="29" height="50" rx="6"/><path d="M35 25h15m-15 7h15m-15 7h15m-15 7h15m-15 7h15m8-11h23m-5-5 5 5-5 5"/><rect x="86" y="18" width="54" height="48" rx="7"/><path d="M97 52h32"/><text x="113" y="42" text-anchor="middle" fill="currentColor" stroke="none" font-size="14" font-weight="700">24°C</text></svg></span>
+              <span class="example-art example-art-sensor"><svg viewBox="0 0 168 84" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="28" y="17" width="29" height="50" rx="6"/><path d="M35 25h15m-15 7h15m-15 7h15m-15 7h15m-15 7h15m8-11h23m-5-5 5 5-5 5"/><rect x="86" y="18" width="54" height="48" rx="7"/><path d="M97 52h32"/><circle class="example-signal" cx="57" cy="42" r="2.5" fill="currentColor" stroke="none"/>
+                <text class="example-reading-first" x="113" y="42" text-anchor="middle" fill="currentColor" stroke="none" font-size="14" font-weight="700">24°C</text>
+                <text class="example-reading-next" x="113" y="42" text-anchor="middle" fill="currentColor" stroke="none" font-size="14" font-weight="700">25°C</text></svg></span>
               <strong>온습도를 화면에 띄우기</strong><span class="example-description">센서로 읽은 값을 작은 화면에 표시해요.</span>
             </button>
             <button class="example-card" data-example="led" disabled>
-              <span class="example-art example-art-led"><svg viewBox="0 0 168 84" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="25" y="21" width="53" height="43" rx="6"/><rect x="39" y="31" width="20" height="19" rx="3"/><path d="M31 26h39M78 41h18v24h14m11-12v12m-11-12v-9a8 8 0 0 1 16 0v9zM118 26v-6m-14 9-4-5m31 5 4-5m-1 15h7"/></svg></span>
+              <span class="example-art example-art-led"><svg viewBox="0 0 168 84" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="25" y="21" width="53" height="43" rx="6"/><rect x="39" y="31" width="20" height="19" rx="3"/><path d="M31 26h39M78 41h18v24h14m11-12v12m-11-12v-9a8 8 0 0 1 16 0v9z"/>
+                <g class="example-led-light"><path d="M110 53v-9a8 8 0 0 1 16 0v9z" fill="currentColor" fill-opacity=".36"/><path d="M118 26v-6m-14 9-4-5m31 5 4-5m-1 15h7"/></g></svg></span>
               <strong>LED 깜빡이기</strong><span class="example-description">라즈베리파이로 작은 불빛을 켜고 꺼요.</span>
             </button>
           </div>
@@ -276,9 +279,9 @@
   <button id="btnManual" hidden>미르 사용 설명서</button>
   <dialog id="manualDialog" aria-labelledby="manualTitle">
     <header><h2 id="manualTitle">미르 사용 설명서</h2><button id="btnCloseManual" aria-label="설명서 닫기" autofocus>×</button></header>
-    <iframe title="그림으로 배우는 미르" src="manual.html?v=81"></iframe>
+    <iframe title="그림으로 배우는 미르" src="manual.html?v=89"></iframe>
   </dialog>
-  <script type="module" src="app.js?v=84"></script>
+  <script type="module" src="app.js?v=89"></script>
   <script type="module" src="workspace-frame.js"></script>
   <script type="module" src="titlebar.js"></script>
 </body>

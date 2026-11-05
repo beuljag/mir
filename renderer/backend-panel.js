@@ -96,7 +96,6 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     for (const partId of missing) message(`부품 DB 미등록: ${partId}. 화면 표시는 가능하며 사양 검증이 필요합니다.`);
     current = record; saved = loadedDraft;
     $('dbCircuitId').value = record.id;
-    if (next.instances.some((i) => i.rotation % 360 !== 0)) message('회전 값은 저장 시 유지되지만 미르 그림은 회전을 표시하지 않습니다.');
     status(`${record.id} · v${record.version} · ${record.status}`);
     message(`DB 회로 불러옴: ${record.name} (v${record.version})`);
     return true;
