@@ -6,7 +6,7 @@ rail.setAttribute('aria-label', '작업 공간 메뉴');
 rail.innerHTML = `<div class="frame-brand"></div>
 <button class="frame-new" data-target="btnNew"><span aria-hidden="true">＋</span> 새 프로젝트</button>
 <nav aria-label="작업 공간"><button class="frame-current" aria-current="page" data-target="workspace"><span aria-hidden="true">▣</span> 제작판</button><button data-target="btnWireSettings"><span aria-hidden="true">⚙</span> 앱 설정</button><button data-target="btnSettings"><span aria-hidden="true">↗</span> 에이전트 연결</button></nav>
-<section class="frame-project"><span>현재 프로젝트</span><strong id="frameProjectName">새 프로젝트</strong><button data-target="btnOpen">파일에서 열기</button></section>
+<section class="frame-project"><span>현재 프로젝트</span><strong id="frameProjectName">새 프로젝트</strong><hr class="project-section-divider"><span class="recent-project-heading">최근 프로젝트</span><div id="recentProjects" aria-label="최근 프로젝트"></div><p id="recentProjectStatus" role="status"></p></section>
 <footer><strong>PLAYLABS</strong><span>만들며 배우는 전자 실습</span></footer>`;
 document.body.append(rail);
 const brand = document.querySelector('.brand');

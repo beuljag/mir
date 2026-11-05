@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { layoutPart, separateParts } from '../renderer/canvas.js';
 
 const source = readFileSync(new URL('../renderer/circuit-api.js', import.meta.url), 'utf8');
 const { fromCircuit, toCircuitDraft, CircuitApi } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
@@ -13,6 +14,34 @@ const record = {
   layout: [{ instance_id: 'S', x: 150, y: 200, rotation: 90 }]
 };
 const netSignatures = (nets) => nets.map((n) => n.connected_pin_refs.map((p) => `${p.instance_id}.${p.pin_id}`).sort().join('|')).sort();
+
+test('긴 핀 설명이 보드 폭을 늘리지 않고 겹치는 DB 배치만 이동한다', () => {
+  const board = { name: 'ESP32 DevKitC', behavior: { kind: 'board' }, pins: [
+    { id: 'GND', label: 'J2-1 GND (Ground)', side: 'left' },
+    { id: 'GPIO0', label: 'J3-15 IO0 (STRAPPING: boot mode select, lengthy datasheet note)', side: 'right' }
+  ] };
+  const resistor = { name: 'Resistor', pins: [] };
+  const defs = new Map([['board', board], ['resistor', resistor]]);
+  const { w, h } = layoutPart(board);
+  assert.ok(w < 300);
+  assert.match(board.pins[1].label, /STRAPPING/);
+  const anchored = { ref: 'U1', part: 'board', x: 0, y: 0 };
+  const incoming = [
+    { ref: 'R1', part: 'resistor', x: 100, y: 20 },
+    { ref: 'R2', part: 'resistor', x: 100, y: 20 },
+    { ref: 'R3', part: 'resistor', x: 600, y: 400 }
+  ];
+  separateParts(incoming, defs, [anchored]);
+  assert.deepEqual([anchored.x, anchored.y], [0, 0]);
+  assert.deepEqual([incoming[2].x, incoming[2].y], [600, 400]);
+  const boxes = [{ ...anchored, w, h }, ...incoming.map((part) => ({ ...part, ...layoutPart(resistor) }))];
+  for (const [index, a] of boxes.entries()) {
+    for (const b of boxes.slice(index + 1)) {
+      assert.ok(a.x + a.w + 64 <= b.x || b.x + b.w + 64 <= a.x ||
+        a.y + a.h + 64 <= b.y || b.y + b.h + 64 <= a.y, `${a.ref} / ${b.ref}`);
+    }
+  }
+});
 
 test('3핀 net의 연결 관계, net ID, 요구사항, 위치와 회전 보존', () => {
   const state = fromCircuit(record);

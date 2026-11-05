@@ -5,6 +5,7 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
     CIRCUIT_API_KEY_REQUIRED: '서버에 연결되지 않았습니다. 연결 설정의 서버 주소·배선 API 키 또는 서버와 터널 실행 상태를 확인하세요.',
     COPILOT_TOOL_CONNECTION_REQUIRED: 'Copilot Studio의 CircuitAgent 도구 연결이 필요합니다. 도구의 연결 계정·자격 증명을 확인하고 에이전트를 다시 게시하세요. Direct Line 키를 바꿀 문제는 아닙니다.',
     COPILOT_SECRET_NOT_CONFIGURED: '서버 .env의 COPILOT_DIRECT_LINE_SECRET에 Direct Line 비밀 키를 넣으세요.',
+    DIRECT_LINE_NETWORK_ERROR: '서버와 Microsoft 사이의 통신이 끊겼습니다. 잠시 후 새 요청으로 다시 시도하세요. 이전 작업은 진행 중일 수 있으니 DB 상태를 먼저 확인하세요.',
     DIRECT_LINE_AUTH_FAILED: 'Direct Line 인증에 실패했습니다. 비밀 키와 지역별 Direct Line 주소를 확인하세요.',
     DIRECT_LINE_REPLY_TIMEOUT: '응답 대기 시간이 끝났습니다. 다음 요청은 새 대화로 연결됩니다. 기존 요청은 자동 재전송하지 않으니 DB에 부품이 생성됐는지 먼저 확인하세요.',
     CHAT_SESSION_NEEDS_RESET: '새로 만들기로 대화를 다시 연 뒤 요청하세요.',
@@ -36,7 +37,7 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
       let config;
       try { config = await call('/chat/config'); } catch { config = null; }
       const autoAuth = await base.getAutoAuthStatus?.();
-      const mode = selectedMode || (previous.mode === 'demo' && config?.mode === 'directline' && config.configured && autoAuth?.ready ? 'server' : previous.mode);
+      const mode = selectedMode || (previous.mode === 'demo' && previous.modeExplicit !== true && config?.mode === 'directline' && config.configured && autoAuth?.ready ? 'server' : previous.mode);
       return { ...previous, mode, serverSecretConfigured: !!config?.configured, apiKeyReady: !!apiKey || !!autoAuth?.ready };
     },
     setSettings: async (settings) => {
@@ -65,7 +66,7 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
         while (Date.now() < until) {
           await sleep(900); checkGeneration(current);
           const result = await call(`/chat/sessions/${sessionId}/messages/${sent.request_id}`);
-          onProgress({ stage: result.bot_message_count ? 'receiving' : 'waiting', ...result });
+          onProgress({ ...result, stage: result.recovering_connection ? 'reconnecting' : result.bot_message_count ? 'receiving' : 'waiting' });
           checkGeneration(current);
           if (result.status === 'completed') return { reply: result.reply };
           if (result.status === 'failed') throw error(result.error || 'DIRECT_LINE_REPLY_FAILED');

@@ -1,10 +1,11 @@
 import './web-chat.js';
 import './server-connection.js';
-import { createServerChatApi } from './server-chat.js?v=chat-recovery-2';
+import { createServerChatApi } from './server-chat.js?v=research-evidence-7';
 // Electron의 기존 연결은 유지하고, 일반 브라우저에서만 대체 연결을 만든다.
 if (!window.api) {
   const localPage = ['127.0.0.1', 'localhost'].includes(location.hostname);
   const localBase = localPage ? `http://${location.hostname}:8002` : null;
+  let modeExplicit=false;
   let settings = { mode: 'demo', secret: '', tokenEndpoint: '' };
   try {
     const config = await fetch('./agent-config.json', { cache: 'no-store' });
@@ -53,12 +54,12 @@ if (!window.api) {
   window.api = {
     browserMode: true,
     // 키·토큰·대화는 현재 탭의 메모리에만 보관한다.
-    getSettings: async () => ({ mode: settings.mode, tokenEndpoint: settings.tokenEndpoint, webChatUrl: settings.webChatUrl, hasSecret: false }),
+    getSettings: async () => ({ mode: settings.mode, tokenEndpoint: settings.tokenEndpoint, webChatUrl: settings.webChatUrl, hasSecret: false, modeExplicit }),
     setSettings: async (s) => {
       if (s.mode === 'secret') throw new Error('브라우저에서는 Direct Line 비밀 키 대신 토큰 끝점 URL을 사용하세요.');
       if (s.mode === 'token' && new URL(s.tokenEndpoint).protocol !== 'https:') throw new Error('HTTPS 토큰 URL이 필요합니다.');
       if (s.mode === 'web') s.webChatUrl = window.MirWebChat.validateWebChatUrl(s.webChatUrl);
-      settings = { ...s, secret: '' }; client = null; catalogSentFor = null;
+      settings = { ...s, secret: '' }; modeExplicit=true; client = null; catalogSentFor = null;
       return true;
     },
     sendToAgent: async (text, catalog) => {

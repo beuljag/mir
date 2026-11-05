@@ -1,16 +1,18 @@
+import './project-validation.js';
 import { confirmAction } from './confirm-dialog.js';
-import { runtimeApi } from './web-api.js?v=chat-recovery-2';
+import { applyAgentResult } from './agent-result.js';
+import { runtimeApi } from './web-api.js?v=research-evidence-7';
 import './appearance.js';
-import { initBackendPanel } from './backend-panel.js?v=chat-recovery-2';
-import { initVerificationPanel } from './verification-panel.js?v=chat-recovery-2';
-import { WiringCanvas, layoutPart } from './canvas.js';
+import { initBackendPanel } from './backend-panel.js?v=research-evidence-7';
+import { initVerificationPanel } from './verification-panel.js?v=research-evidence-7';
+import { WiringCanvas, layoutPart, separateParts } from './canvas.js';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
 import { defFor, cleanProps, editableKind, LED_COLORS, RESISTOR_PRESETS, formatOhms, parseOhms } from './props.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
-  buildDiagnoseRequest, buildPartRequest, parseReply, demoReply
-} from './agent.js';
+  buildDiagnoseRequest, buildPartRequest, parseReply, demoReply, getBuiltInWiring
+} from './agent.js?v=84';
 
 const $ = (id) => document.getElementById(id);
 const api = runtimeApi;
@@ -23,6 +25,9 @@ const PIN_TYPE = {
   power_out: '전원 출력', power_in: '전원 입력', gnd: 'GND', gpio: '입출력(GPIO)', input: '입력',
   output: '출력', passive: '단자', contact: '릴레이 접점', nc: '사용 금지'
 };
+let localParts = new Map();
+const serverParts = new Map();
+let projectParts = new Map();
 const state = {
   defs: new Map(),
   instances: [],
@@ -36,12 +41,26 @@ const state = {
   future: [],
   settings: { mode: 'demo' },
   pendingProposal: null,
+  buildingManually: false,
   busy: false
 };
+
+function wireOriginLabel(wire) {
+  if (wire.origin === 'ai') return 'AI 추천 배선';
+  if (wire.origin === 'example') return '내장 예제 배선';
+  return '직접 연결한 배선';
+}
 
 // ---------- 툴팁 ----------
 const tooltipEl = $('tooltip');
 const tooltip = {
+  showPart(ref,e) {
+    const inst=state.instances.find(i=>i.ref===ref);
+    const def=inst && defFor(state.defs,inst);
+    if(!def)return this.hide();
+    tooltipEl.innerHTML=`<b>${escapeHtml(ref)} · ${escapeHtml(def.name)}</b><br>${escapeHtml(def.description||'')}${inst.label?'<br>역할: '+escapeHtml(inst.label):''}<br><span class="dim">두 번 클릭: 부품 속성 · Delete: 삭제</span>`;
+    tooltipEl.classList.remove('hidden');this.move(e);
+  },
   showPin(key, e) {
     const [ref, pid] = splitKey(key);
     const inst = state.instances.find((i) => i.ref === ref);
@@ -77,7 +96,7 @@ const tooltip = {
   showWire(id, e) {
     const w = state.wires.find((x) => x.id === id);
     if (!w) return;
-    let html = `<b>${escapeHtml(w.from)} ↔ ${escapeHtml(w.to)}</b><br>${w.origin === 'ai' ? 'AI 추천 배선' : '직접 연결한 배선'}`;
+    let html = `<b>${escapeHtml(w.from)} ↔ ${escapeHtml(w.to)}</b><br>${wireOriginLabel(w)}`;
     if (w.note) html += `<br>${escapeHtml(w.note)}`;
     if (canvas.routeWarnings.has(id)) html += '<br><span class="warn">부품이 겹치거나 핀 주변 여백이 부족해요. 부품을 조금 떨어뜨려 주세요.</span>';
     if (state.power && canvas.sim) {
@@ -114,7 +133,7 @@ const tooltip = {
 const canvas = new WiringCanvas($('canvas'), {
   getDefs: () => state.defs,
   onChange: () => { syncFromCanvas(); pushHistory(); refresh(); },
-  onSelect: (sel) => showSelection(sel),
+  onSelect: (sel) => { showSelection(sel); updateWireDockActions(); },
   onPartClick: (ref) => {
     // 가상 전원이 켜져 있을 때 버튼을 클릭하면 눌림/떼기
     const inst = state.instances.find((i) => i.ref === ref);
@@ -125,6 +144,11 @@ const canvas = new WiringCanvas($('canvas'), {
       return true;
     }
     return false;
+  },
+  onPartDoubleClick: (ref) => {
+    tooltip.hide();
+    canvas.select({ type: 'part', ref });
+    if (!propertiesDialog.open) propertiesDialog.show();
   },
   tooltip
 });
@@ -156,7 +180,14 @@ function pushHistory() {
   state.future = [];
 }
 
+function clearEditorSelection() {
+  canvas.selected=null;canvas.cancelPending();
+  $('selInfo').classList.add('hidden');
+  document.querySelector('.part-properties-dialog')?.close();
+}
+function resetProjectHistory(){state.history=[];state.future=[];clearEditorSelection();pushHistory();}
 function restore(s) {
+  clearEditorSelection();
   const d = JSON.parse(s);
   state.instances = d.instances;
   state.wires = d.wires;
@@ -182,10 +213,19 @@ function runSim() {
   return simulate({ instances: state.instances, wires: state.wires, defs: state.defs, gpio: state.gpio, pressed: state.pressed });
 }
 
+function updateWireDockActions() {
+  const remove = $('btnDockDeleteWire');
+  if (!remove) return;
+  remove.disabled = canvas.selected?.type !== 'wire';
+  $('btnDockUndo').disabled = state.history.length < 2;
+  $('btnDockRedo').disabled = state.future.length === 0;
+}
+
 function refresh() {
+  updateWireDockActions();
   canvas.sim = state.power ? runSim() : null;
   canvas.render();
-  $('emptyHint').classList.toggle('hidden', state.instances.length > 0 || !!canvas.preview);
+  $('emptyHint').classList.toggle('hidden', state.buildingManually || state.instances.length > 0 || !!canvas.preview);
   $('stageTitle').textContent = state.title;
   renderGpioPanel();
 }
@@ -214,11 +254,16 @@ try {
 } catch { /* Use the default size when storage is unavailable. */ }
 function applyPaletteSize() {
   const area = document.querySelector('.stage-body').getBoundingClientRect();
-  const maxW = Math.max(1, area.width - 40), maxH = Math.max(1, area.height - 120);
+  const panel = $('partsPalette');
+  const chat = $('agentPanel').getBoundingClientRect();
+  const left = parseFloat(getComputedStyle(panel).left) || 0;
+  const right = Math.min(area.right - 20, chat.left - 12);
+  const maxW = Math.max(1, right - area.left - left);
+  const maxH = Math.max(1, area.height - 120);
   const width = Math.min(maxW, Math.max(Math.min(280,maxW),paletteSize.width));
   const height = Math.min(maxH, Math.max(Math.min(220,maxH),paletteSize.height));
-  $('partsPalette').style.width = `${width}px`;
-  $('partsPalette').style.height = `${height}px`;
+  panel.style.width = `${width}px`;
+  panel.style.height = `${height}px`;
   for (const handle of document.querySelectorAll('[data-palette-resize]')) {
     if (handle.dataset.paletteResize === 'ne') continue;
     const horizontal = handle.dataset.paletteResize === 'e';
@@ -259,13 +304,23 @@ for (const handle of document.querySelectorAll('[data-palette-resize]')) {
     paletteSize = applyPaletteSize();savePaletteSize();
   });
 }
-new ResizeObserver(()=>applyPaletteSize()).observe(document.querySelector('.stage-body'));
+
 
 const paletteCollapsed = new Set((() => { try { return JSON.parse(localStorage.getItem('mir-palette-collapsed') || '[]'); } catch { return []; } })());
 
+function partCatalog() {
+  return new Map([...localParts, ...serverParts]);
+}
+
+function setProjectParts(parts) {
+  projectParts = parts;
+  state.defs = new Map([...partCatalog(), ...projectParts]);
+}
+
 async function loadParts() {
   const { parts, errors } = await api.listParts();
-  state.defs = new Map(parts.map((p) => [p.id, p]));
+  localParts = new Map(parts.map((part) => [part.id, part]));
+  setProjectParts(projectParts);
   renderPalette();
   $('partErrors').innerHTML = errors.map((e) => `⚠ ${escapeHtml(e)}`).join('<br>');
   refresh();
@@ -508,7 +563,7 @@ function showSelection(sel) {
     const w = state.wires.find((x) => x.id === sel.id);
     if (!w) return box.classList.add('hidden');
     box.innerHTML = `<h4>${escapeHtml(w.from)} ↔ ${escapeHtml(w.to)}</h4>
-      <div>${w.origin === 'ai' ? 'AI 추천 배선' : '직접 연결한 배선'}</div>
+      <div>${wireOriginLabel(w)}</div>
       ${w.note ? `<div class="muted">${escapeHtml(w.note)}</div>` : ''}
       <div class="row"><button id="selDelete">선 삭제</button></div>`;
   }
@@ -626,6 +681,7 @@ function placeNew(instances, keepFrom = []) {
     const c = Math.min(2, Math.max(0, Math.round(i.x / 320)));
     colY[c] = Math.max(colY[c], i.y + layoutPart(def).h + 50);
   }
+  const incoming = [];
   for (const i of instances) {
     if (i.x != null) continue;
     const def = state.defs.get(i.part);
@@ -634,17 +690,19 @@ function placeNew(instances, keepFrom = []) {
     i.x = c * 320 + (c === 0 ? 0 : 40);
     i.y = colY[c];
     colY[c] += h + 50;
+    incoming.push(i);
   }
+  separateParts(incoming, state.defs, keepFrom);
 }
 
 // 에이전트가 보낸 배선을 검사해서 이 프로그램이 그릴 수 있는 형태로 바꾼다.
-function normalizeWiring(wiring) {
+function normalizeWiring(wiring, defs = state.defs) {
   const warnings = [];
   const parts = [];
   for (const p of wiring.parts || []) {
     if (!p.ref || !p.part) continue;
-    if (!state.defs.has(p.part)) { warnings.push(`부품함에 없는 부품: ${p.part} (${p.ref}) — 부품 JSON을 추가해야 그릴 수 있어요`); continue; }
-    parts.push({ ref: String(p.ref), part: p.part, label: p.label, props: cleanProps(state.defs.get(p.part), p.props) });
+    if (!defs.has(p.part)) { warnings.push(`부품함에 없는 부품: ${p.part} (${p.ref}) — 부품 JSON을 추가해야 그릴 수 있어요`); continue; }
+    parts.push({ ref: String(p.ref), part: p.part, label: p.label, props: cleanProps(defs.get(p.part), p.props) });
   }
   const conns = [];
   for (const c of wiring.connections || []) {
@@ -652,7 +710,7 @@ function normalizeWiring(wiring) {
       if (typeof k !== 'string' || !k.includes('.')) return false;
       const [ref, pid] = splitKey(k);
       const p = parts.find((x) => x.ref === ref);
-      return p && state.defs.get(p.part).pins.some((pin) => pin.id === pid);
+      return p && defs.get(p.part).pins.some((pin) => pin.id === pid);
     });
     if (!ok) { warnings.push(`그릴 수 없는 연결: ${c.from} → ${c.to} (핀 이름 확인 필요)`); continue; }
     conns.push({ from: c.from, to: c.to, note: c.note });
@@ -701,7 +759,7 @@ function proposeWiring(wiring) {
   refresh();
 }
 
-function applyProposal({ parts, conns, title, addedParts = [] }) {
+function applyProposal({ parts, conns, title, addedParts = [], origin = 'ai' }) {
   const keep = new Map(state.instances.map((i) => [`${i.ref}|${i.part}`, i]));
   const placed = new Map(addedParts.map((p) => [`${p.ref}|${p.part}`, p]));
   const instances = parts.map((p) => {
@@ -710,7 +768,8 @@ function applyProposal({ parts, conns, title, addedParts = [] }) {
   });
   placeNew(instances, instances.filter((i) => i.x != null));
   state.instances = instances;
-  state.wires = conns.map((c, n) => ({ id: `a${Date.now().toString(36)}${n}`, from: c.from, to: c.to, note: c.note, origin: 'ai' }));
+  const previousWires=new Map(state.wires.map(w=>[connKey(w.from,w.to),w]));
+  state.wires = conns.map((c,n)=>{const old=previousWires.get(connKey(c.from,c.to));return {...(old||{}),id:old?.id||`a${Date.now().toString(36)}${n}`,from:c.from,to:c.to,note:c.note??old?.note,origin:old?.origin||origin};});
   if (title) state.title = title;
   state.gpio = {};
   clearPreview();
@@ -784,7 +843,9 @@ function wiringCard(wiring) {
     <details open><summary>연결 ${wiring.connections?.length || 0}개</summary>${conns}</details>
     ${steps}${warns}${code}
     <div class="row"><button data-act="draw">2D 화면에 다시 그리기</button></div>`;
-  card.querySelector('[data-act="draw"]').onclick = () => proposeWiring(wiring);
+  const draw = card.querySelector('[data-act="draw"]');
+  draw.dataset.projectAction = '';
+  draw.onclick = () => proposeWiring(wiring);
   card.querySelectorAll('[data-copy]').forEach((b) => {
     b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); b.textContent = '복사됨'; };
   });
@@ -817,6 +878,7 @@ let projectGeneration = 0;
 async function askAgent(message, { shown, ctx = {} } = {}) {
   if (state.busy) return;
   const requestGeneration = projectGeneration;
+  const isCurrent = () => requestGeneration === projectGeneration;
   state.busy = true;
   $('compactReply').hidden = true;
   $('btnSend').disabled = true;
@@ -831,6 +893,7 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
     let reply;
     const res = await api.sendToAgent(message, buildCatalog(state.defs), (progress) => {
       waitingStage = progress.stage === 'opening' ? 'Copilot 대화 연결 중'
+        : progress.stage === 'reconnecting' ? 'Microsoft 연결 재확인 중'
         : progress.stage === 'receiving' ? 'Copilot 응답 수신 중' : 'Copilot 응답 대기 중';
       refreshWaiting();
     });
@@ -842,19 +905,24 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
       reply = res.reply;
     }
     typing.remove();
-    if (requestGeneration !== projectGeneration) return;
-    const { text, wiring, part, circuit } = parseReply(reply);
-    let extra = wiring ? wiringCard(wiring) : part ? partCard(part) : null;
-    if (!extra && circuit) {
+    if (!isCurrent()) return;
+    const { text, wiring, part, circuit, clarification } = parseReply(reply);
+    let extra = circuit ? null : wiring ? wiringCard(wiring) : part ? partCard(part) : null;
+    if (circuit) {
       extra = document.createElement('button');
+      extra.disabled = true;
+      extra.dataset.projectAction = '';
       extra.textContent = '에이전트 회로를 DB에서 불러오기';
-      extra.onclick = () => backend.openCircuit(circuit.circuit_id || circuit.id);
+      extra.onclick = () => backend.openCircuit(circuit.circuit_id || circuit.id, { showPanel: false });
     }
-    addMessage('agent', text || (wiring ? '배선을 제안합니다.' : '(빈 응답)'), extra, true);
-    // 에이전트가 저장·선택한 이미지를 편집 상태를 유지한 채 다시 불러온다.
-    if (!res.demo) await backend.refreshAfterAgent();
-    if (requestGeneration !== projectGeneration) return;
-    if (wiring) proposeWiring(wiring);
+    addMessage('agent', text || (circuit ? '회로 ID가 반환되었습니다. 저장된 배선을 확인합니다.' : wiring ? '배선을 제안합니다.' : '(빈 응답)'), extra, true);
+    const applied = await applyAgentResult({ wiring, circuit, clarification }, { backend,
+      hasInstances: () => state.instances.length > 0, drawWiring: proposeWiring, isCurrent, isDemo: !!res.demo })
+      .finally(() => { if (circuit && isCurrent()) extra.disabled = false; });
+    if (!isCurrent()) return;
+    if (applied === 'text-only' && !part && message.includes('[요청 종류: 배선 추천]')) {
+      addMessage('system', '에이전트 응답에 회로 ID나 배선 데이터가 없어 그림을 만들지 못했습니다. 부품 등록과 배선 설계는 별도 단계입니다. 응답의 확인 질문이나 부족한 사양을 확인해 주세요.');
+    }
   } catch (e) {
     typing.remove();
     if (requestGeneration !== projectGeneration) return;
@@ -963,20 +1031,21 @@ async function loadSettings() {
     ? 'badge b-warn' : web ? 'badge b-info' : on ? 'badge b-ok' : 'badge b-mute';
   $('webChatPanel').classList.toggle('hidden', !web);
   $('tab-chat').classList.toggle('hidden', web);
-  $('emptyHint').querySelector('.examples').classList.toggle('hidden', web);
   if (web) {
     const url = window.MirWebChat.embeddedWebChatUrl(state.settings.webChatUrl);
     if ($('webChatFrame').getAttribute('src') !== url) $('webChatFrame').src = url;
   } else { $('webChatFrame').removeAttribute('src'); }
   $('emptyHint').querySelector('h3').textContent = on ? '무엇을 만들고 싶나요?' : '배선 예시를 체험해 보세요';
   $('emptyHint').querySelector('p').textContent = web
-    ? '오른쪽 중앙 에이전트에 설계를 요청하세요. 답변에서 저장된 회로 ID를 받아 상단 배선 API · DB에서 불러오면 여기에 표시됩니다.' : on
-    ? '오른쪽 채팅에 목표를 입력하거나 왼쪽 부품함에서 부품을 놓고 핀을 연결하세요.'
-    : '현재는 AI 미연결 데모입니다. 아래 예시를 누르거나 부품함에서 직접 배선해 보세요. 자유로운 설계 요청은 연결 설정에서 실제 에이전트를 연결한 뒤 사용할 수 있습니다.';
+    ? '아래 카드를 눌러 예제 회로를 바로 열거나 오른쪽 에이전트에 새 설계를 요청하세요.' : on
+    ? '아래 카드를 눌러 예제 회로를 바로 열거나, 부품함에서 직접 시작해 보세요.'
+    : '아래 카드에 담긴 예제 회로는 AI 연결 없이 바로 열 수 있어요. 부품함에서 직접 배선해 볼 수도 있어요.';
 }
 
 async function openSettings() {
-  const connection = await api.getServerConnection();
+  let connection,readError='';
+  try{connection=await api.getServerConnection();}
+  catch(error){connection={mode:'local',url:'',hasKey:false};readError='연결 설정을 읽지 못했어요: '+String(error?.message||error)+' · 다시 읽기를 눌러 재시도하세요.';}
   $('serverConnectionMode').value = connection.mode;
   $('inServerUrl').value = connection.url || '';
   $('inServerKey').value = '';
@@ -990,7 +1059,10 @@ async function openSettings() {
   $('serverChatStatus').textContent = s.serverSecretConfigured
     ? '연결된 서버에 Direct Line 비밀 키가 설정되어 있습니다. 공유 서버는 설정한 주소와 배선 API 키로 연결합니다.'
     : '로컬 서버를 실행하거나 공유 서버 주소·배선 API 키를 입력하세요. Direct Line 비밀 키는 서버 관리자가 설정합니다.';
-  $('testResult').textContent = '';
+  $('testResult').textContent = readError;
+  $('testResult').className=readError?'test-result bad':'test-result';
+  $('btnSettingsSave').disabled=!!readError;$('btnTest').disabled=!!readError;
+  let retry=$('retryConnectionRead');if(!retry){retry=document.createElement('button');retry.id='retryConnectionRead';retry.textContent='연결 설정 다시 읽기';retry.onclick=openSettings;$('testResult').after(retry);}retry.hidden=!readError;
   updateSettingsFields();
   $('settingsModal').classList.remove('hidden');
 }
@@ -1029,9 +1101,32 @@ $('btnSend').onclick = sendChat;
 $('chatInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); }
 });
-document.querySelectorAll('[data-example]').forEach((b) => {
-  b.onclick = () => { $('chatInput').value = b.dataset.example; sendChat(); };
-});
+for (const button of document.querySelectorAll('[data-example]')) {
+  button.onclick = () => {
+    if (state.instances.length || state.pendingProposal) return;
+    const wiring = getBuiltInWiring(button.dataset.example);
+    if (!wiring) return;
+    const { parts, conns, warnings } = normalizeWiring(wiring, localParts);
+    if (warnings.length) {
+      addMessage('system', `예제를 열지 못했어요.\n${warnings.join('\n')}`, null, true);
+      return;
+    }
+    const definitions = new Map(projectParts);
+    for (const part of parts) definitions.set(part.part, localParts.get(part.part));
+    setProjectParts(definitions);
+    renderPalette();
+    projectGeneration++;
+    applyProposal({ parts, conns, title: wiring.title, origin: 'example' });
+  };
+}
+$('btnBuildManually').onclick = () => {
+  state.buildingManually = true;
+  refresh();
+  setPartsOpen(true);
+};
+const manualDialog = $('manualDialog');
+$('btnManual').onclick = () => manualDialog.showModal();
+$('btnCloseManual').onclick = () => manualDialog.close();
 $('partSearch').oninput = renderPalette;
 $('btnPaletteToggle').onclick = () => setPartsOpen($('partsPalette').hidden, true);
 $('btnPaletteClose').onclick = () => setPartsOpen(false, true);
@@ -1040,7 +1135,7 @@ document.addEventListener('pointerdown', (e) => {
   if (!$('partsPalette').contains(e.target) && !$('btnPaletteToggle').contains(e.target)) setPartsOpen(false);
 });
 window.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || $('partsPalette').hidden || document.querySelector('.modal:not(.hidden)')) return;
+  if (e.key !== 'Escape' || $('partsPalette').hidden || document.querySelector('dialog[open],.modal:not(.hidden)')) return;
   setPartsOpen(false, true);
   e.preventDefault();
   e.stopImmediatePropagation();
@@ -1103,43 +1198,112 @@ $('btnMenu').onclick = () => { projectMenu.showModal(); $('btnMenu').setAttribut
 $('btnMenuClose').onclick = closeProjectMenu;
 projectMenu.addEventListener('cancel', e => { e.preventDefault(); closeProjectMenu(); });
 projectMenu.addEventListener('click', e => { const r = projectMenu.getBoundingClientRect(); if (e.target === projectMenu && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) closeProjectMenu(); });
+function resetProjectChat() {
+  $('messages').replaceChildren();
+  $('compactReply').hidden = true;
+  greet();
+}
+
 $('btnNew').onclick = async () => {
+  if (openingProject) return;
   closeProjectMenu();
   if (hasUnsavedChanges() && !await confirmAction('저장하지 않은 작업이 사라집니다. 새로 시작할까요?')) return;
-  await api.newProject();
+  await api.newProject?.();
   projectGeneration++;
+  state.buildingManually = false;
   state.instances = []; state.wires = []; state.title = ''; state.gpio = {}; state.requirements = '';
+  setProjectParts(new Map()); renderPalette();
   backend.reset();
-  clearPreview(); syncToCanvas(); pushHistory(); setPower(false);
+  clearPreview(); syncToCanvas(); resetProjectHistory(); setPower(false);
   savedSnapshot = snapshotState();
   api.resetAgent();
-  $('messages').replaceChildren();
-  greet();
+  resetProjectChat();
 };
+function projectData() {
+  const data = { format: 'mir-wiring/1', title: state.title, instances: state.instances, wires: state.wires };
+  const definitions = new Set(state.instances.map((instance) => instance.part));
+  const embedded = [];
+  for (const id of definitions) {
+    const part = state.defs.get(id);
+    if (!part || part === localParts.get(id)) continue;
+    const { source, file, image, _layout, ...portable } = part;
+    if (part.imageData && part.imageFit === 'none' && _layout) portable._layout = _layout;
+    embedded.push(portable);
+  }
+  if (embedded.length) data.partDefinitions = embedded;
+  return data;
+}
+
+async function projectDefinitions(data) {
+  const parts = new Map((data.partDefinitions || []).map((part) => {
+    // Rebuild the pin references from the validated definitions.
+    if (part._layout) {
+      const pos = Object.fromEntries(part.pins.map((pin) => [pin.id, { ...part._layout.pos[pin.id], def: pin }]));
+      part = { ...part, _layout: { ...part._layout, pos } };
+    }
+    return [part.id, part];
+  }));
+  const catalog = partCatalog();
+  for (const id of new Set(data.instances.map((instance) => instance.part))) {
+    if (parts.has(id) || catalog.has(id)) continue;
+    const part = await backend.fetchPart(id);
+    if (part) parts.set(id, part);
+  }
+  window.MirProjectValidation.validateProject(data, new Map([...catalog, ...parts]));
+  return parts;
+}
+
 async function saveProject(saveAs = false) {
   closeProjectMenu();
   try {
+    const generation = projectGeneration;
     const savingSnapshot = snapshotState();
-    const saved = await api.saveProject({ format: 'mir-wiring/1', title: state.title, instances: state.instances, wires: state.wires }, saveAs);
-    if (saved) { savedSnapshot = savingSnapshot; addMessage('system', '프로젝트를 저장했어요.', null, true); }
+    const data = projectData();
+    window.MirProjectValidation.validateProject(data, state.defs);
+    const saved = await api.saveProject(data, saveAs);
+    if (saved) void refreshRecentProjects();
+    if (!saved || generation !== projectGeneration) return false;
+    savedSnapshot = savingSnapshot;
+    addMessage('system', '프로젝트를 저장했어요.', null, true);
+    return true;
   }
-  catch (err) { addMessage('system', `저장하지 못했어요: ${err.message}`); }
+  catch (err) { addMessage('system', `저장하지 못했어요: ${err.message}`); return false; }
 }
 $('btnSave').onclick = () => saveProject();
 $('btnSaveAs').onclick = () => saveProject(true);
-$('btnOpen').onclick = async () => {
+async function openProject(recentPath) {
   closeProjectMenu();
   if (hasUnsavedChanges() && !await confirmAction('현재 작업을 열려는 파일로 바꿀까요? 저장하지 않은 변경은 사라집니다.')) return;
-  let d;
-  try { d = await api.openProject(); } catch (err) { addMessage('system', `열지 못했어요: ${err.message}`); return; }
+  let d, definitions;
+  try {
+    d = await api.openProject(recentPath);
+    if (d) {
+      window.MirProjectValidation.validateProject(d);
+      definitions = await projectDefinitions(d);
+      await api.acceptOpenProject?.(d.title);
+    }
+  } catch (err) { const message = `열지 못했어요: ${err.message}`;
+    if (recentPath) $('recentProjectStatus').textContent = message;
+    addMessage('system', message, null, true); return; }
   if (!d) return;
   projectGeneration++;
+  state.buildingManually = false;
   state.instances = d.instances || []; state.wires = d.wires || []; state.title = d.title || ''; state.requirements = '';
+  setProjectParts(definitions); renderPalette();
   backend.reset();
-  clearPreview(); syncToCanvas(); pushHistory(); refresh(); canvas.fit();
+  clearPreview(); syncToCanvas(); resetProjectHistory(); setPower(false); canvas.fit();
   savedSnapshot = snapshotState();
+  resetProjectChat();
+  void refreshRecentProjects();
   await api.resetAgent();
-};
+}
+let openingProject = false;
+async function requestOpenProject(path) {
+  if (openingProject) return;
+  openingProject = true;
+  try { await openProject(path); } finally { openingProject = false; }
+}
+$('btnOpen').onclick = () => requestOpenProject();
 
 $('btnImportPart').onclick = async () => {
   try {
@@ -1196,7 +1360,10 @@ $('btnTest').onclick = async () => {
 };
 
 window.addEventListener('keydown', (e) => {
-  const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+  if(document.querySelector('dialog[open]:modal,.modal:not(.hidden)'))return;
+  const props=document.querySelector('.part-properties-dialog[open]');
+  if(e.key==='Escape'&&props){props.close();e.preventDefault();return;}
+  const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
   if (typing) return;
   if (e.key === 'Delete' || e.key === 'Backspace') canvas.deleteSelected();
   if (e.key === 'Escape') { canvas.cancelPending(); canvas.select(null); }
@@ -1330,14 +1497,26 @@ async function applyAppIcon() {
 
 const backend = initBackendPanel({
   getState: () => state,
+  getProjectGeneration: () => projectGeneration,
+  canReplace: () => !openingProject,
+  getCatalog: partCatalog,
+  registerParts: (parts) => {
+    for (const [id, part] of parts) serverParts.set(id, part);
+    setProjectParts(projectParts);
+  },
   renderParts: () => { renderPalette(); refresh(); },
   message: (text) => addMessage('system', text),
-  replace: (next) => {
+  replace: (next, parts) => {
     projectGeneration++;
+    // Detach the native save target before the next save can be queued.
+    void api.newProject?.();
+    for (const button of $('messages').querySelectorAll('[data-project-action]')) button.remove();
+    setProjectParts(parts);
     Object.assign(state, next); state.gpio = {};
     savedSnapshot = snapshotState();
-    state.history = []; state.future = [];
-    clearPreview(); syncToCanvas(); pushHistory(); setPower(false); canvas.fit();
+    clearPreview(); syncToCanvas(); resetProjectHistory();
+    separateParts(next.instances, state.defs, [], { gap: 0, preservePlaced: true });
+    pushHistory(); setPower(false); canvas.fit();
   }
 });
 
@@ -1349,12 +1528,13 @@ if (api.browserMode) {
 }
 
 (async function init() {
-  await loadSettings();
   await loadParts();
-  await backend.connectAutomatically();
   pushHistory();
+  for (const button of document.querySelectorAll('[data-example]')) button.disabled = false;
   initResizers();
   applyAppIcon();
+  await loadSettings();
+  await backend.connectAutomatically();
   greet();
 })().catch((error) => {
   addMessage('system', `미르 초기화 실패: ${error.message}\n앱을 다시 실행하거나 연결 설정을 확인해 주세요.`, null, true);
@@ -1369,7 +1549,274 @@ window.api?.onConfirmClose?.(async()=>{
   if(closePromptOpen)return;
   closePromptOpen=true;
   try {
-    const exit=await confirmAction('저장하지 않은 작업이 있어요. 종료할까요?', {title:'미르 종료',cancelLabel:'계속 편집',acceptLabel:'저장하지 않고 종료'});
-    if(exit)await window.api.closeConfirmed();
+    const exit=await confirmAction('저장하지 않은 작업이 있어요. 종료할까요?', {title:'미르 종료',cancelLabel:'계속 편집',acceptLabel:'저장하지 않고 종료',extraLabel:'저장 후 종료'});
+    if(exit==='save') { const saved=await saveProject(); if(saved && !hasUnsavedChanges()) await window.api.closeConfirmed(); }
+    else if(exit===true)await window.api.closeConfirmed();
   } finally {closePromptOpen=false;}
+});
+
+const wireDock=document.createElement('div');wireDock.className='wire-dock';wireDock.setAttribute('aria-label','선 종류와 자동 연결');
+const choices=document.createElement('div');choices.className='wire-kind-tabs';choices.setAttribute('role','group');choices.setAttribute('aria-label','새로 연결할 선 종류');
+const kinds=[['power','전원'],['gnd','GND'],['sda','SDA'],['scl','SCL'],['signal','신호'],['contact','릴레이 접점']];
+for(const [kind,label] of kinds){const b=document.createElement('button');b.type='button';b.setAttribute('aria-label',label+' 선');b.title=label;b.dataset.wireKind=kind;b.setAttribute('aria-pressed','false');b.style.setProperty('--kind-color',`var(--wire-${kind})`);b.innerHTML='<i aria-hidden="true"></i>';b.onclick=()=>{canvas.selectedWireKind=kind;for(const other of choices.children)other.setAttribute('aria-pressed',String(other===b));};choices.append(b);}
+const auto=document.createElement('button');auto.id='btnAutoConnect';auto.className='primary';auto.textContent='자동으로 연결';
+auto.setAttribute('aria-pressed','false');
+auto.onclick=()=>{
+ const enable=auto.getAttribute('aria-pressed')!=='true';
+ canvas.selectedWireKind=enable?null:'sda';
+ for(const b of choices.children)b.setAttribute('aria-pressed',String(!enable && b.dataset.wireKind==='sda'));
+ auto.setAttribute('aria-pressed',String(enable));
+ auto.textContent=enable?'✓ 자동 연결 켜짐':'자동으로 연결';
+};
+choices.addEventListener('click',()=>{auto.setAttribute('aria-pressed','false');auto.textContent='자동으로 연결';});
+canvas.selectedWireKind='sda';
+choices.querySelector('[data-wire-kind="sda"]').setAttribute('aria-pressed','true');
+const dockActions = document.createElement('div');
+dockActions.className = 'wire-dock-actions';
+for (const [id, label, hint, action] of [
+  ['btnDockDeleteWire', '선 삭제', '선을 선택한 뒤 삭제', () => {
+    if (canvas.selected?.type === 'wire') void canvas.deleteSelected();
+  }],
+  ['btnDockUndo', '↶', '실행 취소 (Ctrl+Z)', undo],
+  ['btnDockRedo', '↷', '다시 실행 (Ctrl+Y)', redo]
+]) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.id = id;
+  button.textContent = label;
+  button.title = hint;
+  button.setAttribute('aria-label', id === 'btnDockDeleteWire' ? label : hint);
+  button.onclick = action;
+  dockActions.append(button);
+}
+const dockConnection = document.createElement('div');
+dockConnection.className = 'wire-dock-connection';
+dockConnection.append(choices, auto);
+const dockMovement = document.createElement('div');
+dockMovement.className = 'wire-dock-actions wire-dock-movement';
+const moveTool = document.createElement('button');
+moveTool.type = 'button';
+moveTool.id = 'btnMoveTool';
+moveTool.setAttribute('aria-label', '화면 이동 및 부품 선택');
+moveTool.title = '빈 곳 드래그: 화면 이동 · 부품 드래그: 이동 · Shift 또는 빈 곳 더블클릭 후 드래그: 범위 선택';
+moveTool.setAttribute('aria-description', moveTool.title);
+moveTool.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11m0-6.5v-1a1.5 1.5 0 0 1 3 0V11m0-6a1.5 1.5 0 0 1 3 0v7m0-4a1.5 1.5 0 0 1 3 0v6c0 4-2.5 7-6 7h-2c-2.2 0-3.6-1-4.8-2.6l-3.4-4.5a1.6 1.6 0 0 1 2.4-2.1L8 13Z"/></svg>';
+moveTool.onclick = () => $('canvas').focus({ preventScroll: true });
+dockMovement.append(moveTool);
+wireDock.append(dockMovement, dockConnection, dockActions);
+document.querySelector('.stage-body').append(wireDock);
+updateWireDockActions();
+
+const propertiesDialog=document.createElement('dialog');propertiesDialog.className='mir-confirm part-properties-dialog';
+const propertiesClose=document.createElement('button');propertiesClose.textContent='닫기';propertiesClose.onclick=()=>propertiesDialog.close();
+propertiesDialog.append($('selInfo'),propertiesClose);document.body.append(propertiesDialog);
+const propertiesHandle=document.createElement('div');propertiesHandle.className='properties-drag-handle';propertiesHandle.textContent='부품 속성';propertiesHandle.title='드래그해서 이동';
+propertiesDialog.prepend(propertiesHandle);
+propertiesHandle.addEventListener('pointerdown',e=>{
+ if(e.button!==0)return;
+ const rect=propertiesDialog.getBoundingClientRect();const startX=e.clientX,startY=e.clientY;
+ propertiesDialog.style.left=`${rect.left}px`;propertiesDialog.style.top=`${rect.top}px`;propertiesDialog.style.right='auto';propertiesDialog.style.bottom='auto';
+ propertiesHandle.setPointerCapture(e.pointerId);e.preventDefault();
+ const move=event=>{const x=Math.max(0,Math.min(window.innerWidth-propertiesDialog.offsetWidth,rect.left+event.clientX-startX));const y=Math.max(0,Math.min(window.innerHeight-propertiesDialog.offsetHeight,rect.top+event.clientY-startY));propertiesDialog.style.left=`${x}px`;propertiesDialog.style.top=`${y}px`;};
+ const end=()=>{propertiesHandle.removeEventListener('pointermove',move);propertiesHandle.removeEventListener('pointerup',end);propertiesHandle.removeEventListener('pointercancel',end);};
+ propertiesHandle.addEventListener('pointermove',move);propertiesHandle.addEventListener('pointerup',end);propertiesHandle.addEventListener('pointercancel',end);
+});
+let outsideCanvasPointer=null;
+document.addEventListener('pointerdown',e=>{
+ if(!propertiesDialog.open || propertiesDialog.contains(e.target))return;
+ if(e.target.closest('#canvas')) {outsideCanvasPointer={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false};return;}
+ propertiesDialog.close();
+},true);
+document.addEventListener('pointermove',e=>{
+ if(outsideCanvasPointer?.id===e.pointerId && Math.hypot(e.clientX-outsideCanvasPointer.x,e.clientY-outsideCanvasPointer.y)>5)outsideCanvasPointer.moved=true;
+},true);
+document.addEventListener('pointerup',e=>{
+ if(outsideCanvasPointer?.id!==e.pointerId)return;
+ if(!outsideCanvasPointer.moved && propertiesDialog.open)propertiesDialog.close();
+ outsideCanvasPointer=null;
+},true);
+document.addEventListener('pointercancel',()=>{outsideCanvasPointer=null;},true);
+
+// Keep editable popups reachable after viewport or popup size changes.
+let popupClampFrame=null;
+function clampPropertiesDialog(){
+  if(!propertiesDialog.open)return;
+  const r=propertiesDialog.getBoundingClientRect(),gap=8,top=54;
+  const x=Math.max(gap,Math.min(r.left,innerWidth-r.width-gap));
+  const y=Math.max(top,Math.min(r.top,innerHeight-r.height-gap));
+  propertiesDialog.style.left=`${x}px`;propertiesDialog.style.top=`${y}px`;
+  propertiesDialog.style.right='auto';propertiesDialog.style.bottom='auto';
+}
+function schedulePopupClamp(){if(popupClampFrame!==null)return;popupClampFrame=requestAnimationFrame(()=>{popupClampFrame=null;clampPropertiesDialog();});}
+window.addEventListener('resize',schedulePopupClamp);
+new ResizeObserver(schedulePopupClamp).observe(propertiesDialog);
+new MutationObserver(schedulePopupClamp).observe(propertiesDialog,{attributes:true,attributeFilter:['open']});
+
+// Place tool overlays in the canvas area left of the floating chat panel.
+let overlayLayoutFrame=null;
+function alignWorkspaceOverlays(){
+  const stage=document.querySelector('.stage-body').getBoundingClientRect();
+  const toolbar=document.querySelector('.stage-toolbar').getBoundingClientRect();
+  const agent=$('agentPanel').getBoundingClientRect();
+  const right=Math.max(stage.left+20,Math.min(stage.right-12,agent.left-12));
+  const available=Math.max(0,right-stage.left-20);
+  const dockWidth = wireDock.getBoundingClientRect().width;
+  wireDock.style.maxWidth = `${Math.max(0, available)}px`;
+  const centered = stage.width / 2;
+  const rightmost = right - stage.left - Math.min(dockWidth, available) / 2;
+  wireDock.style.left = `${Math.min(centered, rightmost)}px`;
+  applyPaletteSize();
+  const chatCollapsed = document.body.classList.contains('chat-collapsed');
+  const emptyHint = $('emptyHint');
+  emptyHint.style.right = chatCollapsed ? '0px' : `${Math.max(0, stage.right - right)}px`;
+  emptyHint.style.top = chatCollapsed ? `${Math.max(0, toolbar.bottom - stage.top)}px` : '';
+  const toggleTop = $('btnChatToggle').getBoundingClientRect().top;
+  emptyHint.style.bottom = chatCollapsed ? `${Math.max(0, stage.bottom - Math.min(agent.top, toggleTop))}px` : '';
+  const preview=$('previewBar');
+  preview.style.top=`${toolbar.bottom-stage.top+12}px`;
+  preview.style.width=`${Math.max(0,available)}px`;
+}
+function scheduleOverlayLayout(){if(overlayLayoutFrame!==null)return;overlayLayoutFrame=requestAnimationFrame(()=>{overlayLayoutFrame=null;alignWorkspaceOverlays();});}
+const overlaysObserver=new ResizeObserver(scheduleOverlayLayout);
+for(const el of [document.querySelector('.stage-body'),document.querySelector('.stage-toolbar'),$('agentPanel'),wireDock])overlaysObserver.observe(el);
+new MutationObserver(scheduleOverlayLayout).observe(document.body,{attributes:true,attributeFilter:['class']});
+window.addEventListener('resize',scheduleOverlayLayout);
+scheduleOverlayLayout();
+
+
+async function refreshRecentProjects() {
+  const list = $('recentProjects');
+  const status = $('recentProjectStatus');
+  if (!list || !status) return;
+  try {
+    const projects = await api.recentProjects?.() ?? [];
+    const buttons = projects.map(project => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = project.title;
+      button.title = project.path;
+      button.onclick = () => requestOpenProject(project.path);
+      const row = document.createElement('div');
+      row.className = 'recent-project-row';
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'recent-project-more';
+      more.textContent = '⋮';
+      more.setAttribute('aria-label', `${project.title} 옵션`);
+      more.onclick = () => {
+        if (!recentProjectMenu.hidden && recentProjectMenuAnchor === more) {
+          recentProjectMenu.hidden = true;
+          return;
+        }
+        const rect = more.getBoundingClientRect();
+        showRecentProjectMenu(project, rect.right, rect.bottom, more);
+      };
+      row.oncontextmenu = event => {
+        event.preventDefault();
+        showRecentProjectMenu(project, event.clientX, event.clientY);
+      };
+      row.append(button, more);
+      return row;
+    });
+    list.replaceChildren(...buttons);
+    status.textContent = buttons.length ? '' : '파일을 열거나 저장하면 여기에 표시돼요.';
+  } catch { status.textContent = '최근 프로젝트를 불러오지 못했어요.'; }
+}
+window.addEventListener('DOMContentLoaded', refreshRecentProjects);
+
+
+const canvasContextMenu = document.createElement('div');
+canvasContextMenu.className = 'canvas-context-menu';
+canvasContextMenu.hidden = true;
+const contextDelete = document.createElement('button');
+contextDelete.type = 'button';
+contextDelete.textContent = '삭제';
+canvasContextMenu.append(contextDelete);
+document.body.append(canvasContextMenu);
+contextDelete.onclick = () => {
+  canvasContextMenu.hidden = true;
+  void canvas.deleteSelected();
+};
+$('canvas').addEventListener('contextmenu', event => {
+  event.preventDefault();
+  const part = event.target.closest('[data-kind="part"]');
+  const wire = event.target.closest('[data-kind="wire"]');
+  if (wire) canvas.select({ type: 'wire', id: wire.dataset.id });
+  else if (part && !(canvas.selected?.type === 'group' && canvas.selected.refs.has(part.dataset.ref))) {
+    canvas.select({ type: 'part', ref: part.dataset.ref });
+  }
+  if (!canvas.selected) return;
+  canvasContextMenu.hidden = false;
+  canvasContextMenu.style.left = `${Math.min(event.clientX, innerWidth - canvasContextMenu.offsetWidth - 8)}px`;
+  canvasContextMenu.style.top = `${Math.min(event.clientY, innerHeight - canvasContextMenu.offsetHeight - 8)}px`;
+  contextDelete.focus();
+});
+document.addEventListener('pointerdown', event => {
+  if (!canvasContextMenu.contains(event.target)) canvasContextMenu.hidden = true;
+}, true);
+canvasContextMenu.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  canvasContextMenu.hidden = true;
+  event.stopPropagation();
+});
+window.addEventListener('blur', () => { canvasContextMenu.hidden = true; });
+
+
+const recentProjectMenu = document.createElement('div');
+recentProjectMenu.className = 'canvas-context-menu';
+recentProjectMenu.hidden = true;
+document.body.append(recentProjectMenu);
+let recentProjectMenuAnchor = null;
+function showRecentProjectMenu(project, x, y, anchor = null) {
+  recentProjectMenuAnchor = anchor;
+  const remove = document.createElement('button');
+  remove.textContent = '삭제';
+  remove.title = '최근 목록에서 제거';
+  remove.onclick = () => {
+    recentProjectMenu.hidden = true;
+    void updateRecentProject(project, null);
+  };
+  const rename = document.createElement('button');
+  rename.textContent = '이름 변경';
+  rename.onclick = () => {
+    recentProjectMenu.hidden = true;
+    const dialog = document.createElement('dialog');
+    dialog.className = 'mir-confirm';
+    dialog.innerHTML = '<form method="dialog"><h2>최근 프로젝트 이름 변경</h2><input aria-label="프로젝트 이름" maxlength="120" required><div class="modal-actions"><button class="primary" value="rename">확인</button><button value="cancel" formnovalidate>취소</button></div></form>';
+    const input = dialog.querySelector('input');
+    input.value = project.title;
+    dialog.querySelector('form').onsubmit = event => {
+      if (event.submitter?.value !== 'cancel' && !input.value.trim()) event.preventDefault();
+    };
+    dialog.onclose = () => {
+      if (dialog.returnValue === 'rename') void updateRecentProject(project, input.value.trim());
+      dialog.remove();
+    };
+    document.body.append(dialog);
+    dialog.showModal();
+    input.select();
+  };
+  recentProjectMenu.replaceChildren(remove, rename);
+  recentProjectMenu.hidden = false;
+  const width = recentProjectMenu.offsetWidth;
+  const height = recentProjectMenu.offsetHeight;
+  const left = anchor ? x - width : x;
+  const top = anchor && y + height > innerHeight - 8
+    ? anchor.getBoundingClientRect().top - height + 1
+    : y - Number(Boolean(anchor));
+  recentProjectMenu.style.left = `${Math.max(8, Math.min(left, innerWidth - width - 8))}px`;
+  recentProjectMenu.style.top = `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`;
+  rename.focus();
+}
+async function updateRecentProject(project, name) {
+  try {
+    await api.updateRecentProject(project.path, name);
+    await refreshRecentProjects();
+  } catch (error) { $('recentProjectStatus').textContent = error.message; }
+}
+document.addEventListener('pointerdown', event => {
+  if (!recentProjectMenu.contains(event.target) && !recentProjectMenuAnchor?.contains(event.target)) recentProjectMenu.hidden = true;
+}, true);
+recentProjectMenu.addEventListener('keydown', event => {
+  if (event.key === 'Escape') { recentProjectMenu.hidden = true; event.stopPropagation(); }
 });
