@@ -6,6 +6,13 @@ const NS = 'http://www.w3.org/2000/svg';
 const PIN_GAP = 18;
 const HEADER = 30;
 const PAD = 10;
+const PART_GAP = 64;
+
+function pinCaption(pin, limit = 18) {
+  const label = pin.label || pin.id;
+  const name = label.split(/\s+\(/, 1)[0] || label;
+  return name.length > limit ? name.slice(0, limit - 1) + '…' : name;
+}
 
 const el = (tag, attrs = {}, parent) => {
   const e = document.createElementNS(NS, tag);
@@ -20,9 +27,9 @@ export function layoutPart(def) {
   const by = { left: [], right: [], top: [], bottom: [] };
   for (const p of def.pins) (by[p.side] || by.left).push(p);
   const isBoard = def.behavior?.kind === 'board';
-  const maxLabel = (arr) => Math.max(0, ...arr.map((p) => (p.label || p.id).length));
+  const maxLabel = (arr) => Math.max(0, ...arr.map((p) => pinCaption(p).length));
   const sideW = Math.max(maxLabel(by.left), maxLabel(by.right)) * 7 + 14;
-  const titleW = def.name.length * 7.5 + 64;
+  const titleW = Math.min(def.name.length, 32) * 7.5 + 64;
   const topW = Math.max(by.top.length, by.bottom.length) * 44 + 20;
   const w = Math.max(isBoard ? 170 : 110, (by.left.length && by.right.length ? sideW * 2 + 30 : sideW + 50), titleW, topW);
   const rows = Math.max(by.left.length, by.right.length, 1);
@@ -38,6 +45,35 @@ export function layoutPart(def) {
   spread(by.bottom, h, 'bottom');
   def._layout = { w, h, pos, top: extraTop };
   return def._layout;
+}
+
+// Keep placed parts anchored and move only incoming parts that collide.
+export function separateParts(instances, defs, anchored = []) {
+  const bounds = (i) => {
+    const def = defs.get(i.part);
+    return { x: i.x, y: i.y, ...(def ? layoutPart(def) : { w: 110, h: 40 }) };
+  };
+  const occupied = anchored.map(bounds);
+  const overlaps = (a, b) =>
+    a.x < b.x + b.w + PART_GAP && b.x < a.x + a.w + PART_GAP &&
+    a.y < b.y + b.h + PART_GAP && b.y < a.y + a.h + PART_GAP;
+  for (const instance of instances) {
+    const box = bounds(instance);
+    const clearAlong = (axis, size) => {
+      const candidate = { ...box };
+      let blockers = occupied.filter((part) => overlaps(candidate, part));
+      while (blockers.length) {
+        candidate[axis] = Math.max(...blockers.map((part) => part[axis] + part[size] + PART_GAP));
+        blockers = occupied.filter((part) => overlaps(candidate, part));
+      }
+      return candidate[axis];
+    };
+    const right = clearAlong('x', 'w');
+    const down = clearAlong('y', 'h');
+    if (right - box.x < down - box.y) instance.x = box.x = right;
+    else instance.y = box.y = down;
+    occupied.push(box);
+  }
 }
 
 const DIR = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] };
@@ -298,15 +334,19 @@ export class WiringCanvas {
       const color = power ? this.netColor(net) : wireColor(a.def, b.def);
       const sel = this.selected?.type === 'wire' && this.selected.id === w.id;
       const d = this.wirePath(a, b);
+      const focus = this.selected?.type === 'part' ? this.selected.ref : null;
+      const dim = focus && !this.preview && !net?.short &&
+        splitKey(w.from)[0] !== focus && splitKey(w.to)[0] !== focus;
+      const layer = dim ? el('g', { opacity: 0.2 }, this.wireLayer) : this.wireLayer;
       if (!cls) { pinColor[w.from] = color; pinColor[w.to] = color; }
-      el('path', { d, class: 'wire-hit', 'data-kind': 'wire', 'data-id': w.id }, this.wireLayer);
-      el('path', { d, class: `wire-casing ${cls || ''}` }, this.wireLayer);
+      el('path', { d, class: 'wire-hit', 'data-kind': 'wire', 'data-id': w.id }, layer);
+      el('path', { d, class: `wire-casing ${cls || ''}` }, layer);
       const p = el('path', {
         d, style: `stroke:${color}`, class: `wire ${cls || ''} ${sel ? 'selected' : ''} ${net?.short ? 'short' : ''}`,
         'data-kind': 'wire', 'data-id': w.id
-      }, this.wireLayer);
+      }, layer);
       if (w.origin === 'ai') p.classList.add('ai');
-      if (power && net?.voltage > 0 && !net.short && !cls) el('path', { d, class: 'wire-pulse' }, this.wireLayer);
+      if (power && net?.voltage > 0 && !net.short && !cls) el('path', { d, class: 'wire-pulse' }, layer);
     };
     for (const w of this.wires) drawWire(w, this.preview?.removed.has(w.id) ? 'removed' : '');
     if (this.preview) for (const w of this.preview.added) drawWire(w, 'added');
@@ -336,8 +376,9 @@ export class WiringCanvas {
       }, g);
       drawArt(g, { w, h, top, pos, st, def, power });
       const title = el('text', { x: w / 2, y: (bare ? 14 : 19) + top, class: `part-title ${tone}`, 'text-anchor': 'middle' }, g);
-      title.textContent = `${i.ref} · ${shortName(def.name, w)}`;
-      if (i.label) el('text', { x: w / 2, y: -6, class: 'part-label', 'text-anchor': 'middle' }, g).textContent = i.label;
+      title.textContent = shortName(`${i.ref} · ${def.name}`, w);
+      el('title', {}, g).textContent = `${i.ref} · ${def.name}${i.label ? ` — ${i.label}` : ''}`;
+      if (i.label) el('text', { x: w / 2, y: -6, class: 'part-label', 'text-anchor': 'middle' }, g).textContent = shortName(i.label, w);
 
       this.drawBehavior(g, def, st, w, h, tone, power);
       const inset = labelInset(look);
@@ -349,7 +390,7 @@ export class WiringCanvas {
         const tx = p.side === 'left' ? 10 + inset.left : p.side === 'right' ? -10 + inset.right : 0;
         const ty = bare && (p.side === 'left' || p.side === 'right') ? 20 : p.side === 'top' ? 18 : p.side === 'bottom' ? -8 : 4;
         const anchor = p.side === 'left' ? 'start' : p.side === 'right' ? 'end' : 'middle';
-        el('text', { x: p.x + tx, y: p.y + ty, 'text-anchor': anchor, class: `pin-label ${tone} ${p.def.type === 'nc' ? 'nc' : ''}` }, g).textContent = p.def.label || pid;
+        el('text', { x: p.x + tx, y: p.y + ty, 'text-anchor': anchor, class: `pin-label ${tone} ${p.def.type === 'nc' ? 'nc' : ''}` }, g).textContent = pinCaption(p.def, anchor === 'middle' ? 7 : 18);
         // 보이는 핀은 작게, 클릭 영역은 넉넉하게 (입문자도 정확히 누를 수 있도록)
         el('circle', { cx: p.x, cy: p.y, r: 9, class: 'pin-hit', 'data-kind': 'pin', 'data-key': key }, g);
         const c = el('circle', {

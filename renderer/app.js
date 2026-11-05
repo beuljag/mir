@@ -1,14 +1,14 @@
 import { applyAgentResult } from './agent-result.js';
 import { runtimeApi } from './web-api.js?v=research-evidence-7';
-import { initBackendPanel } from './backend-panel.js?v=research-evidence-7';
+import { initBackendPanel } from './backend-panel.js?v=clear-layout-1';
 import { initVerificationPanel } from './verification-panel.js?v=research-evidence-7';
-import { WiringCanvas, layoutPart } from './canvas.js';
+import { WiringCanvas, layoutPart, separateParts } from './canvas.js?v=clear-layout-1';
 import { drawArt, isBareArt } from './art.js';
 import { simulate, splitKey } from './sim.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
   buildDiagnoseRequest, buildPartRequest, parseReply, demoReply
-} from './agent.js?v=research-evidence-7';
+} from './agent.js?v=motor-power-policy-1';
 
 const $ = (id) => document.getElementById(id);
 const api = runtimeApi;
@@ -479,6 +479,7 @@ function placeNew(instances, keepFrom = []) {
     const c = Math.min(2, Math.max(0, Math.round(i.x / 320)));
     colY[c] = Math.max(colY[c], i.y + layoutPart(def).h + 50);
   }
+  const incoming = [];
   for (const i of instances) {
     if (i.x != null) continue;
     const def = state.defs.get(i.part);
@@ -487,7 +488,9 @@ function placeNew(instances, keepFrom = []) {
     i.x = c * 320 + (c === 0 ? 0 : 40);
     i.y = colY[c];
     colY[c] += h + 50;
+    incoming.push(i);
   }
+  separateParts(incoming, state.defs, keepFrom);
 }
 
 // 에이전트가 보낸 배선을 검사해서 이 프로그램이 그릴 수 있는 형태로 바꾼다.
@@ -1060,6 +1063,7 @@ const backend = initBackendPanel({
   renderParts: () => { renderPalette(); refresh(); },
   message: (text) => addMessage('system', text),
   replace: (next) => {
+    separateParts(next.instances, state.defs);
     Object.assign(state, next); state.gpio = {};
     state.history = []; state.future = [];
     clearPreview(); syncToCanvas(); pushHistory(); setPower(false); canvas.fit();
