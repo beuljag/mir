@@ -123,3 +123,14 @@ if (!window.api) {
   };
 }
 export const runtimeApi = createServerChatApi(window.api);
+
+if (window.api.refreshServerConnection) {
+  runtimeApi.getSettings = async () => {
+    const previous = await window.api.getSettings();
+    const { ready, aiReady } = await window.api.getAutoAuthStatus();
+    const mode = previous.mode === 'demo' && !previous.modeExplicit && ready && aiReady
+      ? 'server' : previous.mode;
+    return { ...previous, mode, serverSecretConfigured: Boolean(aiReady), apiKeyReady: ready };
+  };
+  window.api.onServerStatusChanged(() => window.dispatchEvent(new Event('mir-connection-status')));
+}

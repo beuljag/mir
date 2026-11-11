@@ -34,6 +34,7 @@ test('DB 불러오기 버튼 경로가 실제 회로를 조회하여 선과 배�
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,{value:'',disabled:false,textContent:'',classList:{add(){},remove(){}}});return elements.get(id);};
   globalThis.document={getElementById:element};globalThis.location={search:''};globalThis.confirm=()=>true;
+  globalThis.window = new EventTarget();
   const definition={id:'new-board',model:'Uno draft',category:'board',is_virtual:true,is_draft:true,verification_status:'unverified',pins:[
     {id:'D2',type:'gpio',name:'D2'},{id:'GND',type:'gnd',name:'GND'}],source_references:[]};
   const record={id:'saved',version:1,status:'unknown',name:'2D draft',requirements:'test',component_instances:[{instance_id:'U1',component_definition_id:'new-board'}],

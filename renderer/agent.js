@@ -226,7 +226,7 @@ export function demoReply(message, ctx = {}) {
   const prefix = '(데모 모드 · 실제 AI 응답이 아닙니다)';
   if (/펌프|pump/i.test(goal)) {
     const controller = raspberry && !esp32 ? '라즈베리파이' : esp32 && !raspberry ? 'ESP32' : '요청한 보드';
-    return `${prefix}\n\n${controller}로 외부 전원을 사용하는 펌프를 켜고 끄려는 요청입니다.\n현재 저장된 데모에는 펌프 회로가 없어 배선을 생성하지 않았습니다.\n\n펌프 모델·정격 전압·정격 전류와 파워서플라이 사양을 준비하고, ⚙ 연결 설정에서 Copilot Studio를 연결해 설계를 요청하세요. 기존 ESP32 밸브 예시로 바꾸지 않습니다.`;
+    return `${prefix}\n\n${controller}로 외부 전원을 사용하는 펌프를 켜고 끄려는 요청입니다.\n현재 저장된 데모에는 펌프 회로가 없어 배선을 생성하지 않았습니다.\n\n펌프 모델·정격 전압·정격 전류와 파워서플라이 사양을 준비하고, 에이전트 연결 탭에서 Copilot Studio를 연결해 설계를 요청하세요. 기존 ESP32 밸브 예시로 바꾸지 않습니다.`;
   }
   const unsupportedBoard = /아두이노|arduino|피코|\bpico\b|stm32|micro:bit|마이크로비트/i.test(goal);
   const d = !unsupportedBoard && !(raspberry && esp32)
@@ -234,7 +234,7 @@ export function demoReply(message, ctx = {}) {
   if (!d) {
     return `(데모 모드) 지금은 Copilot Studio 에이전트에 연결되어 있지 않아 정해진 예시만 답할 수 있습니다.
 "ESP32로 외부 전원으로 밸브 켜기", "온도를 읽어서 화면에 띄우기", "LED 깜빡이기", "라즈베리파이 LED" 처럼 물어보세요.
-입력한 보드와 장치를 다른 예시로 바꾸지는 않습니다. 오른쪽 위 ⚙ 연결 설정에서 실제 에이전트를 연결하세요.`;
+입력한 보드와 장치를 다른 예시로 바꾸지는 않습니다. 에이전트 연결 탭에서 실제 에이전트를 연결하세요.`;
   }
   return `${prefix}\n\n${d.reply}\n\n\`\`\`json\n${JSON.stringify(d.wiring, null, 2)}\n\`\`\``;
 }

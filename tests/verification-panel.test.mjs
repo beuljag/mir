@@ -3,23 +3,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../renderer/verification-panel.js', import.meta.url), 'utf8')
-  .replace("import { runtimeApi } from './web-api.js?v=research-evidence-7';", 'const runtimeApi = globalThis.verificationTestApi;');
+  .replace("import { runtimeApi } from './web-api.js';", 'const runtimeApi = globalThis.verificationTestApi;');
 
 test('폴더의 상대 경로를 보존하고 검사 결과·작업 ID를 키 없이 표시', async () => {
   const elements = new Map();
   const element = (id) => {
-    if (!elements.has(id)) elements.set(id, { value: '', textContent: '', checked: false, files: [], disabled: false,
+    if (!elements.has(id)) elements.set(id, { open: false, showModal() { this.open = true; }, close() { this.open = false; }, value: '', textContent: '', checked: false, files: [], disabled: false,
       classList: { add() {}, remove() {} }, replaceChildren(...children) { this.value = ''; this.textContent = children.map(c => c.textContent).join(''); },
       appendChild(option) { if (!this.value) this.value = option.value; } });
     return elements.get(id);
   };
   globalThis.document = { getElementById: element, createElement: () => ({ value: '', textContent: '', append(...children) { this.textContent += children.map(c => c.textContent).join(''); } }) };
+  globalThis.window = new EventTarget();
   const calls = [];
+  let kicadAvailable = false;
   const projectId = 'a'.repeat(32);
   const jobId = '11111111-1111-1111-1111-111111111111';
-  globalThis.verificationTestApi = { requestCircuit: async (path, options) => {
+  globalThis.verificationTestApi = { getAutoAuthStatus: async () => ({ ready: true }), requestCircuit: async (path, options) => {
     calls.push({ path, options });
-    if (path.endsWith('/config')) return { status: 200, body: { kicad_available: false, ngspice_available: false } };
+    if (path.endsWith('/config')) return { status: 200, body: { kicad_available: kicadAvailable, ngspice_available: false } };
     if (path === '/verification/projects') return { status: 201, body: { id: projectId, name: 'fixture', files: [{ name: 'main.kicad_sch' }] } };
     if (path.endsWith('/verify')) return { status: 202, body: { id: jobId } };
     if (path.startsWith('/jobs/')) return { status: 200, body: { status: 'completed', result: { erc: { status: 'unavailable' }, note: 'fixture' } } };
@@ -28,8 +30,15 @@ test('폴더의 상대 경로를 보존하고 검사 결과·작업 ID를 키 �
   const { initVerificationPanel } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const messages = [];
   initVerificationPanel({ message: (text) => messages.push(text) });
-  await element('btnFileVerification').onclick();
+  element('btnFileVerification').onclick();
+  await new Promise(setImmediate);
   assert.match(element('verificationConfig').textContent, /미설치/);
+  assert.equal(element('btnVerificationRun').disabled, true);
+  kicadAvailable = true;
+  element('btnVerificationClose').onclick();
+  element('btnFileVerification').onclick();
+  await new Promise(setImmediate);
+  assert.equal(element('btnVerificationRun').disabled, false);
   element('verificationFolder').files = [
     { name: 'main.kicad_sch', webkitRelativePath: 'project/main.kicad_sch', size: 100, text: async () => '(kicad_sch)' },
     { name: 'pump.lib', webkitRelativePath: 'project/models/pump.lib', size: 100, text: async () => '.model pump D()' },

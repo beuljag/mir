@@ -226,7 +226,8 @@ function refresh() {
   canvas.sim = state.power ? runSim() : null;
   canvas.render();
   $('emptyHint').classList.toggle('hidden', state.buildingManually || state.instances.length > 0 || !!canvas.preview);
-  $('stageTitle').textContent = state.title;
+  const projectName = $('frameProjectName');
+  if (projectName) projectName.textContent = state.title || '새 프로젝트';
   renderGpioPanel();
 }
 
@@ -253,13 +254,27 @@ try {
   if (saved && Number.isFinite(saved.width) && Number.isFinite(saved.height)) paletteSize = saved;
 } catch { /* Use the default size when storage is unavailable. */ }
 function applyPaletteSize() {
-  const area = document.querySelector('.stage-body').getBoundingClientRect();
+  const stage = document.querySelector('.stage-body');
+  const area = stage.getBoundingClientRect();
+  const dock = $('partsDock');
   const panel = $('partsPalette');
+  const gpio = $('gpioPanel');
   const chat = $('agentPanel').getBoundingClientRect();
-  const left = parseFloat(getComputedStyle(panel).left) || 0;
-  const right = Math.min(area.right - 20, chat.left - 12);
-  const maxW = Math.max(1, right - area.left - left);
-  const maxH = Math.max(1, area.height - 120);
+  const dockStyle = getComputedStyle(dock);
+  const left = parseFloat(dockStyle.left);
+  const bottom = parseFloat(dockStyle.bottom);
+  const gap = parseFloat(dockStyle.getPropertyValue('--parts-gap'));
+  const gpioWidth = parseFloat(dockStyle.getPropertyValue('--gpio-width'));
+  const right = Math.min(area.right - 12, chat.left - 12);
+  const dockWidth = Math.max(1, right - area.left - left);
+  const dockHeight = Math.max(1, area.height - bottom - Math.max(0,
+    document.querySelector('.stage-toolbar').getBoundingClientRect().bottom - area.top) - 10);
+  const stacked = state.power && dockWidth < 280 + gpioWidth + gap;
+  dock.toggleAttribute('data-stacked', stacked);
+  dock.style.width = dockWidth + 'px';
+  gpio.style.maxHeight = Math.min(220, dockHeight * (stacked ? 0.35 : 1)) + 'px';
+  const maxW = Math.max(1, dockWidth - (state.power && !stacked ? gpioWidth + gap : 0));
+  const maxH = Math.max(1, dockHeight - (stacked ? gpio.offsetHeight + gap : 0));
   const width = Math.min(maxW, Math.max(Math.min(280,maxW),paletteSize.width));
   const height = Math.min(maxH, Math.max(Math.min(220,maxH),paletteSize.height));
   panel.style.width = `${width}px`;
@@ -670,6 +685,7 @@ function setPower(on) {
   $('gpioPanel').classList.toggle('hidden', !on);
   if (!on) state.pressed.clear();
   refresh();
+  applyPaletteSize();
 }
 
 function renderGpioPanel() {
@@ -966,7 +982,7 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
     typing.remove();
     if (requestGeneration !== projectGeneration) return;
     if (shown && !$('chatInput').value.trim()) $('chatInput').value = shown;
-    addMessage('system', `에이전트 호출 실패: ${String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\n⚙ 설정에서 연결 정보를 확인하세요.`, null, true);
+    addMessage('system', `에이전트 호출 실패: ${String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\n에이전트 연결 탭에서 연결 정보를 확인하세요.`, null, true);
   } finally {
     clearInterval(waitingTimer);
     state.busy = false;
@@ -974,10 +990,16 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
   }
 }
 
+function needsServerAI() {
+  if (state.settings.mode !== 'server' || state.settings.serverSecretConfigured) return false;
+  void openSettings();
+  return true;
+}
+
 function sendChat() {
   if (state.busy) return;
   const text = $('chatInput').value.trim();
-  if (!text) return;
+  if (!text || needsServerAI()) return;
   $('chatInput').value = '';
   let message;
   if (!state.instances.length) message = buildRecommendRequest(text);
@@ -1041,6 +1063,7 @@ async function requestDiagnosis() {
     addMessage('system', '먼저 배선을 만들어 주세요.');
     return;
   }
+  if (needsServerAI()) return;
   const memo = $('chatInput').value.trim();
   $('chatInput').value = '';
   const sim = runSim();
@@ -1063,11 +1086,12 @@ async function loadSettings() {
   const pill = $('connPill');
   const on = state.settings.mode !== 'demo';
   const web = state.settings.mode === 'web';
+  const { apiKeyReady: db, serverSecretConfigured: ai } = state.settings;
   pill.textContent = state.settings.mode === 'server'
-    ? (state.settings.serverSecretConfigured ? 'Copilot · 서버 API' : 'Copilot · 서버 연결 확인 필요')
-    : web ? '중앙 에이전트 · 웹 채팅' : on ? 'Copilot Studio 설정됨' : '데모 · AI 미연결';
-  pill.className = state.settings.mode === 'server' && !state.settings.serverSecretConfigured
-    ? 'badge b-warn' : web ? 'badge b-info' : on ? 'badge b-ok' : 'badge b-mute';
+    ? (db ? (ai ? 'Copilot · DB 연결됨' : 'DB 연결됨 · AI 미연결') : 'AI · DB 미연결')
+    : web ? '중앙 에이전트 · 웹 채팅' : on ? 'Copilot Studio 설정됨' : db ? 'DB 연결됨 · AI 데모' : '데모 · AI 미연결';
+  pill.className = 'badge ' + (web ? 'b-info' : state.settings.mode === 'server'
+    ? (db ? (ai ? 'b-ok' : 'b-warn') : 'b-mute') : (on || db ? 'b-ok' : 'b-mute'));
   $('webChatPanel').classList.toggle('hidden', !web);
   $('tab-chat').classList.toggle('hidden', web);
   if (web) {
@@ -1081,7 +1105,10 @@ async function loadSettings() {
     : '아래 카드에 담긴 예제 회로는 AI 연결 없이 바로 열 수 있어요. 부품함에서 직접 배선해 볼 수도 있어요.';
 }
 
+window.addEventListener('mir-connection-status', () => void loadSettings());
+
 async function openSettings() {
+  if (settingsSaving) return;
   let connection,readError='';
   try{connection=await api.getServerConnection();}
   catch(error){connection={mode:'local',url:'',hasKey:false};readError='연결 설정을 읽지 못했어요: '+String(error?.message||error)+' · 다시 읽기를 눌러 재시도하세요.';}
@@ -1103,7 +1130,7 @@ async function openSettings() {
   $('btnSettingsSave').disabled=!!readError;$('btnTest').disabled=!!readError;
   let retry=$('retryConnectionRead');if(!retry){retry=document.createElement('button');retry.id='retryConnectionRead';retry.textContent='연결 설정 다시 읽기';retry.onclick=openSettings;$('testResult').after(retry);}retry.hidden=!readError;
   updateSettingsFields();
-  $('settingsModal').classList.remove('hidden');
+  if (!$('settingsModal').open) $('settingsModal').showModal();
 }
 
 function updateSettingsFields() {
@@ -1115,17 +1142,58 @@ function updateSettingsFields() {
   $('remoteServerFields').classList.toggle('hidden', $('serverConnectionMode').value !== 'remote');
 }
 
-async function saveSettings() {
-  const mode = document.querySelector('input[name="mode"]:checked')?.value || 'demo';
-  if (mode === 'server') {
-    await api.resetAgent();
-    await api.setServerConnection({ mode: $('serverConnectionMode').value, url: $('inServerUrl').value, key: $('inServerKey').value });
-    $('inServerKey').value = '';
-    backend.reset();
+let settingsSaving = false;
+
+async function saveSettings(test) {
+  if (settingsSaving) return;
+  const modal = $('settingsModal');
+  const status = $('testResult');
+  if (state.busy || backend.isBusy()) {
+    status.className = 'test-result bad';
+    status.textContent = '진행 중인 채팅이나 DB 작업이 끝난 뒤 다시 시도해 주세요.';
+    return;
   }
-  await api.setSettings({ mode, secret: $('inSecret').value.trim(), tokenEndpoint: $('inToken').value.trim(), webChatUrl: $('inWebChat').value.trim() });
-  await loadSettings();
-  if (mode === 'server') await backend.connectAutomatically();
+  settingsSaving = true;
+  const controls = [...modal.querySelectorAll('input, select, #btnTest, #btnSettingsSave')];
+  const enabled = controls.filter(control => !control.disabled);
+  enabled.forEach(control => { control.disabled = true; });
+  status.className = 'test-result';
+  status.textContent = '연결 설정을 확인하고 있어요.';
+  try {
+    const mode = modal.querySelector('input[name="mode"]:checked')?.value || 'demo';
+    let connection;
+    if (mode === 'server') {
+      await api.resetAgent();
+      if (!modal.open) return;
+      connection = await api.setServerConnection({ mode: $('serverConnectionMode').value, url: $('inServerUrl').value, key: $('inServerKey').value });
+      if (!connection || !modal.open) return;
+      $('inServerKey').value = '';
+      $('inServerKey').placeholder = '현재 키 유지';
+      backend.connectionChanged(Boolean(connection.sameServer));
+    }
+    await api.setSettings({ mode, secret: $('inSecret').value.trim(), tokenEndpoint: $('inToken').value.trim(), webChatUrl: $('inWebChat').value.trim() });
+    await loadSettings();
+    if (mode === 'server') {
+      void backend.connectAutomatically();
+      if (connection.ready && !connection.aiReady) {
+        status.className = 'test-result bad';
+        status.textContent = 'DB에 연결됐어요. AI를 쓰려면 서버의 Copilot Direct Line 설정을 확인해 주세요.';
+        return;
+      }
+    }
+    if (test) {
+      status.textContent = connection?.aiReady ? '배선 DB와 Copilot 연결을 확인했어요.' : await api.testAgent();
+      status.classList.add('ok');
+    } else {
+      modal.close();
+    }
+  } catch (error) {
+    status.textContent = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    status.classList.add('bad');
+  } finally {
+    settingsSaving = false;
+    enabled.forEach(control => { control.disabled = false; });
+  }
 }
 
 // ---------- 이벤트 ----------
@@ -1182,7 +1250,7 @@ $('btnPaletteToggle').onclick = () => setPartsOpen($('partsPalette').hidden, tru
 $('btnPaletteClose').onclick = () => setPartsOpen(false, true);
 document.addEventListener('pointerdown', (e) => {
   if ($('partsPalette').hidden || document.querySelector('.modal:not(.hidden)')) return;
-  if (!$('partsPalette').contains(e.target) && !$('btnPaletteToggle').contains(e.target)) setPartsOpen(false);
+  if (!$('partsDock').contains(e.target) && !$('btnPaletteToggle').contains(e.target)) setPartsOpen(false);
 });
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || $('partsPalette').hidden || document.querySelector('dialog[open],.modal:not(.hidden)')) return;
@@ -1275,7 +1343,7 @@ function projectData() {
   const embedded = [];
   for (const id of definitions) {
     const part = state.defs.get(id);
-    if (!part || part === localParts.get(id)) continue;
+    if (!part || (part.source === 'builtin' && part === localParts.get(id))) continue;
     const { source, file, image, _layout, ...portable } = part;
     if (part.imageData && part.imageFit === 'none' && _layout) portable._layout = _layout;
     embedded.push(portable);
@@ -1303,7 +1371,10 @@ async function projectDefinitions(data) {
   return parts;
 }
 
+let savingProject = false;
 async function saveProject(saveAs = false) {
+  if (savingProject) return false;
+  savingProject = true;
   closeProjectMenu();
   try {
     const generation = projectGeneration;
@@ -1318,6 +1389,7 @@ async function saveProject(saveAs = false) {
     return true;
   }
   catch (err) { addMessage('system', `저장하지 못했어요: ${err.message}`); return false; }
+  finally { savingProject = false; }
 }
 $('btnSave').onclick = () => saveProject();
 $('btnSaveAs').onclick = () => saveProject(true);
@@ -1381,33 +1453,24 @@ $('btnPartAsk').onclick = () => {
   if (state.busy) { $('partSource').setCustomValidity('진행 중인 요청이 끝난 뒤 다시 시도해 주세요.'); $('partSource').reportValidity(); return; }
   $('partSource').setCustomValidity('');
   $('partModal').classList.add('hidden');
+  if (needsServerAI()) return;
   $('partSource').value = '';
   askAgent(buildPartRequest(text), { shown: '데이터시트 내용으로 새 부품을 만들어줘' });
 };
 
 $('btnSettings').onclick = openSettings;
 $('btnWebChatOpen').onclick = () => api.openAgentWebsite(state.settings.webChatUrl);
-$('btnSettingsCancel').onclick = () => $('settingsModal').classList.add('hidden');
-$('btnSettingsSave').onclick = async () => {
-  try { await saveSettings(); $('settingsModal').classList.add('hidden'); }
-  catch (e) { $('testResult').textContent = `설정 실패: ${e.message}`; }
-};
+$('btnSettingsCancel').onclick = () => $('settingsModal').close();
+$('settingsModal').addEventListener('close', () => {
+  $('inServerKey').value = '';
+  $('inSecret').value = '';
+  if (settingsSaving) void api.cancelServerConnection?.();
+});
+$('btnSettingsSave').onclick = () => saveSettings(false);
+$('btnTest').onclick = () => saveSettings(true);
 document.querySelectorAll('input[name="mode"]').forEach((r) => { r.onchange = updateSettingsFields; });
 $('serverConnectionMode').onchange = updateSettingsFields;
 $('linkConnectGuide').onclick = (e) => { e.preventDefault(); api.openDoc('Copilot-Studio-연결-안내.md'); };
-$('btnTest').onclick = async () => {
-  const t = $('testResult');
-  t.className = 'test-result';
-  t.textContent = '저장 후 연결을 시험하는 중…';
-  try {
-    await saveSettings();
-    t.textContent = await api.testAgent();
-    t.classList.add('ok');
-  } catch (e) {
-    t.textContent = `실패: ${String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`;
-    t.classList.add('bad');
-  }
-};
 
 window.addEventListener('keydown', (e) => {
   if(document.querySelector('dialog[open]:modal,.modal:not(.hidden)'))return;
@@ -1504,14 +1567,20 @@ function applyTheme(theme) {
   if (theme) document.documentElement.dataset.theme = theme;
   $('btnTheme').textContent = currentTheme() === 'dark' ? '☀ 라이트 모드로 전환' : '☾ 다크 모드로 전환';
   $('btnTheme').setAttribute('aria-pressed', String(currentTheme() === 'dark'));
+  for (const option of document.querySelectorAll('input[name="appTheme"]')) {
+    option.checked = option.value === currentTheme();
+  }
   updateManualTheme();
 }
 
-$('btnTheme').onclick = () => {
-  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+function chooseTheme(next) {
   try { localStorage.setItem('mir-theme', next); } catch { /* 저장 못 해도 이번 실행에는 적용 */ }
   applyTheme(next);
-};
+}
+$('btnTheme').onclick = () => chooseTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+for (const option of document.querySelectorAll('input[name="appTheme"]')) {
+  option.addEventListener('change', () => chooseTheme(option.value));
+}
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme());
 try { applyTheme(localStorage.getItem('mir-theme')); } catch { applyTheme(); }
 
@@ -1519,12 +1588,12 @@ function greet() {
   if (state.settings.mode === 'web') return;
   if (state.settings.mode === 'server') {
     addMessage('system', state.settings.serverSecretConfigured
-      ? '연결된 배선 서버를 사용합니다. 오른쪽 채팅창에 설계를 요청하세요. 연결이 안 되면 연결 설정을 확인하세요.'
+      ? '연결된 배선 서버를 사용합니다. 오른쪽 채팅창에 설계를 요청하세요. 연결이 안 되면 에이전트 연결 탭에서 연결 정보를 확인하세요.'
       : '서버 API 모드입니다. .env의 COPILOT_DIRECT_LINE_SECRET에 비밀 키를 넣고 저장하세요. 배선 API 연결은 자동으로 처리합니다.');
     return;
   }
   if (state.settings.mode === 'demo') {
-    addMessage('system', '현재는 데모 모드입니다. Copilot Studio에 연결되지 않아 저장된 예시만 보여 줍니다. 자유로운 설계 요청은 ⚙ 연결 설정에서 실제 에이전트를 연결한 뒤 보내세요.');
+    addMessage('system', '현재는 데모 모드입니다. Copilot Studio에 연결되지 않아 저장된 예시만 보여 줍니다. 자유로운 설계 요청은 에이전트 연결 탭에서 실제 에이전트를 연결한 뒤 보내세요.');
     return;
   }
   addMessage('agent', `안녕하세요! 임베디드 배선 가이드 **미르**입니다.
@@ -1587,8 +1656,9 @@ if (api.browserMode) {
   initResizers();
   applyAppIcon();
   await loadSettings();
-  await backend.connectAutomatically();
   greet();
+  if (api.refreshServerConnection) void api.refreshServerConnection().then(() => backend.connectAutomatically());
+  else void backend.connectAutomatically();
 })().catch((error) => {
   addMessage('system', `미르 초기화 실패: ${error.message}\n앱을 다시 실행하거나 연결 설정을 확인해 주세요.`, null, true);
   const retry = document.createElement('button');
@@ -1713,11 +1783,12 @@ function alignWorkspaceOverlays(){
   const agent=$('agentPanel').getBoundingClientRect();
   const right=Math.max(stage.left+20,Math.min(stage.right-12,agent.left-12));
   const available=Math.max(0,right-stage.left-20);
-  const dockWidth = wireDock.getBoundingClientRect().width;
-  wireDock.style.maxWidth = `${Math.max(0, available)}px`;
-  const centered = stage.width / 2;
-  const rightmost = right - stage.left - Math.min(dockWidth, available) / 2;
-  wireDock.style.left = `${Math.min(centered, rightmost)}px`;
+  const paletteEdge = $('btnPaletteToggle').getBoundingClientRect().right + 12;
+  const left = Math.min(right, Math.max(stage.left + 12, paletteEdge));
+  wireDock.style.maxWidth = (right - left) + 'px';
+  const halfDock = wireDock.getBoundingClientRect().width / 2;
+  const center = Math.min(Math.max(stage.left + stage.width / 2, left + halfDock), right - halfDock);
+  wireDock.style.left = (center - stage.left) + 'px';
   applyPaletteSize();
   const chatCollapsed = document.body.classList.contains('chat-collapsed');
   const emptyHint = $('emptyHint');
@@ -1731,7 +1802,7 @@ function alignWorkspaceOverlays(){
 }
 function scheduleOverlayLayout(){if(overlayLayoutFrame!==null)return;overlayLayoutFrame=requestAnimationFrame(()=>{overlayLayoutFrame=null;alignWorkspaceOverlays();});}
 const overlaysObserver=new ResizeObserver(scheduleOverlayLayout);
-for(const el of [document.querySelector('.stage-body'),document.querySelector('.stage-toolbar'),$('agentPanel'),wireDock])overlaysObserver.observe(el);
+for(const el of [document.querySelector('.stage-body'),document.querySelector('.stage-toolbar'),$('agentPanel'),$('gpioPanel'),wireDock])overlaysObserver.observe(el);
 new MutationObserver(scheduleOverlayLayout).observe(document.body,{attributes:true,attributeFilter:['class']});
 window.addEventListener('resize',scheduleOverlayLayout);
 scheduleOverlayLayout();

@@ -9,7 +9,7 @@ function parsePin(key, instances) {
   return ref;
 }
 
-export function toCircuitDraft(state, original = null) {
+export function toCircuitDraft(state, original = null, { editorWires = false } = {}) {
   if (!state.instances.length) throw new Error('먼저 부품을 배치하세요.');
   const instances = new Set();
   for (const i of state.instances) {
@@ -52,6 +52,8 @@ export function toCircuitDraft(state, original = null) {
     component_instances: state.instances.map((i) => ({ instance_id: i.ref, component_definition_id: i.part,
       ...(i.props ? { props: i.props } : {}), ...(i.label ? { label: i.label } : {}) })),
     nets,
+    ...(editorWires ? { editor_wires: state.wires.map(({ id, from, to, kind, note, origin }) =>
+      ({ id, from, to, kind, note, origin })) } : {}),
     layout: state.instances.map((i) => ({ instance_id: i.ref, x: i.x ?? 0, y: i.y ?? 0, rotation: i.rotation ?? 0, ...(i.mirrored ? { mirrored: true } : {}) }))
   };
 }
@@ -73,6 +75,22 @@ export function fromCircuit(circuit) {
       seen.add(key);
     }
     keys.slice(1).forEach((key) => wires.push({ id: `db-${wires.length}`, from: keys[0], to: key, origin: 'api', note: net.net_id }));
+  }
+  const editor = circuit.editor_wires;
+  if (Array.isArray(editor)) {
+    const ids = new Set(editor.map(wire => wire?.id));
+    if (ids.size === editor.length && editor.every(wire => typeof wire?.id === 'string' && wire.id)) {
+      try {
+        const savedNets = circuit.nets.map(net => signature(net.connected_pin_refs)).sort();
+        const editorNets = toCircuitDraft({ instances, wires: editor }).nets
+          .map(net => signature(net.connected_pin_refs)).sort();
+        if (JSON.stringify(savedNets) === JSON.stringify(editorNets)) {
+          return { instances, wires: editor.map(({ id, from, to, kind, note, origin }) =>
+            ({ id, from, to, ...(kind ? { kind } : {}), ...(note != null ? { note } : {}), ...(origin ? { origin } : {}) })),
+            title: circuit.name, requirements: circuit.requirements };
+        }
+      } catch { /* 연결 정보가 바뀐 기록은 DB 연결 그룹을 기준으로 연다. */ }
+    }
   }
   return { instances, wires, title: circuit.name, requirements: circuit.requirements };
 }

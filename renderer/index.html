@@ -18,7 +18,7 @@
       </div>
     </div>
     <div class="top-actions">
-      <button id="btnBackend" class="ghost">배선 API · DB</button>
+      <button id="btnBackend" class="ghost">배선 API · DB (개발자용)</button>
       <span id="connPill" class="badge b-mute">데모 · AI 미연결</span>
       <button id="btnSettings" title="에이전트 연결 설정">⚙ 연결 설정</button>
     </div>
@@ -42,35 +42,39 @@
         <button id="btnZoomOut" title="축소" aria-label="축소">－</button>
         <button id="btnZoomIn" title="확대" aria-label="확대">＋</button>
         <button id="btnFit" title="화면에 맞추기">맞춤</button>
-        <div class="grow"></div>
-        <span id="stageTitle" class="stage-title"></span>
       </div>
       <div class="stage-body">
         <!-- 필요할 때만 펼치는 부품함 -->
-        <aside id="partsPalette" class="palette" aria-labelledby="paletteTitle" hidden>
-          <div class="panel-head">
-            <span id="paletteTitle" class="label">부품함</span>
-            <div class="head-actions">
-              <button id="btnImportPart" class="small" title="양식에 맞춘 부품 JSON 파일 추가">+ 파일</button>
-              <button id="btnPaletteClose" class="small" aria-label="부품함 닫기" title="부품함 닫기">×</button>
-              <button id="btnPartMenu" class="small" title="부품 메뉴">⋯</button>
+        <div id="partsDock" class="parts-dock">
+          <aside id="partsPalette" class="palette" aria-labelledby="paletteTitle" hidden>
+            <div class="panel-head">
+              <span id="paletteTitle" class="label">부품함</span>
+              <div class="head-actions">
+                <button id="btnImportPart" class="small" title="양식에 맞춘 부품 JSON 파일 추가">+ 파일</button>
+                <button id="btnPaletteClose" class="small" aria-label="부품함 닫기" title="부품함 닫기">×</button>
+                <button id="btnPartMenu" class="small" title="부품 메뉴">⋯</button>
+              </div>
             </div>
+            <div id="partMenu" class="menu hidden">
+              <button data-act="template">부품 양식 파일 저장</button>
+              <button data-act="folder">내 부품 폴더 열기</button>
+              <button data-act="datasheet">데이터시트로 부품 만들기 (AI)</button>
+              <button data-act="guide">부품 JSON 양식 안내</button>
+              <button data-act="reload">부품 다시 불러오기</button>
+            </div>
+            <input id="partSearch" type="search" placeholder="부품 검색 (예: 릴레이, I2C, 5V)">
+            <div id="partCats" class="chips" role="toolbar" aria-label="부품 분류"></div>
+            <div id="partList" class="part-list"></div>
+            <div id="partErrors" class="part-errors"></div>
+            <div class="palette-resize palette-resize-n" data-palette-resize="n" role="separator" tabindex="0" aria-label="부품함 높이 조절" aria-orientation="horizontal" title="위아래로 드래그해서 높이 조절"></div>
+            <div class="palette-resize palette-resize-e" data-palette-resize="e" role="separator" tabindex="0" aria-label="부품함 너비 조절" aria-orientation="vertical" title="좌우로 드래그해서 너비 조절"></div>
+            <button class="palette-resize palette-resize-ne" data-palette-resize="ne" aria-label="부품함 크기 조절" title="드래그 또는 방향키로 크기 조절">⤢</button>
+          </aside>
+          <div id="gpioPanel" class="gpio-panel hidden">
+            <div class="gpio-head label">보드 핀 출력 (코드 대신 직접 설정)</div>
+            <div id="gpioList"></div>
           </div>
-          <div id="partMenu" class="menu hidden">
-            <button data-act="template">부품 양식 파일 저장</button>
-            <button data-act="folder">내 부품 폴더 열기</button>
-            <button data-act="datasheet">데이터시트로 부품 만들기 (AI)</button>
-            <button data-act="guide">부품 JSON 양식 안내</button>
-            <button data-act="reload">부품 다시 불러오기</button>
-          </div>
-          <input id="partSearch" type="search" placeholder="부품 검색 (예: 릴레이, I2C, 5V)">
-          <div id="partCats" class="chips" role="toolbar" aria-label="부품 분류"></div>
-          <div id="partList" class="part-list"></div>
-          <div id="partErrors" class="part-errors"></div>
-          <div class="palette-resize palette-resize-n" data-palette-resize="n" role="separator" tabindex="0" aria-label="부품함 높이 조절" aria-orientation="horizontal" title="위아래로 드래그해서 높이 조절"></div>
-          <div class="palette-resize palette-resize-e" data-palette-resize="e" role="separator" tabindex="0" aria-label="부품함 너비 조절" aria-orientation="vertical" title="좌우로 드래그해서 너비 조절"></div>
-          <button class="palette-resize palette-resize-ne" data-palette-resize="ne" aria-label="부품함 크기 조절" title="드래그 또는 방향키로 크기 조절">⤢</button>
-        </aside>
+        </div>
         <button id="btnPaletteToggle" class="palette-toggle" aria-label="부품함 열기" aria-controls="partsPalette" aria-expanded="false" title="부품함 열기">
           <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">
             <path d="M15 29v11m9-11v14m9-14v11" fill="none" stroke="var(--text-muted)" stroke-width="3" stroke-linecap="round"/>
@@ -114,10 +118,6 @@
             <button id="btnPreviewApply" class="primary">수정안 적용</button>
             <button id="btnPreviewCancel">취소</button>
           </div>
-        </div>
-        <div id="gpioPanel" class="gpio-panel hidden">
-          <div class="gpio-head label">보드 핀 출력 (코드 대신 직접 설정)</div>
-          <div id="gpioList"></div>
         </div>
         <div id="selInfo" class="sel-info hidden"></div>
         <div id="tooltip" class="tooltip hidden"></div>
@@ -172,9 +172,9 @@
   </aside>
   <dialog id="wireSettings" aria-labelledby="wireSettingsTitle"><div class="project-menu-heading"><h2 id="wireSettingsTitle">설정</h2><button id="btnWireSettingsClose" aria-label="설정 닫기">×</button></div><div class="wiring-options"><span id="wireShapeLabel">배선 형태</span><label class="wire-shape-choice"><span>직선</span><input id="wireShapeToggle" type="checkbox" role="switch" aria-label="곡선 배선 사용" checked><span>곡선 · 기본</span></label></div><div class="wire-preview"><div class="wire-preview-heading"><span>미리보기</span><span id="wirePreviewLabel">곡선</span></div><svg viewBox="0 0 360 160" role="img" aria-label="선택한 배선 형태 미리보기"><defs><pattern id="previewDots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="var(--border-strong)"/></pattern></defs><rect width="360" height="160" fill="url(#previewDots)"/><rect x="16" y="28" width="56" height="44" rx="10" class="preview-part"/><rect x="288" y="92" width="56" height="44" rx="10" class="preview-part"/><path id="wirePreviewPath" d="M72 50 C146 50 214 114 288 114"/><circle cx="72" cy="50" r="5" class="preview-port"/><circle cx="288" cy="114" r="5" class="preview-port"/></svg></div></dialog>
   <!-- 설정 -->
-  <div id="settingsModal" class="modal hidden">
+  <dialog id="settingsModal" class="server-dialog" aria-labelledby="connectionTitle">
     <div class="modal-card">
-      <h2>Copilot Studio 에이전트 연결</h2>
+      <h2 id="connectionTitle">Copilot Studio 에이전트 연결</h2>
       <p class="muted">새 에이전트는 웹사이트 링크로, 클래식 에이전트는 Direct Line으로 연결합니다. <a href="#" id="linkConnectGuide">연결 안내</a></p>
       <div class="radio-group">
         <label><input type="radio" name="mode" value="demo"> 데모 모드 (연결 없이 예시로 체험)</label>
@@ -210,7 +210,7 @@
         <label>토큰 끝점 URL</label>
         <input id="inToken" type="url" placeholder="https://....environment.api.powerplatform.com/powervirtualagents/botsbyschema/.../directline/token?api-version=2022-03-01-preview">
       </div>
-      <div id="testResult" class="test-result"></div>
+      <div id="testResult" class="test-result" role="status"></div>
       <div class="modal-actions">
         <button id="btnTest">저장하고 연결 테스트</button>
         <div class="grow"></div>
@@ -218,7 +218,7 @@
         <button id="btnSettingsSave" class="primary">저장</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- 데이터시트로 부품 만들기 -->
   <div id="partModal" class="modal hidden">
@@ -234,15 +234,16 @@
     </div>
   </div>
 
-  <div id="backendModal" class="modal hidden">
+  <dialog id="backendModal" class="server-dialog" aria-labelledby="backendTitle">
     <div class="modal-card">
-      <h2>배선 API · DB</h2>
+      <h2 id="backendTitle">배선 API · DB (개발자용)</h2>
       <p class="muted">Copilot Studio가 만든 회로 ID를 불러오거나 현재 배선을 저장합니다. 로컬 .env 또는 연결 설정의 공유 서버를 사용합니다.</p>
-      <button id="btnDbConnect">서버 다시 연결</button>
+      <button id="btnDbConnect">연결 확인</button>
       <div class="field"><label for="dbCircuitId">회로 ID</label>
         <input id="dbCircuitId" type="text" placeholder="에이전트가 반환한 circuit_id">
       </div>
       <p id="dbStatus" role="status">API 연결 전</p>
+      <p id="dbSaveScope" class="muted" hidden></p>
       <p class="muted">미르 기본 부품은 화면용 자료입니다. 부품 DB에 없으면 초안 저장은 가능하지만 서버 검증에서 미등록 오류가 납니다. 가상 전원 결과와 서버 검증은 별개입니다.</p>
       <div class="modal-actions">
         <button id="btnDbLoad">DB에서 불러오기</button>
@@ -252,12 +253,13 @@
         <button id="btnDbClose">닫기</button>
       </div>
     </div>
-  </div>
-  <div id="verificationModal" class="modal hidden">
+  </dialog>
+  <dialog id="verificationModal" class="server-dialog" aria-labelledby="verificationTitle">
     <div class="modal-card">
-      <h2>KiCad 파일 검증</h2>
+      <h2 id="verificationTitle">KiCad 파일 검증</h2>
       <p class="muted">별도로 만든 회로도와 모델 파일을 가져옵니다. 현재 미르 배선의 검증 상태는 변경하지 않습니다.</p>
-      <p id="verificationConfig" role="status">실행 파일 확인 전</p>
+      <p id="verificationConfig" role="status">연결 상태 확인 중</p>
+      <button id="btnVerificationConnect" hidden>배선 DB 연결 설정</button>
       <div class="field"><label for="verificationFiles">회로도·하위 회로도·SPICE 모델 파일 선택</label>
         <input id="verificationFiles" type="file" multiple accept=".kicad_sch,.kicad_pro,.lib,.inc,.mod,.cir,.sp,.model">
       </div>
@@ -265,23 +267,23 @@
         <input id="verificationFolder" type="file" webkitdirectory directory multiple>
       </div>
       <div class="field"><label for="verificationMain">주 회로도</label><select id="verificationMain"></select></div>
-      <button id="btnVerificationImport">파일 가져오기</button>
+      <button id="btnVerificationImport" disabled>파일 가져오기</button>
       <div class="field"><label for="verificationProjectId">가져온 프로젝트 ID</label><input id="verificationProjectId" type="text"></div>
       <label><input id="verificationSpice" type="checkbox"> ngspice 시뮬레이션도 실행</label>
       <div class="field"><label for="verificationAnalysis">분석 종류</label><select id="verificationAnalysis"><option value="op">DC 동작점</option><option value="transient">시간 변화</option></select></div>
       <div class="row"><label>시간 간격(s)<input id="verificationStep" type="number" value="0.00001" step="any" min="0.000000001"></label>
         <label>총 시간(s)<input id="verificationDuration" type="number" value="0.01" step="any" min="0.000000001"></label></div>
       <div class="field"><label for="verificationVectors">측정 항목(선택·쉼표 구분)</label><input id="verificationVectors" placeholder="v(out), i(V1)"></div>
-      <pre id="verificationResult" role="status" style="white-space:pre-wrap;max-height:240px;overflow:auto"></pre>
-      <div class="modal-actions"><button id="btnVerificationRun" class="primary">검사 실행</button><button id="btnVerificationClose">닫기</button></div>
+      <pre id="verificationResult" role="status"></pre>
+      <div class="modal-actions"><button id="btnVerificationRun" class="primary" disabled>검사 실행</button><button id="btnVerificationClose">닫기</button></div>
     </div>
-  </div>
+  </dialog>
   <button id="btnManual" hidden>미르 사용 설명서</button>
   <dialog id="manualDialog" aria-labelledby="manualTitle">
     <header><h2 id="manualTitle">미르 사용 설명서</h2><button id="btnCloseManual" aria-label="설명서 닫기" autofocus>×</button></header>
-    <iframe title="그림으로 배우는 미르" src="manual.html?v=89"></iframe>
+    <iframe title="그림으로 배우는 미르" src="manual.html?v=91"></iframe>
   </dialog>
-  <script type="module" src="app.js?v=89"></script>
+  <script type="module" src="app.js?v=91"></script>
   <script type="module" src="workspace-frame.js"></script>
   <script type="module" src="titlebar.js"></script>
 </body>

@@ -27,30 +27,96 @@ function readConnection() {
     } catch { return { mode: 'local', url: '', key: '' }; }
   }
 }
-const requestCircuit = createTransport({ read: readConnection });
+const disconnected = { ready: false, aiReady: false, editorWires: false };
+let serverStatus = disconnected;
+let connectionRevision = 0;
+
+function setServerStatus(next) {
+  const changed = serverStatus.ready !== next.ready || serverStatus.aiReady !== next.aiReady
+    || serverStatus.editorWires !== next.editorWires;
+  serverStatus = next;
+  if (changed) for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.webContents.isDestroyed()) win.webContents.send('circuit:statusChanged');
+  }
+}
+
+async function checkServer(config, { testAI = false } = {}) {
+  const request = createTransport({ read: () => config });
+  const db = await request('/components/search?limit=100');
+  if (db.status !== 200 || !Array.isArray(db.body)) {
+    throw new Error(db.status === 401 || db.status === 403
+      ? '배선 API 키를 확인해 주세요.' : '배선 DB를 읽을 수 없어요. 서버 주소와 실행 상태를 확인해 주세요.');
+  }
+  async function checkAI() {
+    const info = await request('/chat/config');
+    if (info.status !== 200 || info.body?.mode !== 'directline' || info.body.configured !== true) {
+      throw new Error('배선 서버의 Copilot Direct Line 설정을 확인해 주세요.');
+    }
+    if (!testAI) return;
+    const result = await request('/chat/sessions', { method: 'POST' });
+    const id = result.body?.session_id;
+    if (result.status !== 201 || !/^[a-f0-9]{1,64}$/.test(id || '')) {
+      throw new Error('Copilot 대화를 열 수 없어요. 서버 설정과 에이전트 권한을 확인해 주세요.');
+    }
+    void request('/chat/sessions/' + id, { method: 'DELETE' }).catch(() => {});
+  }
+  const [capabilities, agent] = await Promise.allSettled([request('/circuits/capabilities'), checkAI()]);
+  return {
+    ready: true,
+    aiReady: agent.status === 'fulfilled',
+    editorWires: capabilities.status === 'fulfilled' && capabilities.value.status === 200
+      && capabilities.value.body?.editor_wires === true
+  };
+}
+
 ipcMain.handle('circuit:getConnection', () => {
   const config = readConnection();
   return { mode: config.mode, url: config.url, hasKey: !!config.key };
 });
-ipcMain.handle('circuit:setConnection', (_e, input) => {
-  const config = updateConnection(readConnection(), input);
+ipcMain.handle('circuit:refreshConnection', async () => {
+  const config = readConnection();
+  if (config.mode === 'remote' && !config.key) return;
+  const revision = ++connectionRevision;
+  let status;
+  try { status = await checkServer(config); }
+  catch { status = disconnected; }
+  if (revision === connectionRevision) setServerStatus(status);
+});
+ipcMain.handle('circuit:cancelConnection', () => { connectionRevision++; });
+ipcMain.handle('circuit:setConnection', async (_event, input) => {
+  const revision = ++connectionRevision;
+  const previous = readConnection();
+  const config = updateConnection(previous, input);
   if (config.key && !safeStorage.isEncryptionAvailable()) throw new Error('Windows 키 암호화를 사용할 수 없습니다. 이 PC의 로그인 상태를 확인하세요.');
+  const next = await checkServer(config, { testAI: true });
+  if (revision !== connectionRevision) return null;
   const stored = { mode: config.mode, url: config.url, ...(config.key ? { keyEnc: safeStorage.encryptString(config.key).toString('base64') } : {}) };
   fs.mkdirSync(path.dirname(connectionFile()), { recursive: true });
   fs.writeFileSync(connectionFile(), JSON.stringify(stored, null, 2));
-  return true;
+  setServerStatus(next);
+  return { ...next, sameServer: config.mode === previous.mode && config.url === previous.url && config.key === previous.key };
 });
-ipcMain.handle('circuit:autoStatus', async () => {
+ipcMain.handle('circuit:autoStatus', () => serverStatus);
+ipcMain.handle('circuit:request', async (_event, { path: route, options = {} }) => {
+  const config = readConnection();
+  const revision = connectionRevision;
+  const request = createTransport({ read: () => config });
+  const chat = route.startsWith('/chat/');
+  const cleanup = chat && options.method === 'DELETE';
+  function lost(all) {
+    if (revision !== connectionRevision || cleanup) return;
+    setServerStatus(all ? { ...serverStatus, ready: false, aiReady: false } : { ...serverStatus, aiReady: false });
+  }
   try {
-    if (readConnection().mode === 'remote') {
-      const response = await requestCircuit('/chat/config');
-      return { ready: response.status === 200, remote: true };
-    }
-    const response = await fetch('http://127.0.0.1:8002/local-connection/status', { signal: AbortSignal.timeout(4000) });
-    return response.ok ? response.json() : { ready: false };
-  } catch { return { ready: false }; }
+    const result = await request(route, options);
+    const authError = [401, 403].includes(result.status);
+    if (authError || result.status >= 500) lost(authError || !chat);
+    return result;
+  } catch (error) {
+    lost(!chat);
+    throw error;
+  }
 });
-ipcMain.handle('circuit:request', (_e, { path: route, options = {} }) => requestCircuit(route, options));
 
 // ---------- 설정 (비밀 키는 Windows 자격 증명으로 암호화해 저장) ----------
 function readEnvSecret() {

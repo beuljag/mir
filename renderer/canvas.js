@@ -146,6 +146,9 @@ export class WiringCanvas {
     this.routingPaths = new Map();
     this.routingObstacles = [];
     this.routeWarnings = new Set();
+    this.drawnParts = new Map();
+    this.drawnWires = new Map();
+    this.drawnInstances = new Map();
     this.defsLayer = el('defs', {}, svg);
     this.defsLayer.innerHTML = `
       <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -170,7 +173,7 @@ export class WiringCanvas {
 
   pinPos(key, instances = this.instances) {
     const [ref, pid] = splitKey(key);
-    const i = instances.find((x) => x.ref === ref);
+    const i = instances instanceof Map ? instances.get(ref) : instances.find(x => x.ref === ref);
     const def = i && defFor(this.getDefs(), i);
     if (!def) return null;
     const p = layoutPart(def).pos[pid];
@@ -241,8 +244,8 @@ export class WiringCanvas {
         const group = this.selected?.type === 'group' && this.selected.refs.has(ref);
         const members = group ? this.instances.filter(i => this.selected.refs.has(i.ref)) : [inst];
         this.draggingPart = ref;
-        drag = { type: 'part', inst, start: this.toWorld(e), sx: e.clientX, sy: e.clientY,
-          members: members.map(i => ({ inst: i, x: i.x, y: i.y })), moved: false };
+        drag = { type: 'part', inst, sx: e.clientX, sy: e.clientY,
+          members: members.map(i => ({ inst: i, x: i.x, y: i.y })), moved: false, snapX: 0, snapY: 0 };
       } else if (selectArea) {
         this.cancelPending();
         const start = this.toWorld(e);
@@ -253,9 +256,15 @@ export class WiringCanvas {
         drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: this.view.x, vy: this.view.y, moved: false };
       }
     });
+    const placeDragMembers = (moving) => {
+      for (const member of moving.members) {
+        member.inst.x = member.x + moving.snapX;
+        member.inst.y = member.y + moving.snapY;
+      }
+    };
     window.addEventListener('mousemove', (e) => {
-      this.mouse = this.toWorld(e);
-      if (this.pending) this.drawOverlay();
+      if (!drag || drag.type === 'marquee' || this.pending) this.mouse = this.toWorld(e);
+      if (this.pending && drag?.type !== 'part') this.drawOverlay();
       if (!drag) return;
       if (e.buttons === 0) { finishDrag(true); return; }
       if (drag.type === 'marquee') {
@@ -275,13 +284,22 @@ export class WiringCanvas {
         this.applyView();
         return;
       }
-      const snapX = Math.round((this.mouse.x - drag.start.x) / 10) * 10;
-      const snapY = Math.round((this.mouse.y - drag.start.y) / 10) * 10;
-      for (const member of drag.members) {
-        member.inst.x = member.x + snapX;
-        member.inst.y = member.y + snapY;
+      const snapX = Math.round(dx / this.view.k / 10) * 10;
+      const snapY = Math.round(dy / this.view.k / 10) * 10;
+      if (snapX === drag.snapX && snapY === drag.snapY && !this.pending) return;
+      drag.snapX = snapX;
+      drag.snapY = snapY;
+      if (!this.svg.classList.contains('part-drag-active')) {
+        this.svg.classList.add('part-drag-active');
+        this.tooltip.hide();
       }
-      if (dragFrame === null) dragFrame = requestAnimationFrame(() => { dragFrame = null; this.render(); });
+      if (dragFrame === null) {
+        dragFrame = requestAnimationFrame(() => {
+          dragFrame = null;
+          placeDragMembers(drag);
+          this.renderDrag(drag.members);
+        });
+      }
     });
     const finishDrag = (interrupted = false) => {
       if (dragFrame !== null) { cancelAnimationFrame(dragFrame); dragFrame = null; }
@@ -290,9 +308,10 @@ export class WiringCanvas {
       this.draggingPart = null;
       if (interrupted) { armedMarquee = false; lastPartClick = null; }
       if (!finished) return;
-      this.svg.classList.remove('panning', 'selecting-area');
+      this.svg.classList.remove('panning', 'selecting-area', 'part-drag-active');
       if (finished.type === 'part') {
         if (finished.moved) {
+          placeDragMembers(finished);
           lastPartClick = null;
           this.onChange('move');
         } else if (!interrupted) {
@@ -338,6 +357,7 @@ export class WiringCanvas {
       this.zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
     this.svg.addEventListener('mouseover', (e) => {
+      if (this.svg.classList.contains('part-drag-active')) return;
       const t = e.target.closest('[data-kind]');
       if (t?.dataset.kind === 'pin') this.tooltip.showPin(t.dataset.key, e);
       else if (t?.dataset.kind === 'wire') this.tooltip.showWire(t.dataset.id, e);
@@ -412,6 +432,7 @@ export class WiringCanvas {
       const d=Math.min(120,Math.hypot(b.x-a.x,b.y-a.y)/3);
       return `M${a.x} ${a.y} C${a.x+dx1*d} ${a.y+dy1*d} ${b.x+dx2*d} ${b.y+dy2*d} ${b.x} ${b.y}`;
     }
+    if (this.draggingPart) return 'M' + a.x + ' ' + a.y + ' L' + b.x + ' ' + b.y;
     const gentle=softAlignedPath(a,b,this.routingObstacles);
     if(gentle)return gentle;
     const result = routeWire(a, b, this.routingObstacles, [], { maxVisited: 2000 });
@@ -495,20 +516,46 @@ export class WiringCanvas {
     return 'var(--volt-gnd)';
   }
 
+  renderDrag(members) {
+    // Keep the SVG art and unrelated routes intact until the drag ends.
+    const movingWires = new Set();
+    for (const { inst } of members) {
+      const part = this.drawnParts.get(inst);
+      if (part) part.group.setAttribute('transform', 'translate(' + inst.x + ' ' + inst.y + ')' + part.suffix);
+      for (const wire of this.drawnWires.get(inst.ref) || []) movingWires.add(wire);
+    }
+    const pins = new Map();
+    const pin = key => {
+      if (!pins.has(key)) pins.set(key, this.pinPos(key, this.drawnInstances));
+      return pins.get(key);
+    };
+    for (const { from, to, paths } of movingWires) {
+      const start = pin(from), end = pin(to);
+      if (!start || !end) continue;
+      const path = this.wirePath(start, end);
+      for (const node of paths) node.setAttribute('d', path);
+    }
+    if (this.pending) this.drawOverlay();
+  }
+
   render() {
     const defs = this.getDefs();
     const power = !!this.sim;
     this.wireLayer.replaceChildren();
     this.partLayer.replaceChildren();
     const shown = [...this.instances, ...(this.preview?.addedParts || [])];
+    this.drawnParts.clear();
+    this.drawnWires.clear();
+    this.drawnInstances = new Map(shown.map(instance => [instance.ref, instance]));
+    const usedPins = new Set(this.wires.flatMap(wire => [wire.from, wire.to]));
     if(!this.draggingPart)this.updateRoutes(shown, [...this.wires, ...(this.preview?.added || [])]);
 
     // 배선: 바탕색 테두리(케이싱) 위에 실선을 그리고, 전원이 흐르면 그 위로 밝은 펄스만 움직인다.
     // 끝이 연결된 핀은 선 색으로 채워서 꽂힌 것처럼 보이게 한다.
     const pinColor = {};
     const drawWire = (w, cls) => {
-      const a = this.pinPos(w.from, shown);
-      const b = this.pinPos(w.to, shown);
+      const a = this.pinPos(w.from, this.drawnInstances);
+      const b = this.pinPos(w.to, this.drawnInstances);
       if (!a || !b) return;
       const net = power ? this.sim.netByPin[w.from] : null;
       const chosen = ['power','gnd','sda','scl','signal','contact'].includes(w.kind) ? `var(--wire-${w.kind})` : null;
@@ -521,15 +568,21 @@ export class WiringCanvas {
         splitKey(w.from)[0] !== focus && splitKey(w.to)[0] !== focus;
       const layer = dim ? el('g', { opacity: 0.2 }, this.wireLayer) : this.wireLayer;
       if (!cls) { pinColor[w.from] = color; pinColor[w.to] = color; }
-      el('path', { d, class: 'wire-hit', 'data-kind': 'wire', 'data-id': w.id }, layer);
-      el('path', { d, class: `wire-casing ${cls || ''}`, 'data-wire-id':w.id }, layer);
+      const hit = el('path', { d, class: 'wire-hit', 'data-kind': 'wire', 'data-id': w.id }, layer);
+      const casing = el('path', { d, class: 'wire-casing ' + (cls || ''), 'data-wire-id':w.id }, layer);
       const p = el('path', {
         d, style: `stroke:${color}`, class: `wire ${cls || ''} ${sel ? 'selected' : ''} ${net?.short ? 'short' : ''} ${this.wireStyle !== 'curve' && route?.blocked ? 'routing-blocked' : ''}`,
         'data-kind': 'wire', 'data-id': w.id
       }, layer);
       if (this.wireStyle !== 'curve' && route?.blocked) el('title', {}, p).textContent = '부품이 겹치거나 핀 주변 여백이 부족합니다. 부품을 조금 떨어뜨려 주세요.';
       if (w.origin === 'ai') p.classList.add('ai');
-      if (power && net?.voltage > 0 && !net.short && !cls) el('path', { d, class: 'wire-pulse' }, layer);
+      const paths = [hit, casing, p];
+      if (power && net?.voltage > 0 && !net.short && !cls) paths.push(el('path', { d, class: 'wire-pulse' }, layer));
+      const record = { from: w.from, to: w.to, paths };
+      for (const ref of new Set([a.owner, b.owner])) {
+        if (!this.drawnWires.has(ref)) this.drawnWires.set(ref, []);
+        this.drawnWires.get(ref).push(record);
+      }
     };
     for (const w of this.wires) drawWire(w, this.preview?.removed.has(w.id) ? 'removed' : '');
     if (this.preview) for (const w of this.preview.added) drawWire(w, 'added');
@@ -545,6 +598,7 @@ export class WiringCanvas {
       const mirror = i.mirrored ? ` translate(${width} 0) scale(-1 1)` : '';
       const g = el('g', { transform: `translate(${i.x} ${i.y})${rotation}${mirror}`,
         class: i.mirrored ? 'part-mirrored' : null, 'data-kind': isPreview ? null : 'part', 'data-ref': i.ref }, this.partLayer);
+      this.drawnParts.set(i, { group: g, suffix: rotation + mirror });
       if (!def) {
         el('rect', { width: 140, height: 40, rx: 6, class: 'part-missing' }, g);
         el('text', { x: 8, y: 24, class: 'part-title dark' }, g).textContent = `${i.ref}: 없는 부품 ${i.part}`;
@@ -573,7 +627,7 @@ export class WiringCanvas {
 
       for (const [pid, p] of Object.entries(pos)) {
         const key = pinKey(i.ref, pid);
-        const used = this.wires.some((x) => x.from === key || x.to === key);
+        const used = usedPins.has(key);
         const net = power ? this.sim.netByPin[key] : null;
         const tx = p.side === 'left' ? 10 + inset.left : p.side === 'right' ? -10 + inset.right : 0;
         const ty = bare && (p.side === 'left' || p.side === 'right') ? 20 : p.side === 'top' ? 18 : p.side === 'bottom' ? -8 : 4;

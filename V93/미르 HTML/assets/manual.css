@@ -1,0 +1,16 @@
+:root[data-theme="light"]{color-scheme:light}
+:root[data-theme="dark"]{color-scheme:dark}
+:root{color-scheme:light dark;--ink:light-dark(#16283b,#e5edf8);--muted:light-dark(#465d73,#afc3d9);--line:light-dark(#cbd9e8,#39536d);--panel:light-dark(#edf5fd,#1d3045);--blue:light-dark(#165c9c,#91c9ff)}
+*{box-sizing:border-box}body{margin:0;background:Canvas;color:var(--ink);font:15px/1.65 "Segoe UI","Malgun Gothic",sans-serif}main{width:min(760px,100%);margin:auto;padding:24px}
+h1,h2,p{margin:0 0 8px}h1{font-size:clamp(25px,5vw,36px);line-height:1.2}h2{font-size:21px}header>p{color:var(--muted)}nav{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 24px}a{color:var(--blue)}nav a{border:1px solid var(--line);border-radius:8px;padding:4px 9px;text-decoration:none}
+section{padding:20px 0;border-top:1px solid var(--line);scroll-margin-top:12px}.step{color:var(--blue);font-weight:700;font-size:12px}.lesson{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}ol,ul{margin:0;padding-left:24px}li+li{margin-top:5px}figure:focus-visible{outline:2px solid var(--blue);outline-offset:3px}figure{margin:0;padding:8px 12px;background:var(--panel);border-radius:10px;color:var(--blue)}svg{display:block;width:100%;height:auto}figcaption{font-size:12px;color:var(--muted)}kbd{border:1px solid var(--line);padding:1px 4px;border-radius:4px}footer{border-top:1px solid var(--line);padding-top:14px}@media(max-width:570px){.lesson{grid-template-columns:1fr}}
+
+.demo-motion,.demo-pointer,.demo-click{opacity:0}
+.demo-pointer{fill:var(--ink);stroke:Canvas;stroke-width:1.5;stroke-linejoin:round}
+.demo-click{fill:none;stroke:var(--blue);stroke-width:2;transform-box:fill-box;transform-origin:center}
+.demo-control{fill:Canvas;stroke:currentColor;stroke-width:1.4}
+.demo-marquee{transform-origin:26px 18px}
+@media(prefers-reduced-motion:reduce){.demo-marquee{opacity:.6}}
+.demo-label{font:700 10px "Malgun Gothic",sans-serif;fill:currentColor;stroke:none;text-anchor:middle}
+
+.manual-wire-origin { transform-origin: 84px 45px; }

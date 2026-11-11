@@ -1,9 +1,15 @@
-import { runtimeApi } from './web-api.js?v=research-evidence-7';
+import { runtimeApi } from './web-api.js';
 
 // KiCad 파일은 기존 키 자동 연결을 통해 서버로 보낸다. 원본 파일을 수정하지 않는다.
 export function initVerificationPanel({ message }) {
   const $ = (id) => document.getElementById(id);
-  let busy = false;
+  const dialog = $('verificationModal');
+  let busy = false, checking = false, dbReady = false, kicadReady = false;
+  function updateControls() {
+    $('btnVerificationConnect').hidden = dbReady || checking;
+    $('btnVerificationImport').disabled = !dbReady || busy || checking;
+    $('btnVerificationRun').disabled = !kicadReady || busy || checking;
+  }
   let selectedFiles = [];
   const show = (value) => { $('verificationResult').textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2); };
   async function call(path, method = 'GET', body) {
@@ -14,21 +20,55 @@ export function initVerificationPanel({ message }) {
   async function run(action) {
     if (busy) return;
     busy = true;
-    ['btnVerificationImport', 'btnVerificationRun'].forEach((id) => { $(id).disabled = true; });
-    try { await action(); } catch (error) { show('실패: ' + error.message); }
-    finally {
-      busy = false;
-      ['btnVerificationImport', 'btnVerificationRun'].forEach((id) => { $(id).disabled = false; });
+    updateControls();
+    try { await action(); } catch (error) { show('실패 · ' + error.message); }
+    finally { busy = false; updateControls(); }
+  }
+  async function checkTools() {
+    checking = true;
+    dbReady = kicadReady = false;
+    $('verificationConfig').textContent = '배선 DB와 검사 도구를 확인하고 있어요…';
+    updateControls();
+    try {
+      dbReady = (await runtimeApi.getAutoAuthStatus()).ready;
+      if (!dbReady) {
+        $('verificationConfig').textContent = '파일을 검증하려면 배선 DB에 연결해 주세요.';
+        return;
+      }
+      const config = await call('/verification/config');
+      kicadReady = Boolean(config.kicad_available);
+      $('verificationSpice').disabled = !config.ngspice_available;
+      if (!config.ngspice_available) $('verificationSpice').checked = false;
+      $('verificationConfig').textContent = 'KiCad ' + (kicadReady ? '준비됨' : '미설치 또는 경로 미설정')
+        + ' · ngspice ' + (config.ngspice_available ? '준비됨' : '미설치 또는 경로 미설정');
+    } catch (error) {
+      dbReady = (await runtimeApi.getAutoAuthStatus()).ready;
+      $('verificationConfig').textContent = '검사 도구를 확인할 수 없어요. ' + error.message;
+    } finally {
+      checking = false;
+      updateControls();
     }
   }
-  $('btnFileVerification').onclick = async () => {
-    $('verificationModal').classList.remove('hidden');
-    try {
-      const config = await call('/verification/config');
-      $('verificationConfig').textContent = `KiCad: ${config.kicad_available ? '준비됨' : '미설치 또는 경로 미설정'} · ngspice: ${config.ngspice_available ? '준비됨' : '미설치 또는 경로 미설정'}`;
-    } catch (error) { show(error.message); }
+  $('btnFileVerification').onclick = () => {
+    if (!dialog.open) dialog.showModal();
+    if (!busy && !checking) {
+      show('');
+      void checkTools();
+    }
   };
-  $('btnVerificationClose').onclick = () => $('verificationModal').classList.add('hidden');
+  $('btnVerificationClose').onclick = () => dialog.close();
+  $('btnVerificationConnect').onclick = () => {
+    dialog.close();
+    $('backendModal').close();
+    $('btnSettings').click();
+  };
+  window.addEventListener('mir-connection-status', async () => {
+    if (!(await runtimeApi.getAutoAuthStatus()).ready && dialog.open && !checking) {
+      dbReady = kicadReady = false;
+      $('verificationConfig').textContent = '배선 DB 연결을 다시 확인해 주세요.';
+      updateControls();
+    }
+  });
   function selectFiles(input, folder = false) {
     const supported = /\.(?:kicad_sch|kicad_pro|lib|inc|mod|cir|sp|model)$/i;
     selectedFiles = [...input.files].filter((file) => supported.test(file.name)).map((file) => ({ file,

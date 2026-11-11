@@ -2,7 +2,7 @@
 export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   let apiKey = '', sessionId = null, selectedMode = null, generation = 0, inFlight = false, sessionTimeout = 300;
   const messages = {
-    CIRCUIT_API_KEY_REQUIRED: '서버에 연결되지 않았습니다. 연결 설정의 서버 주소·배선 API 키 또는 서버와 터널 실행 상태를 확인하세요.',
+    CIRCUIT_API_KEY_REQUIRED: '서버에 연결되지 않았습니다. 에이전트 연결 탭에서 연결 정보를 확인하세요.',
     COPILOT_TOOL_CONNECTION_REQUIRED: 'Copilot Studio의 CircuitAgent 도구 연결이 필요합니다. 도구의 연결 계정·자격 증명을 확인하고 에이전트를 다시 게시하세요. Direct Line 키를 바꿀 문제는 아닙니다.',
     COPILOT_SECRET_NOT_CONFIGURED: '서버 .env의 COPILOT_DIRECT_LINE_SECRET에 Direct Line 비밀 키를 넣으세요.',
     DIRECT_LINE_NETWORK_ERROR: '서버와 Microsoft 사이의 통신이 끊겼습니다. 잠시 후 새 요청으로 다시 시도하세요. 이전 작업은 진행 중일 수 있으니 DB 상태를 먼저 확인하세요.',

@@ -111,16 +111,28 @@ class Placement(Model):
     mirrored: bool = False
 
 
+class EditorWire(Model):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(min_length=1, max_length=200)
+    from_: str = Field(alias="from", min_length=3, max_length=200)
+    to: str = Field(min_length=3, max_length=200)
+    kind: Literal["power", "gnd", "sda", "scl", "signal", "contact"] | None = None
+    note: str | None = Field(default=None, max_length=10000)
+    origin: str | None = Field(default=None, max_length=100)
+
+
 class CircuitDraft(Model):
     name: str = Field(min_length=1, max_length=200)
     requirements: str = Field(default="", max_length=10000)
     component_instances: list[ComponentInstance] = Field(min_length=1, max_length=500)
     nets: list[Net] = Field(default_factory=list, max_length=1000)
     layout: list[Placement] = Field(default_factory=list, max_length=500)
+    editor_wires: list[EditorWire] | None = Field(default=None, max_length=10000)
 
     @model_validator(mode="after")
     def unique_ids(self):
-        for items, field in [(self.component_instances, "instance_id"), (self.nets, "net_id"), (self.layout, "instance_id")]:
+        for items, field in [(self.component_instances, "instance_id"), (self.nets, "net_id"), (self.layout, "instance_id"), (self.editor_wires or [], "id")]:
             ids = [getattr(item, field) for item in items]
             if len(ids) != len(set(ids)):
                 raise ValueError(f"Duplicate {field}")

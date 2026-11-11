@@ -23,10 +23,42 @@ const wiring = document.createElement('section');wiring.id='settingsWiringPanel'
 for(const el of [...dialog.children])if(el.matches('.wiring-options,.wire-preview'))wiring.append(el);
 const appearance = document.createElement('section');appearance.id='settingsColorPanel';appearance.setAttribute('role','tabpanel');appearance.setAttribute('aria-labelledby','settingsColorTab');appearance.hidden=true;
 appearance.innerHTML='<h3>메인 색상</h3><p class="muted">버튼과 강조 표시에 사용할 색상을 골라 주세요.</p><div class="accent-presets" aria-label="추천 색상"></div><label class="accent-custom">직접 고르기 <input id="accentColor" type="color" aria-label="메인 색상 직접 고르기"></label><div class="accent-sample"><button class="primary" type="button">버튼 미리보기</button><span class="badge">강조 색상</span></div><button id="accentReset" type="button">기본 색상으로</button><p id="accentStatus" role="status" class="muted"></p>';
-const panels=[wiring,appearance];const buttons=[];
-function activate(i,focus=false){panels.forEach((p,n)=>p.hidden=n!==i);buttons.forEach((b,n)=>{b.setAttribute('aria-selected',String(n===i));b.tabIndex=n===i?0:-1});if(focus)buttons[i].focus()}
-['배선 형태','메인 색상'].forEach((name,i)=>{const b=document.createElement('button');b.id=i?'settingsColorTab':'settingsWiringTab';b.textContent=name;b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-controls',panels[i].id);b.onclick=()=>activate(i);b.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();activate(e.key==='Home'?0:e.key==='End'?1:1-i,true)}};buttons.push(b);tabs.append(b)});
-dialog.append(tabs,wiring,appearance);activate(0);
+const theme = document.createElement('section');
+theme.id = 'settingsThemePanel';
+theme.setAttribute('role', 'tabpanel');
+theme.setAttribute('aria-labelledby', 'settingsThemeTab');
+theme.innerHTML = '<fieldset class="theme-options"><legend>테마 설정</legend><label><input type="radio" name="appTheme" value="light"> 라이트</label><label><input type="radio" name="appTheme" value="dark"> 다크</label></fieldset>';
+
+const panels = [wiring, appearance, theme];
+const tabLabels = ['배선 형태', '메인 색상', '다크/라이트 모드'];
+const buttons = tabLabels.map((label, i) => {
+  const button = document.createElement('button');
+  button.id = panels[i].getAttribute('aria-labelledby');
+  button.type = 'button';
+  button.textContent = label;
+  button.setAttribute('role', 'tab');
+  button.setAttribute('aria-controls', panels[i].id);
+  button.onclick = () => activate(i);
+  button.onkeydown = event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const offset = event.key === 'ArrowLeft' ? -1 : 1;
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? panels.length - 1 : (i + offset + panels.length) % panels.length;
+    activate(next, true);
+  };
+  return button;
+});
+function activate(index, focus = false) {
+  panels.forEach((panel, i) => { panel.hidden = i !== index; });
+  buttons.forEach((button, i) => {
+    button.setAttribute('aria-selected', String(i === index));
+    button.tabIndex = i === index ? 0 : -1;
+  });
+  if (focus) buttons[index].focus();
+}
+tabs.append(...buttons);
+dialog.append(tabs, ...panels);
+activate(0);
 const input=appearance.querySelector('#accentColor');
 function update(){input.value=selected||defaultColor;appearance.querySelectorAll('[data-color]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.color===input.value)));apply()}
 function choose(value){selected=value;let saved=true;try{if(value)localStorage.setItem(key,value);else localStorage.removeItem(key)}catch{saved=false}update();document.getElementById('accentStatus').textContent=saved?'색상을 적용하고 저장했어요.':'색상을 적용했지만 저장할 수 없어요. 이번 실행에만 유지됩니다.'}

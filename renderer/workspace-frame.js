@@ -16,13 +16,9 @@ rail.querySelector('.frame-brand').append(brand);
 const top = document.querySelector('.topbar');
 const heading = document.createElement('div');heading.className='frame-heading';
 heading.append(menu);
-const crumb=document.createElement('span');crumb.innerHTML='작업 공간 <span aria-hidden="true">/</span> <strong id="frameHeadingName">새 프로젝트</strong>';heading.append(crumb);top.prepend(heading);
+top.prepend(heading);
 const save=document.createElement('button');save.textContent='프로젝트 저장';save.onclick=()=>document.getElementById('btnSave').click();document.querySelector('.top-actions').append(save);
 rail.addEventListener('click',e=>{const b=e.target.closest('[data-target]');if(!b)return;const id=b.dataset.target;if(id==='workspace'){document.querySelector('.canvas').focus();return;}document.getElementById(id)?.click();});
-const title=document.getElementById('stageTitle');
-function sync(){const name=title.textContent.trim()||'새 프로젝트';document.getElementById('frameProjectName').textContent=name;document.getElementById('frameHeadingName').textContent=name;}
-new MutationObserver(sync).observe(title,{childList:true,characterData:true,subtree:true});sync();
-
 menu.setAttribute('aria-controls','workspaceRail');
 menu.setAttribute('aria-expanded','false');
 menu.setAttribute('aria-label','메뉴 열기');

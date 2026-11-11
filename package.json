@@ -1,7 +1,7 @@
 {
   "name": "mir",
   "productName": "미르",
-  "version": "0.1.0",
+  "version": "0.1.93",
   "description": "임베디드 입문자를 위한 배선 추천 · 2D 가상 실습 · 오류 진단 (Copilot Studio 에이전트 연동)",
   "main": "main.js",
   "author": "PLAYLABS (아산스마트팩토리마이스터고)",
@@ -31,13 +31,15 @@
     ],
     "win": {
       "target": "portable",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
     },
     "directories": {
-      "output": "release-shared-integrated"
+      "output": "release-v93"
     },
-    "artifactName": "mir-integrated.exe",
-    "electronDist": "node_modules/electron/dist"
+    "artifactName": "mir-V93.exe",
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "33.4.11"
   },
   "devDependencies": {
     "electron": "^33.2.1",

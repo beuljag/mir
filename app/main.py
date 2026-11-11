@@ -36,7 +36,7 @@ def create_app(db_path=None, api_keys=None):
     research_service = ResearchService(store)
     app = FastAPI(title="Circuit Agent API", version="0.2.0", description="회로 API와 공식 자료 조사·문서 분석·사람 검토. 기본 샘플은 가상 테스트 전용입니다.")
     app.state.research = research_service
-    app.add_middleware(CORSMiddleware, allow_origins=list(ORIGINS), allow_methods=['GET', 'POST', 'PUT', 'DELETE'],
+    app.add_middleware(CORSMiddleware, allow_origins=[*ORIGINS, "null"], allow_methods=['GET', 'POST', 'PUT', 'DELETE'],
                        allow_headers=['Content-Type', 'X-API-Key'])
 
     def owner(api_key: Annotated[str | None, Security(key_header)]):
@@ -159,6 +159,10 @@ def create_app(db_path=None, api_keys=None):
         circuit = CircuitRecord(**body.model_dump(), id=str(uuid4()), version=1)
         store.create(circuit, user)
         return circuit
+
+    @app.get("/circuits/capabilities", include_in_schema=False)
+    def circuit_capabilities(user: User):
+        return {"editor_wires": True}
 
     @app.get("/circuits/{circuit_id}", response_model=CircuitRecord, operation_id="GetCircuitStatus", tags=["circuits"])
     def get(circuit_id: str, user: User):
