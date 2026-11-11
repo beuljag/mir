@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>미르 HTML 연결 안내</title>
+  <link rel="stylesheet" href="안내.css">
+</head>
+<body>
+<main>
+  <header><img src="../assets/mir-icon.png" alt=""><span>미르 HTML</span></header>
+  <h1>AI와 배선 DB 연결하기</h1>
+  <p>제작대를 열고 도움말 → 에이전트 연결 설정에서 DB와 Copilot AI를 확인하세요. DB가 준비되면 AI 설정을 완료하기 전에도 회로 저장과 불러오기를 사용할 수 있어요.</p>
+  <section>
+    <h2>공유 배선 서버로 연결</h2>
+    <ol>
+      <li><strong>미르 HTML 실행.cmd</strong>를 실행하세요. Node.js 20 이상이 필요해요.</li>
+      <li><strong>도움말 → 에이전트 연결 설정</strong>에서 <strong>공유 서버</strong>를 선택한 뒤 관리자에게 받은 HTTPS 주소와 배선 API 키를 입력하세요.</li>
+      <li><strong>연결 확인 및 적용</strong>을 누르세요. 배선 API 키는 탭을 닫거나 새로고침하면 다시 입력해야 해요.</li>
+    </ol>
+    <p>Copilot Direct Line 비밀 키는 서버 관리자가 서버의 <code>.env</code>에서 설정해요.</p>
+  </section>
+  <section>
+    <h2>이 PC에서 배선 서버 실행</h2>
+    <ol>
+      <li><strong>서버</strong> 폴더에서 터미널을 열고 <code>python -m pip install -r requirements.txt</code>를 실행하세요.</li>
+      <li><code>.env.example</code>을 복사해 <code>.env</code>로 저장하고 <code>CIRCUIT_API_KEY</code>와 <code>COPILOT_DIRECT_LINE_SECRET</code>을 설정하세요. 배선 API 키는 24자 이상이어야 해요.</li>
+      <li>같은 터미널에서 <code>python run.py</code>를 실행하세요.</li>
+      <li><strong>미르 HTML 실행.cmd</strong>로 제작대를 열고 <strong>도움말 → 에이전트 연결 설정 → 이 PC의 서버</strong>를 선택한 뒤 <strong>연결 확인 및 적용</strong>을 누르세요.</li>
+    </ol>
+    <p>자세한 Direct Line 설정은 서버 폴더의 <code>DIRECTLINE_SETUP.md</code>에서 확인할 수 있어요.</p>
+  </section>
+  <section><h2>DB에 저장되는 배선 정보</h2><p>이 폴더의 배선 서버는 지정한 선 종류와 메모까지 저장해요. 공유 서버가 이 기능을 지원하지 않으면 DB 화면에 안내가 표시돼요. 해당 서버에서는 프로젝트 파일에 선 종류와 메모를 함께 보관할 수 있어요.</p></section>
+</main>
+</body>
+</html>
+

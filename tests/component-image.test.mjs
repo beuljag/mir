@@ -108,3 +108,18 @@ test('새 부품이 첫 100개 뒤에 있어도 목록을 모두 읽고 미검�
   assert.match(last.description, /핀 정보 미확인/);
   assert.deepEqual(last.pins, []);
 });
+
+
+test('빈 이미지의 200 응답은 기본 그림과 핀을 유지하고 인증 및 서버 오류는 전달', async () => {
+  const part = { id: 'no-image', name: '기본 부품', pins: [{ id: 'P', side: 'left' }] };
+  for (const image_data of ['', '  ', null, undefined]) {
+    assert.equal(await loadComponentImage({ call: async () => ({ image_data, layout: null }) }, part), part);
+  }
+  for (const image_data of [42, {}, false, 'data:image/png;base64,AAAA']) {
+    await assert.rejects(() => loadComponentImage({ call: async () => ({ image_data }) }, part), /형식/);
+  }
+  for (const status of [401, 403, 409, 500]) {
+    const error = Object.assign(new Error('server error'), { status });
+    await assert.rejects(() => loadComponentImage({ call: async () => { throw error; } }, part), error);
+  }
+});
