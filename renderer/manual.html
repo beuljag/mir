@@ -2,6 +2,8 @@
 <html lang="ko">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>그림으로 배우는 미르</title>
 <style>
+:root[data-theme="light"]{color-scheme:light}
+:root[data-theme="dark"]{color-scheme:dark}
 :root{color-scheme:light dark;--ink:light-dark(#16283b,#e5edf8);--muted:light-dark(#465d73,#afc3d9);--line:light-dark(#cbd9e8,#39536d);--panel:light-dark(#edf5fd,#1d3045);--blue:light-dark(#165c9c,#91c9ff)}
 *{box-sizing:border-box}body{margin:0;background:Canvas;color:var(--ink);font:15px/1.65 "Segoe UI","Malgun Gothic",sans-serif}main{width:min(760px,100%);margin:auto;padding:24px}
 h1,h2,p{margin:0 0 8px}h1{font-size:clamp(25px,5vw,36px);line-height:1.2}h2{font-size:21px}header>p{color:var(--muted)}nav{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 24px}a{color:var(--blue)}nav a{border:1px solid var(--line);border-radius:8px;padding:4px 9px;text-decoration:none}
@@ -37,7 +39,7 @@ section{padding:20px 0;border-top:1px solid var(--line);scroll-margin-top:12px}.
     <figcaption>실제 미르 화면. 왼쪽 카드를 누르면 오른쪽 회로가 열려요.</figcaption>
   </figure></div>
 </section>
-<section id="parts"><div class="step">02</div><h2>제작대에 부품 놓기</h2><div class="lesson"><ol><li>예제 아래 <strong>내가 직접 만들어보기</strong> 또는 왼쪽 아래 <strong>부품함</strong>을 누르세요.</li><li>검색칸에 LED나 저항처럼 부품 이름을 입력하세요.</li><li>목록의 부품을 제작대로 끌어다 놓으세요. 부품을 더블클릭하면 속성을 볼 수 있어요.</li></ol><figure><svg viewBox="0 0 280 90" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="9" width="90" height="72" rx="8"/><rect x="19" y="19" width="68" height="15" rx="4"/><path d="M23 47h55m-55 12h44m44-13h61m-10-8 10 8-10 8"/><rect x="188" y="18" width="80" height="54" rx="9" stroke-dasharray="4 3"/><g opacity=".35"><path d="M200 45h14m28 0h14"/><rect x="214" y="38" width="28" height="14" rx="4"/></g><g class="demo-motion" data-motion="drag" fill="Canvas"><path d="M23 45h14m28 0h14"/><rect x="37" y="38" width="28" height="14" rx="4"/></g></svg><figcaption>부품함에서 제작대로 부품을 드래그</figcaption></figure></div></section>
+<section id="parts"><div class="step">02</div><h2>제작대에 부품 놓기</h2><div class="lesson"><ol><li>예제 아래 <strong>내가 직접 만들어보기</strong> 또는 왼쪽 아래 <strong>부품함</strong>을 누르세요.</li><li>검색칸에 LED나 저항처럼 부품 이름을 입력하세요.</li><li>목록의 부품을 제작대로 끌어다 놓으세요. 부품을 선택한 뒤 <kbd>E</kbd>로 왼쪽, <kbd>R</kbd>로 오른쪽 90° 회전, <kbd>T</kbd>로 좌우 반전할 수 있어요.</li></ol><figure><svg viewBox="0 0 280 90" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="9" width="90" height="72" rx="8"/><rect x="19" y="19" width="68" height="15" rx="4"/><path d="M23 47h55m-55 12h44m44-13h61m-10-8 10 8-10 8"/><rect x="188" y="18" width="80" height="54" rx="9" stroke-dasharray="4 3"/><g opacity=".35"><path d="M200 45h14m28 0h14"/><rect x="214" y="38" width="28" height="14" rx="4"/></g><g class="demo-motion" data-motion="drag" fill="Canvas"><path d="M23 45h14m28 0h14"/><rect x="37" y="38" width="28" height="14" rx="4"/></g></svg><figcaption>부품함에서 제작대로 부품을 드래그</figcaption></figure></div></section>
 <section id="wire"><div class="step">03</div><h2>핀 두 개를 연결하기</h2><div class="lesson"><ol><li>부품 가장자리의 작은 원이 <strong>핀</strong>이에요. 마우스를 올려 이름을 확인하세요.</li><li>첫 번째 핀을 클릭한 뒤 다른 핀을 클릭하면 선이 생겨요. 연결을 취소하려면 <kbd>Esc</kbd>를 누르세요.</li><li>아래 색상 버튼으로 새 선의 색을 고를 수 있어요. <strong>자동으로 연결</strong>은 핀 역할에 맞춰 색을 선택해요.</li></ol><figure><svg viewBox="0 0 280 90" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="10" y="18" width="67" height="54" rx="8"/><rect x="203" y="18" width="67" height="54" rx="8"/><path d="M84 45h112" stroke-width="2" stroke-dasharray="4 4" opacity=".4"/><circle cx="77" cy="45" r="7" fill="Canvas"/><circle cx="203" cy="45" r="7" fill="Canvas"/><text x="77" y="12" fill="currentColor" stroke="none" text-anchor="middle">①</text><text x="203" y="12" fill="currentColor" stroke="none" text-anchor="middle">②</text><circle class="demo-motion" data-motion="first" cx="77" cy="45" r="13" stroke-width="3"/><circle class="demo-motion" data-motion="second" cx="203" cy="45" r="13" stroke-width="3"/><path class="demo-motion" data-motion="wire" d="M84 45h112" stroke-width="4" stroke-linecap="round" style="transform-origin:84px 45px"/></svg><figcaption>첫 번째 핀과 두 번째 핀을 차례로 클릭</figcaption></figure></div></section>
 <section id="move"><div class="step">04</div><h2>화면 이동과 편집</h2><div class="lesson"><ul><li><strong>빈 곳 드래그</strong>로 화면을 옮기고 마우스 휠로 확대·축소해요.</li><li><strong>부품 드래그</strong>로 부품을 옮겨요. <kbd>Shift</kbd>를 누르고 빈 곳에서 드래그하면 여러 부품을 선택해 함께 움직일 수 있어요.</li><li>선이나 부품을 선택하고 <kbd>Delete</kbd>로 삭제해요. <kbd>Ctrl+Z</kbd>로 되돌리고 <kbd>Ctrl+Y</kbd>로 다시 실행해요.</li></ul><figure><svg viewBox="0 0 280 90" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
   <rect class="demo-motion demo-marquee" data-motion="marquee" x="26" y="18" width="152" height="55" rx="3"
@@ -67,6 +69,11 @@ section{padding:20px 0;border-top:1px solid var(--line);scroll-margin-top:12px}.
 <section id="agent"><div class="step">07</div><h2>AI 에이전트에 질문하기</h2><div class="lesson"><ol><li>오른쪽 채팅창에 만들고 싶은 회로나 확인할 문제를 적어요.</li><li>현재 회로도 함께 보려면 <strong>현재 배선 함께 보내기</strong>를 선택하세요.</li><li>연결이 필요하면 <strong>도움말 → 에이전트 연결 설정</strong>을 여세요. 데모에서는 준비된 예제를 체험할 수 있어요.</li></ol><figure><svg viewBox="0 0 280 90" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect class="demo-control" x="17" y="16" width="139" height="26" rx="6"/><path d="M32 29h105"/><rect class="demo-control" x="164" y="16" width="50" height="26" rx="6"/><text class="demo-label" x="189" y="33">보내기</text><g class="demo-motion" data-motion="ask"><path d="M17 16h139v26H46l-12 9v-9H17z" fill="Canvas"/><text x="25" y="34" fill="currentColor" stroke="none" font-size="11">LED를 켜고 싶어요</text></g><g class="demo-motion" data-motion="answer"><path d="M113 50h149v26h-17v8l-12-8H113z" fill="Canvas"/><text x="124" y="68" fill="currentColor" stroke="none" font-size="11">어떤 보드를 쓰나요?</text></g></svg><figcaption>채팅창에 만들고 싶은 회로와 궁금한 점 입력</figcaption></figure></div></section>
 <footer><a href="#top">목차로 돌아가기 ↑</a></footer>
 </main><script>
+window.addEventListener('message', event => {
+  if (event.source !== window.parent || event.data?.type !== 'mir-manual-theme') return;
+  const { theme } = event.data;
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+});
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const mouseHover = matchMedia('(hover: hover) and (pointer: fine)');
 const easeOut = 'cubic-bezier(0.23,1,0.32,1)';
@@ -121,6 +128,12 @@ const svgNS = 'http://www.w3.org/2000/svg';
 const translate = (x, y) => `translate(${x}px,${y}px)`;
 
 let stopPreviousDemo;
+window.addEventListener('message', event => {
+  if (event.source === window.parent && event.data?.type === 'mir-manual-close') stopPreviousDemo?.();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopPreviousDemo?.();
+});
 for (const figure of document.querySelectorAll('section figure')) {
   const diagram = figure.querySelector('svg');
   const step = figure.closest('section');
@@ -142,15 +155,20 @@ for (const figure of document.querySelectorAll('section figure')) {
   pointer.setAttribute('d', 'M0 0L0 19L5 14L9 20L12 18L8 12L16 11Z');
   diagram.append(pointer);
 
-  const stop = () => diagram.getAnimations({subtree:true}).forEach(animation => animation.cancel());
+  let loopTimer;
+  const clear = () => diagram.getAnimations({subtree:true}).forEach(animation => animation.cancel());
+  const stop = () => {
+    clearTimeout(loopTimer);
+    if (stopPreviousDemo === stop) stopPreviousDemo = undefined;
+    clear();
+  };
   const updatePreference = () => { stop(); figure.tabIndex = reduced.matches ? -1 : 0; };
   updatePreference();
   reduced.addEventListener('change', updatePreference);
 
-  const play = () => {
-    if (reduced.matches) return;
-    stopPreviousDemo?.();
-    stopPreviousDemo = stop;
+  const run = () => {
+    if (stopPreviousDemo !== stop) return;
+    clear();
     const duration = scene.path.at(-1)[0] + 140;
     const [lastTime, lastX, lastY] = scene.path.at(-1);
     const [firstTime, firstX, firstY] = scene.path[0];
@@ -162,7 +180,7 @@ for (const figure of document.querySelectorAll('section figure')) {
       })),
       {offset:1, transform:translate(lastX,lastY), opacity:0}
     ];
-    pointer.animate(cursorFrames, {duration});
+    const cursor = pointer.animate(cursorFrames, {duration});
     for (const [i, ring] of rings.entries()) {
       ring.animate([{opacity:.9,transform:'scale(.95)'},{opacity:0,transform:'scale(1.55)'}],
         {delay:scene.path[scene.clicks[i]][0],duration:240,easing:easeOut});
@@ -171,6 +189,15 @@ for (const figure of document.querySelectorAll('section figure')) {
       const [frames,delay,duration,easing=easeOut,fill='forwards'] = demos[shape.dataset.motion];
       shape.animate(frames, {duration,delay,fill,easing});
     }
+    cursor.finished.then(() => {
+      if (stopPreviousDemo === stop) loopTimer = setTimeout(run, 850);
+    }, () => {});
+  };
+  const play = () => {
+    if (reduced.matches || stopPreviousDemo === stop) return;
+    stopPreviousDemo?.();
+    stopPreviousDemo = stop;
+    run();
   };
   figure.addEventListener('focus', play);
   step.addEventListener('pointerenter', event => {

@@ -108,6 +108,7 @@ class Placement(Model):
     x: float = Field(ge=-100000, le=100000)
     y: float = Field(ge=-100000, le=100000)
     rotation: float = 0
+    mirrored: bool = False
 
 
 class CircuitDraft(Model):

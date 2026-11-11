@@ -54,12 +54,31 @@ export function layoutPart(def) {
   return def._layout;
 }
 
+export function rotationDegrees(angle = 0) {
+  return ((angle % 360) + 360) % 360;
+}
+
+function partGeometry(instance, def) {
+  const { w, h } = def ? layoutPart(def) : { w: 140, h: 40 };
+  const angle = rotationDegrees(instance.rotation);
+  const radians = angle * Math.PI / 180;
+  const cos = Math.round(Math.cos(radians) * 1e12) / 1e12;
+  const sin = Math.round(Math.sin(radians) * 1e12) / 1e12;
+  return { w, h, angle, cos, sin };
+}
+
+export function partBounds(instance, def) {
+  const { w, h, cos, sin } = partGeometry(instance, def);
+  const width = Math.abs(w * cos) + Math.abs(h * sin);
+  const height = Math.abs(w * sin) + Math.abs(h * cos);
+  return { x: instance.x + (w - width) / 2, y: instance.y + (h - height) / 2, w: width, h: height };
+}
+
+const pinSides = ['right', 'bottom', 'left', 'top'];
+
 // Keep placed parts anchored and move only incoming parts that collide.
 export function separateParts(instances, defs, anchored = [], { gap = PART_GAP, preservePlaced = false } = {}) {
-  const bounds = (i) => {
-    const def = defFor(defs, i);
-    return { x: i.x, y: i.y, ...(def ? layoutPart(def) : { w: 110, h: 40 }) };
-  };
+  const bounds = (i) => partBounds(i, defFor(defs, i));
   const occupied = anchored.map(bounds);
   const overlaps = (a, b) =>
     a.x < b.x + b.w + gap && b.x < a.x + a.w + gap &&
@@ -83,8 +102,13 @@ export function separateParts(instances, defs, anchored = [], { gap = PART_GAP, 
     };
     const right = clearAlong('x', 'w');
     const down = clearAlong('y', 'h');
-    if (right - box.x < down - box.y) instance.x = box.x = right;
-    else instance.y = box.y = down;
+    if (right - box.x < down - box.y) {
+      instance.x += right - box.x;
+      box.x = right;
+    } else {
+      instance.y += down - box.y;
+      box.y = down;
+    }
     occupied.push(box);
   }
 }
@@ -150,7 +174,15 @@ export class WiringCanvas {
     const def = i && defFor(this.getDefs(), i);
     if (!def) return null;
     const p = layoutPart(def).pos[pid];
-    return p && { x: i.x + p.x, y: i.y + p.y, side: p.side, owner: ref, def: p.def };
+    if (!p) return null;
+    const { w, h, angle, cos, sin } = partGeometry(i, def);
+    const dx = (p.x - w / 2) * (i.mirrored ? -1 : 1), dy = p.y - h / 2;
+    const originalSide = pinSides.indexOf(p.side);
+    const sideIndex = i.mirrored && originalSide >= 0 && originalSide % 2 === 0
+      ? (originalSide + 2) % 4 : originalSide;
+    const side = sideIndex < 0 ? p.side : pinSides[(sideIndex + Math.round(angle / 90)) % 4];
+    return { x: i.x + w / 2 + dx * cos - dy * sin, y: i.y + h / 2 + dx * sin + dy * cos,
+      side, owner: ref, def: p.def };
   }
 
   applyView() {
@@ -168,9 +200,9 @@ export class WiringCanvas {
     for (const i of this.instances) {
       const def = defFor(this.getDefs(), i);
       if (!def) continue;
-      const { w, h } = layoutPart(def);
-      x0 = Math.min(x0, i.x - 60); y0 = Math.min(y0, i.y - 40);
-      x1 = Math.max(x1, i.x + w + 60); y1 = Math.max(y1, i.y + h + 40);
+      const { x, y, w, h } = partBounds(i, def);
+      x0 = Math.min(x0, x - 60); y0 = Math.min(y0, y - 40);
+      x1 = Math.max(x1, x + w + 60); y1 = Math.max(y1, y + h + 40);
     }
     const r = this.svg.getBoundingClientRect();
     const k = Math.min(1.4, Math.max(0.3, Math.min(r.width / (x1 - x0), r.height / (y1 - y0))));
@@ -282,8 +314,8 @@ export class WiringCanvas {
         const refs = new Set();
         for (const inst of this.instances) {
           const def = defFor(this.getDefs(), inst);
-          const { w, h } = def ? layoutPart(def) : { w: 140, h: 40 };
-          if (inst.x < box.x + box.width && inst.x + w > box.x && inst.y < box.y + box.height && inst.y + h > box.y) refs.add(inst.ref);
+          const { x, y, w, h } = partBounds(inst, def);
+          if (x < box.x + box.width && x + w > box.x && y < box.y + box.height && y + h > box.y) refs.add(inst.ref);
         }
         this.select(refs.size === 1 ? { type: 'part', ref: [...refs][0] } : refs.size ? { type: 'group', refs } : null);
       } else if (!finished.moved && !interrupted) {
@@ -416,11 +448,9 @@ export class WiringCanvas {
 
   updateRoutes(instances, wires) {
     const defs = this.getDefs();
-    const obstacles = instances.flatMap(i => {
-      const def = defFor(defs, i);
-      if (!def) return [{ id: i.ref, x: i.x, y: i.y, width: 140, height: 40 }];
-      const { w, h } = layoutPart(def);
-      return [{ id: i.ref, x: i.x, y: i.y, width: w, height: h }];
+    const obstacles = instances.map(i => {
+      const { x, y, w, h } = partBounds(i, defFor(defs, i));
+      return { id: i.ref, x, y, width: w, height: h };
     });
     const connections = wires.flatMap(w => {
       const start = this.pinPos(w.from, instances), end = this.pinPos(w.to, instances);
@@ -510,7 +540,11 @@ export class WiringCanvas {
     for (const i of shown) {
       const def = defFor(defs, i);
       const isPreview = this.preview?.addedParts?.includes(i);
-      const g = el('g', { transform: `translate(${i.x} ${i.y})`, 'data-kind': isPreview ? null : 'part', 'data-ref': i.ref }, this.partLayer);
+      const { angle, w: width, h: height } = partGeometry(i, def);
+      const rotation = angle ? ` rotate(${angle} ${width / 2} ${height / 2})` : '';
+      const mirror = i.mirrored ? ` translate(${width} 0) scale(-1 1)` : '';
+      const g = el('g', { transform: `translate(${i.x} ${i.y})${rotation}${mirror}`,
+        class: i.mirrored ? 'part-mirrored' : null, 'data-kind': isPreview ? null : 'part', 'data-ref': i.ref }, this.partLayer);
       if (!def) {
         el('rect', { width: 140, height: 40, rx: 6, class: 'part-missing' }, g);
         el('text', { x: 8, y: 24, class: 'part-title dark' }, g).textContent = `${i.ref}: 없는 부품 ${i.part}`;

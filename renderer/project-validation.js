@@ -46,6 +46,7 @@
       if(typeof i.part!=='string'||!i.part.trim())fail(i.ref+'의 부품 ID가 없습니다.');
       if(!Number.isFinite(i.x)||!Number.isFinite(i.y)||Math.abs(i.x)>1e7||Math.abs(i.y)>1e7)fail(i.ref+'의 위치가 올바르지 않습니다.');
       if(i.rotation!=null&&!Number.isFinite(i.rotation))fail(i.ref+'의 회전 값이 올바르지 않습니다.');
+      if(i.mirrored!=null&&typeof i.mirrored!=='boolean')fail(i.ref+'의 반전 상태가 올바르지 않습니다.');
       if(i.props!=null&&!obj(i.props))fail(i.ref+'의 속성 형식이 올바르지 않습니다.');
       if(i.label!=null&&typeof i.label!=='string')fail(i.ref+'의 이름 형식이 올바르지 않습니다.');
       if(defs&&!defs.has(i.part))fail(i.part+' 부품 JSON을 먼저 부품함에 추가해 주세요.');
