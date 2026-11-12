@@ -127,7 +127,9 @@ export async function loadComponentCatalog(client) {
 export async function loadComponentImage(client, part) {
   try {
     const result = await client.call(`/components/${encodeURIComponent(part.id)}/image`);
-    if (!result.image_data?.startsWith('data:image/svg+xml;base64,') || !result.layout) throw new Error('이미지 데이터 형식이 올바르지 않습니다.');
+    if (result && (result.image_data == null ||
+      (typeof result.image_data === 'string' && !result.image_data.trim()))) return part;
+    if (typeof result?.image_data !== 'string' || !result.image_data.startsWith('data:image/svg+xml;base64,') || !result.layout) throw new Error('이미지 데이터 형식이 올바르지 않습니다.');
     const positions = new Map(result.layout.pins.map((p) => [p.id, p]));
     // 서버의 연결 좌표를 사용해 그림 크기와 핀 위치를 일치시킨다.
     if (part.pins.length !== positions.size || part.pins.some((p) => !positions.has(p.id))) throw new Error('이미지와 핀 목록이 일치하지 않습니다.');

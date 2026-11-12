@@ -1,0 +1,208 @@
+/* ============================================================
+   Tide Design System — Design Tokens v1.0
+   파랑(Tide) · 초록(Kelp) · 블루 기운의 중립색(Slate)
+   사용법: 프로젝트 최상단에서 이 파일을 import 하고,
+          컴포넌트에서는 아래 "semantic" 토큰만 사용하세요.
+   ============================================================ */
+
+:root {
+  /* ---------- 1. Primitive: 원시 색 (직접 쓰지 말 것) ---------- */
+  --blue-50:  #EEF5FB;
+  --blue-100: #D6E7F5;
+  --blue-200: #ADCDEA;
+  --blue-300: #7CADDC;
+  --blue-400: #4E97DA;
+  --blue-500: #1C74C4;   /* 브랜드 기준색 */
+  --blue-600: #155EA3;
+  --blue-700: #124B82;
+  --blue-800: #103A63;
+  --blue-900: #0D2B48;
+
+  --green-50:  #EAF7F1;
+  --green-100: #CCEBDD;
+  --green-200: #9BD8BF;
+  --green-300: #63BF9C;
+  --green-400: #34A47C;
+  --green-500: #1B8763;
+  --green-600: #146B50;
+  --green-700: #10543F;
+
+  --slate-0:   #FFFFFF;
+  --slate-50:  #F7F9FB;
+  --slate-100: #EFF2F6;
+  --slate-200: #E1E6ED;
+  --slate-300: #C8D0DA;
+  --slate-400: #96A1B0;
+  --slate-500: #6B7787;
+  --slate-600: #4C5766;
+  --slate-700: #363F4C;
+  --slate-800: #232B36;
+  --slate-900: #151B23;
+  --slate-950: #0D1218;
+
+  --amber-100: #FAEFD4;
+  --amber-500: #B7791F;
+  --amber-700: #8A5A12;
+  --red-100:   #FAE4E3;
+  --red-500:   #C6423C;
+  --red-700:   #9A2F2A;
+
+  /* ---------- 2. Semantic: 실제로 쓰는 토큰 (라이트) ---------- */
+  --bg:            var(--slate-0);      /* 페이지 바탕 */
+  --bg-subtle:     var(--slate-50);     /* 한 단계 들어간 영역 */
+  --surface:       var(--slate-0);      /* 카드 */
+  --surface-hover: var(--slate-50);
+  --border:        var(--slate-200);
+  --border-strong: var(--slate-300);
+
+  --text:          var(--slate-900);    /* 본문 */
+  --text-muted:    var(--slate-500);    /* 보조 설명 */
+  --text-inverse:  var(--slate-0);
+
+  --primary:        var(--blue-500);
+  --primary-hover:  var(--blue-600);
+  --primary-active: var(--blue-700);
+  --primary-soft:   var(--blue-50);     /* 옅은 배경 */
+  --primary-text:   var(--blue-700);    /* 옅은 배경 위 글자 */
+  --on-primary:     #FFFFFF;
+
+  --success:      var(--green-500);
+  --success-soft: var(--green-50);
+  --success-text: var(--green-700);
+  --warning:      var(--amber-500);
+  --warning-soft: var(--amber-100);
+  --warning-text: var(--amber-700);
+  --danger:       var(--red-500);
+  --danger-soft:  var(--red-100);
+  --danger-text:  var(--red-700);
+
+  --focus-ring: 0 0 0 3px rgba(28, 116, 196, .35);
+
+  /* ---------- 3. 간격 (4px 배수) ---------- */
+  --space-1: 4px;   --space-2: 8px;   --space-3: 12px;
+  --space-4: 16px;  --space-5: 24px;  --space-6: 32px;
+  --space-7: 48px;  --space-8: 64px;  --space-9: 96px;
+
+  /* ---------- 4. 타이포 ---------- */
+  --font-sans: "Pretendard", "Pretendard Variable", -apple-system,
+               "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas,
+               "D2Coding", monospace;
+
+  --text-xs:   12px;  --lh-xs:   16px;
+  --text-sm:   14px;  --lh-sm:   20px;
+  --text-base: 16px;  --lh-base: 26px;
+  --text-lg:   18px;  --lh-lg:   28px;
+  --text-xl:   20px;  --lh-xl:   30px;
+  --text-2xl:  24px;  --lh-2xl:  32px;
+  --text-3xl:  30px;  --lh-3xl:  38px;
+  --text-4xl:  38px;  --lh-4xl:  46px;
+  --text-5xl:  48px;  --lh-5xl:  56px;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold:   700;
+
+  /* ---------- 5. 모서리 ---------- */
+  --radius-sm:   6px;    /* 입력창, 뱃지 */
+  --radius-md:  10px;    /* 버튼, 카드 */
+  --radius-lg:  16px;    /* 모달, 큰 패널 */
+  --radius-full: 999px;
+
+  /* ---------- 6. 그림자 (파란 기운을 섞어 회색 때를 없앰) ---------- */
+  --shadow-sm: 0 1px 2px rgba(16, 42, 72, .06);
+  --shadow-md: 0 2px 4px rgba(16, 42, 72, .06), 0 6px 16px rgba(16, 42, 72, .08);
+  --shadow-lg: 0 4px 8px rgba(16, 42, 72, .06), 0 16px 40px rgba(16, 42, 72, .12);
+
+  /* ---------- 7. 모션 ---------- */
+  --ease: cubic-bezier(.2, .8, .3, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+}
+
+/* ---------- 다크 모드: semantic 토큰만 갈아끼움 ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:            var(--slate-950);
+    --bg-subtle:     var(--slate-900);
+    --surface:       var(--slate-900);
+    --surface-hover: var(--slate-800);
+    --border:        #2A333F;
+    --border-strong: var(--slate-700);
+
+    --text:       #E6EBF1;
+    --text-muted: var(--slate-400);
+    --text-inverse: var(--slate-950);
+
+    --primary:        var(--blue-300);
+    --primary-hover:  var(--blue-200);
+    --primary-active: var(--blue-100);
+    --primary-soft:   rgba(124, 173, 220, .12);
+    --primary-text:   var(--blue-200);
+    --on-primary:     #0D2B48;
+
+    --success:      var(--green-300);
+    --success-soft: rgba(99, 191, 156, .12);
+    --success-text: var(--green-200);
+    --warning:      #E0B057;
+    --warning-soft: rgba(224, 176, 87, .12);
+    --warning-text: #EAC684;
+    --danger:       #E8827C;
+    --danger-soft:  rgba(232, 130, 124, .12);
+    --danger-text:  #F0A9A5;
+
+    --focus-ring: 0 0 0 3px rgba(124, 173, 220, .40);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .40);
+    --shadow-md: 0 2px 4px rgba(0, 0, 0, .35), 0 6px 16px rgba(0, 0, 0, .45);
+    --shadow-lg: 0 4px 8px rgba(0, 0, 0, .35), 0 16px 40px rgba(0, 0, 0, .55);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:            var(--slate-950);
+  --bg-subtle:     var(--slate-900);
+  --surface:       var(--slate-900);
+  --surface-hover: var(--slate-800);
+  --border:        #2A333F;
+  --border-strong: var(--slate-700);
+  --text:          #E6EBF1;
+  --text-muted:    var(--slate-400);
+  --text-inverse:  var(--slate-950);
+  --primary:        var(--blue-300);
+  --primary-hover:  var(--blue-200);
+  --primary-active: var(--blue-100);
+  --primary-soft:   rgba(124, 173, 220, .12);
+  --primary-text:   var(--blue-200);
+  --on-primary:     #0D2B48;
+  --success:      var(--green-300);
+  --success-soft: rgba(99, 191, 156, .12);
+  --success-text: var(--green-200);
+  --warning:      #E0B057;
+  --warning-soft: rgba(224, 176, 87, .12);
+  --warning-text: #EAC684;
+  --danger:       #E8827C;
+  --danger-soft:  rgba(232, 130, 124, .12);
+  --danger-text:  #F0A9A5;
+  --focus-ring: 0 0 0 3px rgba(124, 173, 220, .40);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .40);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, .35), 0 6px 16px rgba(0, 0, 0, .45);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, .35), 0 16px 40px rgba(0, 0, 0, .55);
+}
+
+/* ---------- 최소 리셋 + 기본 타입 ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { text-wrap: balance; letter-spacing: -.02em; margin: 0; }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
