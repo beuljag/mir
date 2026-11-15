@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { layoutPart, separateParts } from '../renderer/canvas.js';
-import { simulate } from '../renderer/sim.js';
+import { simulate, circuitDiagnostics } from '../renderer/sim.js';
 
 const source = readFileSync(new URL('../renderer/circuit-api.js', import.meta.url), 'utf8');
 const { fromCircuit, toCircuitDraft, CircuitApi, definitionToPart } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
@@ -38,6 +38,78 @@ test('DB 보드의 양방향 GPIO가 HIGH/LOW를 구동하고 입력 전용 핀�
       assert.equal(result.netByPin['U1.GPIO26'].voltage, null);
     }
   }
+});
+
+test('기존 보드 초안의 디지털 범위로 가상 HIGH를 구동해 직렬 저항과 LED를 켠다', () => {
+  const pin = { label: 'D4', direction: 'bidirectional', signal_type: 'digital', voltage_min: 0, voltage_max: 5 };
+  const board = definitionToPart({
+    id: 'draft-board', model: 'DB board', category: 'board', manufacturer: 'test',
+    is_draft: true, verification_status: 'unverified', source_references: [], pins: [
+      { id: 'D4', ...pin }, { id: 'GND', label: 'GND', direction: 'ground' },
+      { id: 'UNKNOWN', ...pin, voltage_max: null }, { id: 'LIMIT', ...pin, voltage_max: 12 },
+    ]
+  });
+  const load = (id) => JSON.parse(readFileSync(new URL(`../parts/${id}.json`, import.meta.url), 'utf8'));
+  const defs = new Map([[board.id, board], ['resistor-220', load('resistor-220')], ['led-red', load('led-red')]]);
+  const instances = [{ ref: 'U1', part: board.id }, { ref: 'R1', part: 'resistor-220' }, { ref: 'D1', part: 'led-red' }];
+  const wires = [{ from: 'U1.D4', to: 'R1.P1' }, { from: 'R1.P2', to: 'D1.A' }, { from: 'D1.K', to: 'U1.GND' }];
+  for (const mode of ['HIGH', 'LOW']) {
+    const result = simulate({ defs, instances, wires, gpio: { 'U1.D4': mode, 'U1.UNKNOWN': 'HIGH', 'U1.LIMIT': 'HIGH' } });
+    assert.equal(result.netByPin['U1.D4'].voltage, mode === 'HIGH' ? 5 : 0);
+    assert.equal(!!result.parts.D1.lit, mode === 'HIGH');
+    assert.equal(result.netByPin['U1.UNKNOWN'].voltage, null);
+    assert.equal(result.netByPin['U1.LIMIT'].voltage, null);
+  }
+});
+
+test('전압이 이름에 명시된 DB 보드 전원 핀은 LED를 구동하고 전압 미확인 핀은 떠 있다', () => {
+  const board = definitionToPart({
+    id: 'r4-draft', model: 'UNO R4 Minima', category: 'board', manufacturer: 'Arduino',
+    verification_status: 'unverified', is_draft: true, source_references: [], pins: [
+      { id: '5V', label: '+5V', direction: 'power_out' },
+      { id: '3V3', label: '+3V3', direction: 'power_out' },
+      { id: 'GND', label: 'GND', direction: 'ground' },
+      { id: 'IOREF', label: 'IOREF', direction: 'power_out' },
+      { id: 'VIN', label: 'VIN', direction: 'power_in' }
+    ]
+  });
+  const load = (id) => JSON.parse(readFileSync(new URL(`../parts/${id}.json`, import.meta.url), 'utf8'));
+  const defs = new Map([[board.id, board], ['resistor-220', load('resistor-220')], ['led-red', load('led-red')]]);
+  const instances = [{ ref: 'U1', part: board.id }, { ref: 'R1', part: 'resistor-220' }, { ref: 'D1', part: 'led-red' }];
+  const ground = { from: 'D1.K', to: 'U1.GND' };
+  const direct = simulate({ defs, instances, wires: [{ from: 'U1.5V', to: 'D1.A' }, ground] });
+  assert.equal(direct.netByPin['U1.5V'].voltage, 5);
+  assert.equal(direct.netByPin['U1.3V3'].voltage, 3.3);
+  assert.equal(direct.netByPin['U1.IOREF'].voltage, null);
+  assert.equal(direct.netByPin['U1.VIN'].voltage, null);
+  assert.equal(direct.parts.D1.burnt, true);
+  const limited = simulate({ defs, instances, wires: [{ from: 'U1.5V', to: 'R1.P1' }, { from: 'R1.P2', to: 'D1.A' }, ground] });
+  assert.equal(limited.parts.D1.lit, true);
+  assert.equal(limited.parts.D1.burnt, false);
+});
+
+test('가상 전원 진단은 DB 누락과 5V에서 3.3V 입력으로의 과전압을 따로 전달한다', () => {
+  const toPart = (id, pins) => definitionToPart({
+    id, model: id, category: 'board', manufacturer: 'Test', is_draft: true, source_references: [], pins
+  });
+  const supply = toPart('supply', [{ id: '5V', label: '+5V', direction: 'power_out' }]);
+  const sensor = toPart('sensor', [
+    { id: 'VCC', label: 'VCC', direction: 'power_in', signal_type: 'power', voltage_max: 3.3 },
+    { id: 'GND', label: 'GND', direction: 'ground', required: true }
+  ]);
+  const state = { defs: new Map([['supply', supply], ['sensor', sensor]]), instances: [
+    { ref: 'U1', part: 'supply' }, { ref: 'S1', part: 'sensor' }
+  ], wires: [{ from: 'U1.5V', to: 'S1.VCC' }] };
+  const before = circuitDiagnostics(state, simulate(state));
+  assert.deepEqual(before.map(({ code, component_id, pin_id }) => [code, component_id, pin_id]), [
+    ['OVERVOLTAGE', 'sensor', 'VCC'],
+    ['OUTPUT_VOLTAGE_MISSING', 'supply', '5V'],
+    ['REQUIRED_PIN_UNCONNECTED', 'sensor', 'GND']
+  ]);
+  assert.match(before[0].message, /5V.*3.3V/);
+  delete supply.pins[0].voltageFromLabel;
+  assert.deepEqual(circuitDiagnostics(state, simulate(state)).map(({ code }) => code),
+    ['OVERVOLTAGE', 'REQUIRED_PIN_UNCONNECTED']);
 });
 
 test('긴 핀 설명이 보드 폭을 늘리지 않고 겹치는 DB 배치만 이동한다', () => {

@@ -1,6 +1,6 @@
 // 간이 가상 전원 시뮬레이터.
 // 실제 회로 해석(SPICE)이 아니라 "어느 선에 몇 V가 걸리는지"와 부품의 눈에 보이는 반응만 계산한다.
-// 문제인지 아닌지의 판정은 하지 않는다. 판정은 학생이 가상 전원을 켜고 측정해 보며 직접 한다.
+// 진단은 계산한 전압을 등록된 핀 사양과 대조한다.
 
 class UnionFind {
   constructor() { this.p = new Map(); }
@@ -48,6 +48,71 @@ export function simulate({ instances, wires, defs, gpio = {}, pressed = new Set(
   return result;
 }
 
+export function circuitDiagnostics({ instances, wires, defs, gpio = {} }, sim) {
+  const issues = [];
+  const connected = new Set(wires.flatMap((wire) => [wire.from, wire.to]));
+  const known = new Set();
+  for (const instance of instances) {
+    const def = defs.get(instance.part);
+    const partIssue = (code, message, pin) => issues.push({
+      code, message: `${instance.ref}${pin ? `.${pin.label || pin.id}` : ''} · ${message}`,
+      ref: instance.ref, component_id: instance.part, ...(pin ? { pin_id: pin.id } : {})
+    });
+    if (!def?.pins.length) partIssue('PINOUT_MISSING', '핀 정의 없음');
+    for (const pin of def?.pins || []) {
+      const key = pinKey(instance.ref, pin.id);
+      known.add(key);
+      if (!connected.has(key)) {
+        if (pin.required) partIssue('REQUIRED_PIN_UNCONNECTED', '필수 핀 미연결', pin);
+        continue;
+      }
+      const net = sim.netByPin[key];
+      if (pin.type === 'nc') partIssue('NC_CONNECTED', '사용 금지 핀에 선이 연결됨', pin);
+      if ((pin.type === 'power_out' || pin.type === 'output') && !(pin.voltage === 'VCC' && def.behavior?.vcc) &&
+          (!Number.isFinite(pin.voltage) || pin.voltageFromLabel)) {
+        partIssue('OUTPUT_VOLTAGE_MISSING', 'DB 출력 전압 미등록', pin);
+      }
+      if (pin.type === 'gpio' && def.behavior?.kind === 'board' && pin.signalType === 'digital' &&
+          !Number.isFinite(pin.voltage) && !net?.sources.some((s) => s.pin !== key)) {
+        partIssue('GPIO_HIGH_VOLTAGE_MISSING', 'DB HIGH 출력 전압 미등록', pin);
+      }
+      const input = ['power_in', 'input'].includes(pin.type) || (pin.type === 'gpio' && !gpio[key]);
+      if (!input || net?.short) continue;
+      const voltage = net?.voltage;
+      if (!Number.isFinite(voltage)) {
+        if (pin.type === 'power_in' || pin.required) partIssue('INPUT_NOT_POWERED', '연결된 입력에 전압이 공급되지 않음', pin);
+        continue;
+      }
+      if (Number.isFinite(pin.maxVoltage) && voltage > pin.maxVoltage) {
+        partIssue('OVERVOLTAGE', `${voltage}V가 들어옴 (허용 최대 ${pin.maxVoltage}V)`, pin);
+      } else if (Number.isFinite(pin.minVoltage) && voltage < pin.minVoltage && (voltage !== 0 || pin.type === 'power_in')) {
+        partIssue('UNDERVOLTAGE', `${voltage}V가 들어옴 (허용 최소 ${pin.minVoltage}V)`, pin);
+      } else if (pin.signalType && !Number.isFinite(pin.maxVoltage) && voltage > 0) {
+        partIssue('INPUT_VOLTAGE_LIMIT_MISSING', `${voltage}V 입력의 허용 최대 전압 미등록`, pin);
+      }
+    }
+    const status = sim.parts[instance.ref];
+    if (status?.burnt) partIssue('LED_OVERCURRENT', 'LED 전류 제한 저항이 없음');
+    if (status?.shorting) partIssue('DIODE_SHORT', '다이오드가 전원에 정방향으로 직결됨');
+    if (status?.reversed) partIssue('REVERSED_POLARITY', '부하의 전원 극성이 반대임');
+    if (status?.powered && status.linked === false) partIssue('I2C_UNLINKED', 'I2C SDA/SCL 연결을 확인해야 함');
+  }
+  for (const key of connected) {
+    if (!known.has(key)) issues.push({ code: 'UNKNOWN_PIN', refs: [key], message: `${key} · 존재하지 않는 핀에 연결됨` });
+  }
+  for (const net of sim.nets) {
+    const driven = net.sources.filter((source) => source.strength === 'drive' || (source.strength === 'power' && source.v !== 0));
+    if (net.short || driven.length > 1) {
+      const refs = [...new Set(net.sources.map((source) => source.pin))];
+      issues.push({ code: net.short ? 'SHORT' : 'MULTIPLE_DRIVERS', refs,
+        message: `${refs.join(', ')} · ${net.short ? '서로 다른 전압의 출력이 연결됨' : '여러 출력이 직결됨'}` });
+    }
+  }
+  const wiringFaults = new Set(['SHORT', 'MULTIPLE_DRIVERS', 'OVERVOLTAGE', 'UNDERVOLTAGE',
+    'LED_OVERCURRENT', 'DIODE_SHORT', 'REVERSED_POLARITY']);
+  return issues.sort((a, b) => Number(wiringFaults.has(b.code)) - Number(wiringFaults.has(a.code)));
+}
+
 function solve({ inst, wires, defs, gpio, pressed, relayState }) {
   const uf = new UnionFind();
   const allPins = [];
@@ -81,10 +146,12 @@ function solve({ inst, wires, defs, gpio, pressed, relayState }) {
 
   for (const [k, i, def, p] of allPins) {
     const kind = def.behavior?.kind;
-    if (p.type === 'power_out' && (kind === 'board' || kind === 'supply')) addSource(k, p.voltage, 'power', k);
+    if (p.type === 'power_out' && (kind === 'board' || kind === 'supply') && Number.isFinite(p.voltage)) {
+      addSource(k, p.voltage, 'power', k);
+    }
     if (p.type === 'gnd' && (kind === 'board' || kind === 'supply')) addSource(k, 0, 'power', k);
     if (kind === 'board' && (p.type === 'gpio') && gpio[k]) {
-      const voltage = gpio[k] === 'HIGH' ? p.voltage : 0;
+      const voltage = gpio[k] === 'HIGH' ? (p.voltage ?? p.simLogicHigh) : 0;
       if (typeof voltage === 'number' && Number.isFinite(voltage)) {
         addSource(k, voltage, 'drive', `${k} ${gpio[k]}`);
       }
@@ -161,6 +228,7 @@ function solve({ inst, wires, defs, gpio, pressed, relayState }) {
       if (b.kind === 'led') {
         st.lit = forward != null && forward >= (b.forwardVoltage || 2) * 0.9;
         st.burnt = st.lit && !limited && forward > (b.forwardVoltage || 2) + 0.3;
+        st.reversed = forward != null && forward < 0;
       } else {
         // 다이오드가 전원 두 레일 사이에 정방향으로 직결되면 사실상 단락이다.
         st.conducting = forward != null && forward > 0.6;

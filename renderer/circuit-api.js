@@ -77,23 +77,55 @@ export function fromCircuit(circuit) {
   return { instances, wires, title: circuit.name, requirements: circuit.requirements };
 }
 
-export function definitionToPart(def) {
+function namedPowerRail(pin) {
+  if (pin.direction !== 'power_out') return undefined;
+  const levels = new Set();
+  for (const name of [pin.id, pin.label]) {
+    const match = name?.trim().match(/^\+?(\d+(?:\.\d+)?)V(?:(\d+))?$/i);
+    if (match && !(match[2] && match[1].includes('.'))) {
+      levels.add(Number(match[2] ? `${match[1]}.${match[2]}` : match[1]));
+    }
+  }
+  if (levels.size === 1) return levels.values().next().value;
+}
+
+export function definitionToPart(def, localPart) {
   const types = { ground: 'gnd', bidirectional: 'gpio' };
-  return {
+  const isBoard = ['board', 'controller'].includes(def.category);
+  const converted = {
     id: def.id, name: def.model, category: def.category,
-    ...(['board', 'controller'].includes(def.category) ? { behavior: { kind: 'board' } } : {}),
+    ...(isBoard ? { behavior: { kind: 'board' } } : {}),
     description: `${def.manufacturer} · ${def.verification_status}${def.is_draft ? ' · 미검증 설계 부품' : ''}${def.is_virtual ? ' · 가상 부품' : ''}${!def.pins.length ? ' · 핀 정보 미확인' : ''}`,
     isDraft: !!def.is_draft,
     unresolvedFields: def.unresolved_fields || [],
     sources: def.source_references.map((s) => s.reference),
-    pins: def.pins.map((p, n) => ({
-      id: p.id, label: p.label, type: types[p.direction] || p.direction,
-      side: n % 2 ? 'right' : 'left',
-      ...(p.voltage_min != null ? { minVoltage: p.voltage_min } : {}),
-      ...(p.voltage_max != null ? { maxVoltage: p.voltage_max } : {}),
-      ...(p.output_voltage != null ? { voltage: p.output_voltage } : {})
-    }))
+    pins: def.pins.map((p, n) => {
+      const voltage = p.output_voltage ?? (isBoard ? namedPowerRail(p) : undefined);
+      return {
+        id: p.id, label: p.label, type: types[p.direction] || p.direction, required: p.required, signalType: p.signal_type,
+        side: n % 2 ? 'right' : 'left',
+        ...(p.voltage_min != null ? { minVoltage: p.voltage_min } : {}),
+        ...(p.voltage_max != null ? { maxVoltage: p.voltage_max } : {}),
+        ...(voltage != null ? { voltage } : {}),
+        ...(p.output_voltage == null && voltage != null ? { voltageFromLabel: true } : {}),
+        // Older drafts recorded the digital range but omitted the HIGH level.
+        // Use common zero-based logic ranges only as a virtual simulation estimate.
+        ...(isBoard && def.is_draft && p.output_voltage == null &&
+              p.direction === 'bidirectional' && p.signal_type === 'digital' &&
+              p.voltage_min === 0 && [1.8, 2.5, 3.3, 5].includes(p.voltage_max)
+          ? { simLogicHigh: p.voltage_max } : {})
+      };
+    })
   };
+  const localPins = new Map(localPart?.pins.map((pin) => [pin.id, pin]));
+  if (localPins.size !== converted.pins.length || converted.pins.some((pin) => !localPins.has(pin.id))) return converted;
+  if (!localPart) return converted;
+  const { _layout, ...local } = localPart;
+  return { ...local, ...converted, pins: converted.pins.map((pin) => {
+    const previous = localPins.get(pin.id);
+    const type = pin.type === 'passive' && ['nc', 'contact'].includes(previous.type) ? previous.type : pin.type;
+    return { ...previous, ...pin, type, side: previous.side };
+  }) };
 }
 
 export async function loadComponentCatalog(client) {
@@ -108,13 +140,15 @@ export async function loadComponentCatalog(client) {
 
 // 서버가 검사한 SVG를 data URL로 표시한다. SVG 원문을 DOM에 직접 넣지 않는다.
 export async function loadComponentImage(client, part) {
+  if (part.physicalLayout) return part;
   try {
-    const result = await client.call(`/components/${encodeURIComponent(part.id)}/image`);
+    const result = await client.call(`/components/${encodeURIComponent(part.id)}/image?optional=true`);
+    if (result.image_data === null) return result.artwork_status === 'unavailable' ? { ...part, artworkUnavailable: true } : part;
     if (!result.image_data?.startsWith('data:image/svg+xml;base64,') || !result.layout) throw new Error('이미지 데이터 형식이 올바르지 않습니다.');
     const positions = new Map(result.layout.pins.map((p) => [p.id, p]));
     // 서버의 연결 좌표를 사용해 그림 크기와 핀 위치를 일치시킨다.
     if (part.pins.length !== positions.size || part.pins.some((p) => !positions.has(p.id))) throw new Error('이미지와 핀 목록이 일치하지 않습니다.');
-    const { _layout, ...fresh } = part;
+    const { _layout, artworkUnavailable, ...fresh } = part;
     const pins = part.pins.map((p) => ({ ...p, side: positions.get(p.id).side }));
     const pos = Object.fromEntries(pins.map((p) => [p.id, { ...positions.get(p.id), def: p }]));
     const nodes = result.design_version === 'v2' && Array.isArray(result.art_nodes) ? result.art_nodes : undefined;

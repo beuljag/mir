@@ -1,6 +1,6 @@
 import './web-chat.js';
-import './server-connection.js';
-import { createServerChatApi } from './server-chat.js?v=v84-merge-1';
+import './server-connection.js?v=optional-image-2';
+import { createServerChatApi } from './server-chat.js?v=chat-progress-1';
 // Electron의 기존 연결은 유지하고, 일반 브라우저에서만 대체 연결을 만든다.
 if (!window.api) {
   const localPage = ['127.0.0.1', 'localhost'].includes(location.hostname);

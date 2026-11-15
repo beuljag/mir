@@ -31,8 +31,22 @@ class ResearchError(ValueError):
     pass
 
 
+def reference_catalog(root, model):
+    path = root / "config" / "research-sources.json"
+    entries = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    matches = []
+    for identifier, entry in entries.items():
+        token = r"[A-Za-z0-9-]" if entry.get("chat_reference_url") else r"[A-Za-z0-9]"
+        if re.search(r"(?<!" + token + ")" + re.escape(identifier) + r"(?!" + token + ")", model, re.I):
+            matches.append(entry)
+    return matches
+
+
 def official_domain(url, manufacturer):
-    host = (urlsplit(url).hostname or "").lower()
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return False
     domains = DOMAINS.get((manufacturer or "").strip().lower(), [])
     return any(host == domain or host.endswith("." + domain) for domain in domains)
 
@@ -63,8 +77,8 @@ class TextHTML(HTMLParser):
             self.parts.append(data)
 
 
-def parse_pdf_bounded(body):
-    child = subprocess.Popen([sys.executable, "-m", "app.extract_pdf"], cwd=ROOT,
+def run_pdf_worker(body, args=(), *, timeout=25, max_output=8_000_000):
+    child = subprocess.Popen([sys.executable, "-m", "app.extract_pdf", *args], cwd=ROOT,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                              creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     job_handle = None
@@ -83,10 +97,10 @@ def parse_pdf_bounded(body):
                 win32job.AssignProcessToJobObject(job_handle, process_handle)
             finally:
                 process_handle.Close()
-        output, _ = child.communicate(body, timeout=25)
-        if child.returncode or len(output) > 8_000_000:
+        output, _ = child.communicate(body, timeout=timeout)
+        if child.returncode or len(output) > max_output:
             raise ResearchError("PDF_EXTRACTION_FAILED")
-        return json.loads(output)
+        return output
     except subprocess.TimeoutExpired:
         child.kill()
         child.communicate()
@@ -97,6 +111,10 @@ def parse_pdf_bounded(body):
             child.communicate()
         if job_handle:
             job_handle.Close()
+
+
+def parse_pdf_bounded(body):
+    return json.loads(run_pdf_worker(body))
 
 
 def analyze_document(url, model, manufacturer=None, fetcher=fetch_public):
@@ -195,11 +213,14 @@ class ResearchService:
         # Known official document URL conventions are probed; successful responses are still checked for the exact model.
         model = request.model.strip().lower()
         maker = (request.manufacturer or "").strip().lower()
+        catalog = reference_catalog(ROOT, request.model)
+        board_manuals = [entry for entry in catalog if entry["scope"] == "exact_board_manual"]
+        urls.extend(entry["artwork_sources"]["official_manual"] for entry in board_manuals)
         if re.fullmatch(r"[a-z0-9-]+", model):
             if maker in ("ti", "texas instruments"):
                 urls.append(f"https://www.ti.com/lit/ds/symlink/{model}.pdf")
                 methods.append("official_ti_document_probe")
-            elif maker in ("st", "stmicroelectronics"):
+            elif maker in ("st", "stmicroelectronics") and not board_manuals:
                 urls.append(f"https://www.st.com/resource/en/datasheet/{model}.pdf")
                 methods.append("official_st_document_probe")
         from .local_connection import env_settings
@@ -209,28 +230,42 @@ class ResearchService:
             key = json.loads(secrets_file.read_text(encoding="utf-8")).get("brave_search_api_key")
         if key:
             query = f'"{request.model}" {request.manufacturer or ""} official datasheet'
-            fetched = self.fetcher("https://api.search.brave.com/res/v1/web/search?" + urlencode({"q": query, "count": 8}),
-                                   max_bytes=1_000_000, headers={"X-Subscription-Token": key})
-            results = json.loads(fetched["body"]).get("web", {}).get("results", [])
+            domains = DOMAINS.get(maker)
+            if domains:
+                query += " site:" + domains[0]
+            try:
+                fetched = self.fetcher("https://api.search.brave.com/res/v1/web/search?" + urlencode({"q": query, "count": 8}),
+                                       max_bytes=1_000_000, headers={"X-Subscription-Token": key})
+                results = json.loads(fetched["body"]).get("web", {}).get("results", [])
+            except FetchError:
+                if not board_manuals:
+                    raise
+                results = []
+                methods.append("brave_search_unavailable")
+            else:
+                methods.append("brave_official_domain_search")
             result_urls = [item["url"] for item in results if isinstance(item.get("url"), str)
                            and item["url"].startswith("https://") and len(item["url"]) <= 2000]
             confirmed = [url for url in result_urls if official_domain(url, request.manufacturer)]
             urls.extend(confirmed)
             # 새 펌프·센서 제조사는 도메인 사전에 없을 수 있다. 출처 미확인 후보로 수집한다.
-            if maker not in DOMAINS and not confirmed:
+            if maker not in DOMAINS and result_urls and not confirmed:
                 urls.extend(result_urls)
                 methods.append("brave_unconfirmed_sources")
-            methods.append("brave_official_domain_search")
         if not urls:
-            catalog_path = ROOT / "config" / "research-sources.json"
-            catalog = json.loads(catalog_path.read_text(encoding="utf-8")) if catalog_path.exists() else {}
-            for identifier, entry in catalog.items():
-                if re.search(r"(?<![A-Za-z0-9])" + re.escape(identifier) + r"(?![A-Za-z0-9])", request.model, re.I):
-                    urls.extend(entry["urls"])
-                    methods.append("reference_catalog:" + entry["scope"])
+            for entry in catalog:
+                urls.extend(entry["urls"])
+                methods.append("reference_catalog:" + entry["scope"])
         if not urls:
             raise ResearchError("SEARCH_CONFIGURATION_OR_SOURCE_URL_REQUIRED")
-        return list(dict.fromkeys(urls))[:3], methods
+        unique_urls = list(dict.fromkeys(urls))
+        unique_urls.sort(key=lambda url: not official_domain(url, request.manufacturer))
+        if board_manuals:
+            # Reserve one attempt for the exact board manual even when all official slots are filled.
+            fallback = board_manuals[0]["urls"][0]
+            methods.append("reference_catalog:exact_board_manual")
+            return [url for url in unique_urls if url != fallback][:2] + [fallback], methods
+        return unique_urls[:3], methods
 
     def submit(self, kind, request, owner):
         if not self.slots.acquire(blocking=False):

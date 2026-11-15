@@ -61,6 +61,17 @@ def test_custom_properties_db_roundtrip(client, draft):
     assert updated.json()["component_instances"][0]["label"] == "custom value"
 
 
+def test_builtin_led_is_searchable_and_duplicate_creation_reuses_its_id(client):
+    match = client.get("/components/search", params={"q": "빨간색 LED"}).json()
+    assert [part["id"] for part in match] == ["led-red"]
+    created = client.post("/components", json={
+        "request_id": "reuse-red-led", "model": "red LED", "category": "output",
+        "pins": match[0]["pins"],
+    })
+    assert created.status_code == 201
+    assert created.json()["id"] == "led-red"
+
+
 def test_virtual_is_unknown_and_draft_apply_requires_opt_in(client, draft):
     cid = create(client, draft)
     result = check(client, cid).json()

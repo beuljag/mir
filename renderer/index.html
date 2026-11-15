@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: http://127.0.0.1:8002 http://localhost:8002; frame-src 'self' https://copilotstudio.microsoft.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'">
   <title>미르</title>
-  <link rel="stylesheet" href="styles.css?v=89">
+  <link rel="stylesheet" href="styles.css?v=chat-progress-1">
   <link rel="stylesheet" href="workspace-frame.css?v=89">
 </head>
 <body>
@@ -118,6 +118,10 @@
         <div id="gpioPanel" class="gpio-panel hidden">
           <div class="gpio-head label">보드 핀 출력 (코드 대신 직접 설정)</div>
           <div id="gpioList"></div>
+          <div id="powerDiagnostics" hidden>
+            <details><summary id="powerIssuesSummary"></summary><ul id="powerIssues"></ul></details>
+            <button id="btnPowerDiagnose">경고 진단 요청</button>
+          </div>
         </div>
         <div id="selInfo" class="sel-info hidden"></div>
         <div id="tooltip" class="tooltip hidden"></div>
@@ -281,7 +285,7 @@
     <header><h2 id="manualTitle">미르 사용 설명서</h2><button id="btnCloseManual" aria-label="설명서 닫기" autofocus>×</button></header>
     <iframe title="그림으로 배우는 미르" src="manual.html?v=89"></iframe>
   </dialog>
-  <script type="module" src="app.js?v=89"></script>
+  <script type="module" src="app.js?v=chat-progress-1"></script>
   <script type="module" src="workspace-frame.js"></script>
   <script type="module" src="titlebar.js"></script>
 </body>

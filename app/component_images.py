@@ -15,13 +15,17 @@ import xml.etree.ElementTree as ET
 
 import httpx
 from fastapi import Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 
+from .arduino_cad_artwork import import_cad_artwork
 from .local_connection import env_settings
+from .fritzing_artwork import FritzingError, import_artwork
 from .models import (ComponentImage, ImageApplyRequest, ImageRequest, JobRecord, SvgSaveRequest,
-                     ImagePresentation, ImageSpecRequest)
-from .research import now
+                     FritzingImportRequest, ImagePresentation, ImageSpecRequest)
+from .research import now, reference_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
+ARTWORK_IMPORTERS = {'fritzing-svg': import_artwork, 'arduino-cad-svg': import_cad_artwork}
 NS = 'http://www.w3.org/2000/svg'
 ET.register_namespace('', NS)
 SOURCE = 'config/prompts/component-image-team.md (사용자 제공 기본 그림 디자인 양식, 2026-10-28)'
@@ -54,7 +58,7 @@ MATERIALS = {
 for _name, _color in zip(('black', 'brown', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'gray', 'white', 'gold'),
                         ('#1A1A1A', '#7B4A23', '#D0312D', '#F07F13', '#F2C200', '#2E9E4F', '#2563EB', '#7C3AED', '#8A8A8A', '#F5F5F5', '#C9A43A')):
     MATERIALS['band-' + _name] = {'fill': _color}
-ART_CLASSES = set(MATERIALS) | {'strong', 'tiny', 'dark', 'on-canvas', 'state-on', 'state-off',
+ART_CLASSES = set(MATERIALS) | {'pcb-body', 'strong', 'tiny', 'dark', 'on-canvas', 'state-on', 'state-off',
                               'state-powered', 'state-unpowered', 'resistor-band'}
 
 
@@ -69,6 +73,14 @@ def canvas_layout(component, presentation=None, legacy=False):
     name = component.model
     pins = [{'id': p.id, 'label': p.label or p.id, 'side': 'right' if i % 2 else 'left'}
             for i, p in enumerate(component.pins)]
+    physical = presentation.physical_layout if presentation else None
+    if physical:
+        if set(physical.pins) != {p['id'] for p in pins}:
+            raise ImageError('PHYSICAL_LAYOUT_PIN_MISMATCH')
+        for pin in pins:
+            pin.update(physical.pins[pin['id']].model_dump())
+        return {'width': physical.width, 'height': physical.height, 'pins': pins, 'top': 0,
+                'is_board': component.category == 'board', 'physical': True}
     sides = presentation.pin_sides if presentation else {}
     if set(sides) - {p['id'] for p in pins}:
         raise ImageError('UNKNOWN_IMAGE_PIN')
@@ -130,7 +142,10 @@ def safe_svg(raw, layout, presentation=None):
               'opacity', 'fill-opacity', 'stroke-opacity', 'transform', 'fill-rule', 'class'}
     numeric = re.compile(r'[-+0-9.eE,\s]+')
     count = 0
-    def inspect(element, depth=0):
+    verify_pads = layout.get('physical') and layout.get('is_board')
+    pad_centers = set()
+
+    def inspect(element, depth=0, transformed=False):
         nonlocal count
         count += 1
         kind = tag(element)
@@ -173,9 +188,44 @@ def safe_svg(raw, layout, presentation=None):
                 for number in re.findall(r'[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?', value):
                     if abs(float(number)) > 100_000:
                         raise ImageError('SVG_COORDINATE_LIMIT')
-        for child in element:
-            inspect(child, depth + 1)
         classes = element.get('class', '').split()
+        transformed = transformed or 'transform' in element.attrib
+        if verify_pads and presentation and presentation.kind == 'pcb':
+            # Older generators used the dark module material for a full-board
+            # rectangle. Convert only that outline, leaving smaller modules alone.
+            if kind == 'rect' and not transformed and 'module-pcb' in classes:
+                try:
+                    bounds = tuple(float(element.get(key, '0')) for key in ('x', 'y', 'width', 'height'))
+                except ValueError:
+                    bounds = None
+                if bounds == (0, 0, w, h):
+                    classes = ['pcb-body' if name == 'module-pcb' else name for name in classes]
+                    classes = list(dict.fromkeys(classes))
+                    element.set('class', ' '.join(classes))
+            if 'pcb-body' in classes:
+                element.set('fill', presentation.color)
+        if verify_pads and 'pad' in classes:
+            try:
+                if transformed:
+                    raise ValueError
+                if kind == 'rect':
+                    width, height = (float(element.attrib[key]) for key in ('width', 'height'))
+                    if width <= 0 or height <= 0:
+                        raise ValueError
+                    x = float(element.attrib['x']) + width / 2
+                    y = float(element.attrib['y']) + height / 2
+                elif kind in ('circle', 'ellipse'):
+                    radii = ('r',) if kind == 'circle' else ('rx', 'ry')
+                    if any(float(element.attrib[key]) <= 0 for key in radii):
+                        raise ValueError
+                    x, y = (float(element.attrib[key]) for key in ('cx', 'cy'))
+                else:
+                    raise ValueError
+            except (KeyError, ValueError):
+                raise ImageError('PHYSICAL_SVG_PAD_GEOMETRY_INVALID') from None
+            pad_centers.add((round(x, 6), round(y, 6)))
+        for child in element:
+            inspect(child, depth + 1, transformed)
         for cls in classes:
             for key, value in MATERIALS.get(cls, {}).items():
                 element.attrib.setdefault(key, value)
@@ -191,8 +241,12 @@ def safe_svg(raw, layout, presentation=None):
             if 'dark' in classes:
                 element.set('fill', '#232B36')
     inspect(root)
+    if verify_pads:
+        pin_centers = {(round(pin['x'], 6), round(pin['y'], 6)) for pin in layout['pins']}
+        if pad_centers != pin_centers:
+            raise ImageError('PHYSICAL_SVG_PAD_COORDINATES_MISMATCH')
     result = ET.Element('{' + NS + '}svg', {'width': str(w), 'height': str(h), 'viewBox': f'0 0 {w} {h}'})
-    if presentation and presentation.kind == 'pcb':
+    if presentation and presentation.kind == 'pcb' and not layout.get('physical'):
         ET.SubElement(result, 'rect', {'width': str(w), 'height': str(h), 'rx': '8', 'fill': presentation.color})
         ET.SubElement(result, 'rect', {'x': '4', 'y': '4', 'width': str(w - 8), 'height': str(h - 8),
                                      'rx': '5', 'class': 'silk', **MATERIALS['silk']})
@@ -266,12 +320,17 @@ class ImageService:
         category = component.category if component else ''
         return ImagePresentation(kind='bare' if category in ('actuator', 'power', 'passive', 'input', 'output') else 'pcb')
 
-    def target(self, request, owner):
+    def target(self, request, owner, *, writing=False):
         if request.component_id:
             component = self.store.components(owner).get(request.component_id)
             if not component:
                 raise ImageError('COMPONENT_NOT_FOUND', 404)
-            return component.model, canvas_layout(component, self.presentation(request, owner))
+            presentation = self.presentation(request, owner)
+            if writing and component.id in self.store.builtin_parts:
+                raise ImageError('BUILTIN_COMPONENT_HAS_ARTWORK', 409)
+            if writing and component.category == 'board' and not component.is_virtual and not presentation.physical_layout:
+                raise ImageError('PHYSICAL_BOARD_LAYOUT_REQUIRED', 422)
+            return component.model, canvas_layout(component, presentation)
         candidate = self.store.get_candidate(request.candidate_id, owner)
         if not candidate:
             raise ImageError('CANDIDATE_NOT_FOUND', 404)
@@ -281,13 +340,27 @@ class ImageService:
     def spec(self, component_id, owner, candidate_id=None, presentation=None):
         if bool(component_id) == bool(candidate_id):
             raise ImageError('ONE_IMAGE_TARGET_REQUIRED')
+        if component_id in self.store.builtin_parts:
+            return {'component_id': component_id, 'reuse_builtin_artwork': True,
+                    'api_rules': '미르 부품함에 그림이 있으므로 이 ID를 사용하고 새 SVG를 저장하지 않습니다.'}
         request = ImageRequest(component_id=component_id, candidate_id=candidate_id, presentation=presentation, appearance='SVG 제작 사양 조회', request_id='spec-only')
+        if component_id:
+            component = self.store.components(owner).get(component_id)
+            if component and self.store.resolve_artwork(component):
+                return {'component_id': component_id, 'reuse_builtin_artwork': True,
+                        'api_rules': '같은 모델과 핀 ID의 그림을 서버에서 제공합니다. 기존 부품 ID를 그대로 사용하세요.'}
         label, layout = self.target(request, owner)
         prompt = (self.root / 'config' / 'prompts' / 'component-image-team.md').read_text(encoding='utf-8')
+        needs_physical_layout = bool(component_id and layout.get('is_board') and not component.is_virtual and not layout.get('physical'))
+        artwork_sources = [entry['artwork_sources'] for entry in reference_catalog(self.root, component.model)
+                           if 'artwork_sources' in entry] if needs_physical_layout else []
         return {'component_id': component_id, 'candidate_id': candidate_id, 'label': label, 'layout': layout, 'format': 'svg',
                 'prompt': prompt, 'prompt_source': SOURCE, 'design_version': 'v2',
-                'presentation': self.presentation(request, owner).model_dump(), 'allowed_classes': sorted(ART_CLASSES),
-                'api_rules': '한 부품의 SVG. width/height/viewBox는 layout과 동일. svg,g,rect,circle,ellipse,line,polyline,polygon,path,text만 허용. 몸체 안의 확인된 칩 이름·정격은 text로 표시 가능(최대 80자, monospace 9px/strong 12px/tiny 8px). 부품 제목과 핀 이름은 앱이 표시. style/image/use/script/외부 참조/필터/그라데이션/애니메이션 코드는 금지. allowed_classes의 재료·글자·상태 클래스를 사용. PCB 바탕·실크·구멍·패드는 서버가 추가하므로 몸체 세부 그림만 작성. BARE는 바탕 없이 layout의 핀 좌표까지 리드/케이블을 연결. 제목 30px와 하단 상태 영역을 확보. 핀·정격을 추론하지 않는다.'}
+                'physical_layout_required': needs_physical_layout,
+                'artwork_sources': artwork_sources,
+                'source_import_tools': ['ImportFritzingArtwork', 'ImportArduinoCadArtwork'] if needs_physical_layout else [],
+                'presentation': self.presentation(request, owner).model_dump(mode='json'), 'allowed_classes': sorted(ART_CLASSES),
+                'api_rules': '한 부품의 SVG. width/height/viewBox는 layout과 동일. svg,g,rect,circle,ellipse,line,polyline,polygon,path,text만 허용. 몸체 안의 확인된 칩 이름·정격은 text로 표시 가능(최대 80자, monospace 9px/strong 12px/tiny 8px). 부품 제목과 핀 이름은 앱이 표시. style/image/use/script/외부 참조/필터/그라데이션/애니메이션 코드는 금지. allowed_classes의 재료·글자·상태 클래스를 사용. 기본 PCB 바탕·실크·구멍·패드는 서버가 추가한다. 실물 보드의 physical 레이아웃은 기판과 패드를 직접 그리고, transform 없는 rect/circle/ellipse class="pad" 중심을 모든 layout 핀 좌표와 일치시킨다. BARE는 바탕 없이 layout의 핀 좌표까지 리드/케이블을 연결. 핀·정격을 추론하지 않는다.'}
 
     def save_svg(self, request, owner):
         fingerprint = hashlib.sha256(('save-svg:' + request.model_dump_json()).encode()).hexdigest()
@@ -297,25 +370,65 @@ class ImageService:
                 if existing[1] != fingerprint:
                     raise ImageError('IMAGE_REQUEST_ID_CONFLICT', 409)
                 return self.store.get_job(existing[0].job_id, owner)
-            label, layout = self.target(request, owner)
+            label, layout = self.target(request, owner, writing=True)
             presentation = self.presentation(request, owner)
             payload = safe_svg(request.svg, layout, presentation).encode('utf-8')
-            job = JobRecord(id=str(uuid4()), kind='component_image', status='completed', created_at=now(), updated_at=now())
-            image = ComponentImage(id=uuid4().hex, job_id=job.id, component_id=request.component_id,
-                                   candidate_id=request.candidate_id, label=label, created_at=now(), model='copilot-svg',
-                                   status='completed', width=layout['width'], height=layout['height'], layout=layout,
-                                   sha256=hashlib.sha256(payload).hexdigest(), has_transparency=presentation.kind == 'bare',
-                                   design_version='v2', presentation=presentation, prompt_source=SOURCE)
-            job.result = {'asset_id': image.id, 'illustrative_only': True}
-            destination = self.folder / (image.id + '.svg')
-            destination.write_bytes(payload)
-            try:
-                self.store.create_image(image, owner, request.request_id, fingerprint, job)
-            except Exception:
-                destination.unlink(missing_ok=True)
-                raise
-            self.log.info(json.dumps({'event': 'svg_saved', 'asset_ref': image.id[-8:], 'status': 'completed'}))
-            return job
+            return self.save_completed(request, owner, fingerprint, label, layout, presentation, payload)
+
+    def save_completed(self, request, owner, fingerprint, label, layout, presentation, payload, *,
+                       model='copilot-svg', source=SOURCE, author=''):
+        job = JobRecord(id=str(uuid4()), kind='component_image', status='completed', created_at=now(), updated_at=now())
+        image = ComponentImage(id=uuid4().hex, job_id=job.id, component_id=request.component_id,
+                               candidate_id=getattr(request, 'candidate_id', None), label=label, created_at=now(), model=model,
+                               status='completed', width=layout['width'], height=layout['height'], layout=layout,
+                               sha256=hashlib.sha256(payload).hexdigest(), has_transparency=presentation.kind == 'bare',
+                               design_version='v2', presentation=presentation, prompt_source=source)
+        job.result = {'asset_id': image.id, 'illustrative_only': True}
+        if model in ARTWORK_IMPORTERS:
+            job.result.update(source_url=source, source_author=author)
+        destination = self.folder / (image.id + '.svg')
+        destination.write_bytes(payload)
+        try:
+            self.store.create_image(image, owner, request.request_id, fingerprint, job)
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+        self.log.info(json.dumps({'event': 'svg_saved', 'asset_ref': image.id[-8:], 'status': 'completed'}))
+        return job
+
+    def import_source(self, request, owner, model):
+        fingerprint_prefix = 'fritzing' if model == 'fritzing-svg' else model
+        fingerprint = hashlib.sha256((fingerprint_prefix + ':' + request.model_dump_json()).encode()).hexdigest()
+        def previous_job():
+            existing = self.store.image_request(owner, request.request_id)
+            if existing:
+                if existing[1] != fingerprint:
+                    raise ImageError('IMAGE_REQUEST_ID_CONFLICT', 409)
+                return self.store.get_job(existing[0].job_id, owner)
+            return None
+
+        with self.lock:
+            if previous := previous_job():
+                return previous
+        component = self.store.components(owner).get(request.component_id)
+        if not component:
+            raise ImageError('COMPONENT_NOT_FOUND', 404)
+        if component.id in self.store.builtin_parts:
+            raise ImageError('BUILTIN_COMPONENT_HAS_ARTWORK', 409)
+        if component.category != 'board' or not component.pins:
+            raise ImageError('FRITZING_BOARD_WITH_PINS_REQUIRED' if model == 'fritzing-svg' else 'ARDUINO_CAD_BOARD_WITH_PINS_REQUIRED')
+        if not self.slots.acquire(blocking=False):
+            raise ImageError('IMAGE_QUEUE_FULL', 429)
+        try:
+            payload, presentation, author = ARTWORK_IMPORTERS[model](component, str(request.source_url), request.pin_map)
+            layout = canvas_layout(component, presentation)
+            with self.lock:
+                if previous := previous_job():
+                    return previous
+                return self.save_completed(request, owner, fingerprint, component.model, layout, presentation, payload,
+                                           model=model, source=str(presentation.physical_layout.reference_url), author=author)
+        finally:
+            self.slots.release()
 
     def submit(self, request, owner):
         fingerprint = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
@@ -328,7 +441,7 @@ class ImageService:
             key, model = self.settings()
             if not key:
                 raise ImageError('OPENAI_API_KEY_NOT_CONFIGURED', 503)
-            label, layout = self.target(request, owner)
+            label, layout = self.target(request, owner, writing=True)
             if not self.slots.acquire(blocking=False):
                 raise ImageError('IMAGE_QUEUE_FULL', 429)
             job = JobRecord(id=str(uuid4()), kind='component_image', status='queued', created_at=now(), updated_at=now())
@@ -360,7 +473,7 @@ class는 allowed_classes만 사용한다. 재료 색과 글꼴은 앱 styles.css
 몸체 안의 확인된 칩 이름·정격만 text로 표시한다. 한 표기 80자 이하, monospace, 기본 9px, strong 12px 굵게, tiny 8px, 금속 위 dark.
 미확인 전압·전류 표기는 만들지 않는다. 정격 문구를 적었다고 전기 사양이 검증된 것은 아니다.
 실물의 위에서 본 평면 외형을 단순화한다. 설명만 주어진 경우 개념도 외형을 그린다. 사진을 직접 확인했다고 말하지 않는다.
-제목 영역 30px와 아래 상태 영역을 확보한다. PCB의 바탕·실크·구멍·패드는 서버가 추가하므로 몸체 세부 그림만 작성한다.
+기본 PCB의 바탕·실크·구멍·패드는 서버가 추가한다. 실물 보드의 physical 레이아웃에서는 기판과 패드를 직접 그린다. transform 없는 rect/circle/ellipse에 class="pad"를 지정하고 중심을 각 layout 핀 좌표와 일치시킨다.
 BARE는 배경을 투명하게 두고 리드/전선을 layout의 정확한 핀 좌표로 잇는다. 임의의 직사각 기판을 넣지 않는다.
 상태 변화는 state-on/state-off/state-powered/state-unpowered 클래스, led-dome/pipe/tact-cap 클래스를 사용한다. 앱이 기존 시뮬레이션 결과로 갱신하며 임의 전기 동작을 만들지 않는다.
 핀의 실제 물리 위치/정격을 추론하거나 변경하지 않는다. layout의 핀 위치는 편집기 연결 좌표이다.
@@ -368,7 +481,7 @@ BARE는 배경을 투명하게 두고 리드/전선을 layout의 정확한 핀 �
         body = {'model': image.model, 'store': False, 'max_output_tokens': 10000,
                 'instructions': instructions,
                 'input': json.dumps({'label': image.label, 'appearance': request.appearance, 'layout': image.layout,
-                                     'presentation': image.presentation.model_dump(), 'allowed_classes': sorted(ART_CLASSES)}, ensure_ascii=False),
+                                     'presentation': image.presentation.model_dump(mode='json'), 'allowed_classes': sorted(ART_CLASSES)}, ensure_ascii=False),
                 'text': {'format': {'type': 'json_schema', 'name': 'component_svg', 'strict': True,
                                    'schema': {'type': 'object', 'properties': {'svg': {'type': 'string'}},
                                               'required': ['svg'], 'additionalProperties': False}}}}
@@ -435,8 +548,23 @@ BARE는 배경을 투명하게 두고 리드/전선을 layout의 정확한 핀 �
             raise ImageError('IMAGE_FILE_INTEGRITY_FAILED', 409)
         return {'asset_id': image.id, 'image_data': 'data:image/svg+xml;base64,' + base64.b64encode(payload).decode('ascii'),
                 'layout': image.layout, 'illustrative_only': True, 'design_version': image.design_version,
-                'presentation': image.presentation.model_dump() if image.presentation else None,
-                'art_nodes': art_nodes(payload) if image.design_version == 'v2' else None}
+                'presentation': image.presentation.model_dump(mode='json') if image.presentation else None,
+                'art_nodes': art_nodes(payload) if image.design_version == 'v2' and image.model not in ARTWORK_IMPORTERS else None}
+
+    def bundled_content(self, component):
+        resolved = self.store.resolve_artwork(component)
+        if not resolved:
+            return None
+        part_id, path, presentation = resolved
+        try:
+            payload = path.read_bytes()
+        except FileNotFoundError:
+            raise ImageError('IMAGE_FILE_NOT_FOUND', 404) from None
+        # Bundled SVGs are rendered as image resources, never as inline DOM.
+        return {'asset_id': 'builtin:' + part_id,
+                'image_data': 'data:image/svg+xml;base64,' + base64.b64encode(payload).decode('ascii'),
+                'layout': canvas_layout(component, presentation), 'illustrative_only': True,
+                'presentation': presentation.model_dump(mode='json')}
 
 
 def attach_component_images(app, store, owner, root=ROOT):
@@ -444,7 +572,6 @@ def attach_component_images(app, store, owner, root=ROOT):
 
     @app.exception_handler(ImageError)
     async def image_error(request, exc):
-        from fastapi.responses import JSONResponse
         return JSONResponse({'detail': {'code': exc.code}}, status_code=exc.status)
 
     @app.get('/component-images/config', operation_id='GetImageGenerationConfig', tags=['images'])
@@ -472,6 +599,22 @@ def attach_component_images(app, store, owner, root=ROOT):
     @app.get('/component-images/spec', tags=['images'])
     def image_spec(user: str = Depends(owner), component_id: str | None = None, candidate_id: str | None = None):
         return app.state.images.spec(component_id, user, candidate_id)
+
+    def import_source(body, user, model):
+        try:
+            return app.state.images.import_source(body, user, model)
+        except FritzingError as exc:
+            raise HTTPException(422, detail=exc.detail) from None
+
+    @app.post('/component-images/fritzing', status_code=201, response_model=JobRecord,
+              operation_id='ImportFritzingArtwork', tags=['images'])
+    def import_fritzing(body: FritzingImportRequest, user: str = Depends(owner)):
+        return import_source(body, user, 'fritzing-svg')
+
+    @app.post('/component-images/arduino-cad', status_code=201, response_model=JobRecord,
+              operation_id='ImportArduinoCadArtwork', tags=['images'])
+    def import_arduino_cad(body: FritzingImportRequest, user: str = Depends(owner)):
+        return import_source(body, user, 'arduino-cad-svg')
 
     @app.post('/component-images/spec', tags=['images'])
     def custom_spec(body: ImageSpecRequest, user: str = Depends(owner)):
@@ -504,11 +647,23 @@ def attach_component_images(app, store, owner, root=ROOT):
                 'message': '미르에서 서버 다시 연결 또는 DB 회로 불러오기를 실행하세요.'}
 
     @app.get('/components/{component_id}/image', tags=['images'])
-    def active(component_id: str, user: str = Depends(owner)):
+    def active(component_id: str, optional: bool = False, user: str = Depends(owner)):
+        component = store.components(user).get(component_id)
+        if not component:
+            raise ImageError('COMPONENT_NOT_FOUND', 404)
         image = store.active_image(user, component_id)
         if not image:
-            raise ImageError('ACTIVE_IMAGE_NOT_FOUND', 404)
-        component = store.components(user).get(component_id)
-        if not component or image.layout != canvas_layout(component, image.presentation, legacy=image.design_version == 'v1'):
+            bundled = app.state.images.bundled_content(component)
+            if bundled:
+                return bundled
+            if not optional:
+                # Older MIR clients use 404 to retain the local drawing.
+                return JSONResponse({'detail': {'code': 'ACTIVE_IMAGE_NOT_FOUND'}},
+                                    status_code=404, headers={'Cache-Control': 'no-store'})
+            missing = {'image_data': None}
+            if component.category == 'board' and not component.is_virtual:
+                missing['artwork_status'] = 'unavailable'
+            return JSONResponse(missing, headers={'Cache-Control': 'no-store'})
+        if image.layout != canvas_layout(component, image.presentation, legacy=image.design_version == 'v1'):
             raise ImageError('IMAGE_LAYOUT_CHANGED_REGENERATE', 409)
         return app.state.images.content(image)

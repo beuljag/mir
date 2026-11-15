@@ -40,6 +40,23 @@ test('같은 부품의 같은 면 핀은 바깥에서 연결',async()=>{
   const r=api.routeWire(start,end,[box]);checkRoute(r,start,end,[box],api);
   assert(r.points.some(p=>p.x<=-12));
 });
+test('기판 안쪽 핀은 패드에서 기판 가장자리까지 이어진 뒤 다른 부품을 피해 우회', async () => {
+  const api = await router;
+  const board = { id: 'board', x: 0, y: 0, width: 440, height: 280 };
+  const start = { x: 90, y: 38, side: 'top', owner: 'board' };
+  const end = { x: 570, y: 130, side: 'left' };
+  const obstacle = { id: 'another', x: 480, y: 30, width: 50, height: 100 };
+  const route = api.routeWire(start, end, [board, obstacle]);
+  assert.equal(route.blocked, false);
+  assert.deepEqual(api.pinBoardExit(start, board), { x: 90, y: 0 });
+  assert.equal(api.pinBoardExit({ ...start, y: 0 }, board), null);
+  assert.deepEqual(api.pinBoardLead(start, board, [{ x: 90, y: 18 }, { x: 110, y: 18 }]),
+    [start, { x: 98, y: 38 }, { x: 98, y: 0 }]);
+  assert.deepEqual(route.points[0], { x: 90, y: 38 });
+  assert.equal(route.points[1].x, 90);
+  assert(route.points[1].y <= -12);
+  checkRoute({ ...route, points: route.points.slice(1) }, { x: 90, y: route.points[1].y }, end, [board, obstacle], api);
+});
 test('위쪽·아래쪽 핀 방향과 소수 좌표 유지',async()=>{
   const api=await router;
   const start={x:33.3,y:0,side:'top',owner:'A'},end={x:210.5,y:-140,side:'bottom',owner:'B'};

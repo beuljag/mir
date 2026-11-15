@@ -1,18 +1,18 @@
-import './project-validation.js?v=89';
+import './project-validation.js?v=circuit-append-1';
 import { confirmAction } from './confirm-dialog.js';
-import { applyAgentResult } from './agent-result.js?v=v84-merge-1';
-import { runtimeApi } from './web-api.js?v=v84-merge-1';
+import { applyAgentResult, mergeAgentCircuit } from './agent-result.js?v=circuit-append-1';
+import { runtimeApi } from './web-api.js?v=chat-progress-1';
 import './appearance.js';
-import { initBackendPanel } from './backend-panel.js?v=89';
-import { initVerificationPanel } from './verification-panel.js?v=v84-merge-1';
-import { WiringCanvas, layoutPart, partBounds, rotationDegrees, separateParts } from './canvas.js?v=89';
-import { drawArt, isBareArt } from './art.js';
-import { simulate, splitKey } from './sim.js?v=v84-merge-1';
+import { initBackendPanel } from './backend-panel.js?v=wiring-diagnosis-1';
+import { initVerificationPanel } from './verification-panel.js?v=optional-image-2';
+import { WiringCanvas, layoutPart, partBounds, rotationDegrees, separateParts } from './canvas.js?v=physical-pin-labels-1';
+import { drawArt, isBareArt } from './art.js?v=physical-parts-1';
+import { simulate, splitKey, circuitDiagnostics } from './sim.js?v=wiring-diagnosis-2';
 import { defFor, cleanProps, editableKind, LED_COLORS, RESISTOR_PRESETS, formatOhms, parseOhms } from './props.js';
 import {
   buildCatalog, wiringSnapshot, buildRecommendRequest, buildChatRequest,
   buildDiagnoseRequest, buildPartRequest, parseReply, demoReply, getBuiltInWiring
-} from './agent.js?v=v84-merge-1';
+} from './agent.js?v=wiring-diagnosis-1';
 
 const $ = (id) => document.getElementById(id);
 const api = runtimeApi;
@@ -228,6 +228,14 @@ function refresh() {
   $('emptyHint').classList.toggle('hidden', state.buildingManually || state.instances.length > 0 || !!canvas.preview);
   $('stageTitle').textContent = state.title;
   renderGpioPanel();
+  const issues = canvas.sim ? circuitDiagnostics(state, canvas.sim) : [];
+  $('powerDiagnostics').hidden = !issues.length;
+  $('powerIssuesSummary').textContent = issues.length ? `⚠ ${issues[0].message}${issues.length > 1 ? ` 외 ${issues.length - 1}건` : ''}` : '';
+  $('powerIssues').replaceChildren(...issues.map(({ message }) => {
+    const item = document.createElement('li');
+    item.textContent = message;
+    return item;
+  }));
 }
 
 // ---------- 부품함 ----------
@@ -434,7 +442,7 @@ function partThumb(d) {
   body.setAttribute('height', h);
   body.setAttribute('rx', 8);
   body.setAttribute('class', `part-body ${bare ? 'bare' : ''}`);
-  if (!bare) body.setAttribute('style', d.imageData ? 'fill:transparent' : `fill:${d.color || 'var(--slate-600)'}`);
+  if (!bare) body.setAttribute('style', d.imageData || d.physicalLayout ? 'fill:transparent' : `fill:${d.color || 'var(--slate-600)'}`);
   g.appendChild(body);
   drawArt(g, { w, h, top, pos, st: {}, def: d, power: false });
   for (const p of Object.values(pos)) {
@@ -684,7 +692,7 @@ function renderGpioPanel() {
       if (p.type !== 'gpio') continue;
       const key = `${i.ref}.${p.id}`;
       if (!state.wires.some((w) => w.from === key || w.to === key)) continue;
-      rows.push({ key, label: `${i.ref}.${p.label || p.id}` });
+      rows.push({ key, label: `${i.ref}.${p.label || p.id}`, hasHigh: Number.isFinite(p.voltage ?? p.simLogicHigh) });
     }
   }
   if (!rows.length) {
@@ -698,6 +706,10 @@ function renderGpioPanel() {
     row.innerHTML = `<span class="gname">${escapeHtml(r.label)}</span><span class="seg">
       ${['IN', 'HIGH', 'LOW'].map((m) => `<button data-m="${m}" class="${cur === m ? 'on' : ''}">${m === 'IN' ? '입력' : m}</button>`).join('')}</span>`;
     row.querySelectorAll('button').forEach((b) => {
+      if (b.dataset.m === 'HIGH' && !r.hasHigh) {
+        b.disabled = true;
+        b.title = '이 핀의 HIGH 전압 정보가 없습니다.';
+      }
       b.onclick = () => {
         if (b.dataset.m === 'IN') delete state.gpio[r.key];
         else state.gpio[r.key] = b.dataset.m;
@@ -803,7 +815,7 @@ function applyProposal({ parts, conns, title, addedParts = [], origin = 'ai' }) 
   const placed = new Map(addedParts.map((p) => [`${p.ref}|${p.part}`, p]));
   const instances = parts.map((p) => {
     const old = keep.get(`${p.ref}|${p.part}`) || placed.get(`${p.ref}|${p.part}`);
-    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y, ...(old?.rotation == null ? {} : { rotation: old.rotation }), ...(old?.mirrored ? { mirrored: true } : {}), ...((p.props || old?.props) ? { props: p.props || old.props } : {}) };
+    return { ref: p.ref, part: p.part, label: p.label, x: old?.x, y: old?.y, ...(old?.rotation == null ? {} : { rotation: old.rotation }), ...(old?.mirrored ? { mirrored: true } : {}), ...((p.props || old?.props) ? { props: p.props || old.props } : {}), ...(old?.circuitSource ? { circuitSource: old.circuitSource } : {}) };
   });
   placeNew(instances, instances.filter((i) => i.x != null));
   state.instances = instances;
@@ -816,6 +828,54 @@ function applyProposal({ parts, conns, title, addedParts = [], origin = 'ai' }) 
   pushHistory();
   refresh();
   canvas.fit();
+}
+
+function mergeOnCanvas(next, sourceId) {
+  const bounds = (i) => partBounds(i, defFor(state.defs, i));
+  const arrange = (additions, others, previous) => {
+    separateParts(additions, state.defs, [], { gap: 0, preservePlaced: true });
+    const boxes = additions.map(bounds);
+    const occupied = others.map(bounds);
+    const anchor = previous.length ? previous.map(bounds) : occupied;
+    const left = Math.min(...anchor.map((b) => b.x));
+    const top = previous.length ? Math.min(...anchor.map((b) => b.y))
+      : Math.max(...occupied.map((b) => b.y + b.h)) + 120;
+    const dx = left - Math.min(...boxes.map((b) => b.x));
+    let dy = top - Math.min(...boxes.map((b) => b.y));
+    if (previous.length && boxes.some((b) => occupied.some((o) =>
+      b.x + dx < o.x + o.w + 32 && o.x < b.x + dx + b.w + 32 &&
+      b.y + dy < o.y + o.h + 32 && o.y < b.y + dy + b.h + 32))) {
+      dy += Math.max(...occupied.map((b) => b.y + b.h)) + 120 - top;
+    }
+    for (const instance of additions) { instance.x += dx; instance.y += dy; }
+  };
+  const onlySource = sourceId && state.instances.every((i) => i.circuitSource?.id === sourceId);
+  Object.assign(state, mergeAgentCircuit(state, next, { sourceId, arrange,
+    hasPin: (instance, id) => instance && defFor(state.defs, instance)?.pins.some((pin) => pin.id === id) }));
+  if (!state.title || onlySource) state.title = next.title || state.title;
+  if (onlySource) state.requirements = next.requirements;
+  clearEditorSelection();
+  syncToCanvas();
+  pushHistory();
+  refresh();
+  canvas.fit();
+}
+
+function drawAgentWiring(wiring) {
+  if (wiring.placement !== 'append' || !state.instances.length) { proposeWiring(wiring); return true; }
+  if (state.pendingProposal) {
+    addMessage('system', '열려 있는 수정안을 적용하거나 취소한 뒤 새 배선을 추가해 주세요.');
+    return false;
+  }
+  const { parts, conns, warnings } = normalizeWiring(wiring);
+  if (warnings.length) addMessage('system', warnings.join('\n'));
+  if (!parts.length) return false;
+  placeNew(parts);
+  const wires = conns.map((connection, n) => ({ ...connection, id: `ai-${n}`, origin: 'ai' }));
+  mergeOnCanvas({ instances: parts, wires, title: wiring.title });
+  backend.detachCircuit();
+  addMessage('system', `캔버스 아래에 회로 추가: ${wiring.title || '새 배선'}`);
+  return true;
 }
 
 function clearPreview() {
@@ -870,7 +930,7 @@ function addMessage(role, text, extra, notifyCompact = false) {
   return m;
 }
 
-function wiringCard(wiring) {
+function wiringCard(wiring, drawWiring = drawAgentWiring) {
   const card = document.createElement('div');
   card.className = 'wiring-card';
   const conns = (wiring.connections || []).map((c) => `<div class="conn">${escapeHtml(c.from)} → ${escapeHtml(c.to)}${c.note ? ` <span class="muted">· ${escapeHtml(c.note)}</span>` : ''}</div>`).join('');
@@ -884,7 +944,9 @@ function wiringCard(wiring) {
     <div class="row"><button data-act="draw">2D 화면에 다시 그리기</button></div>`;
   const draw = card.querySelector('[data-act="draw"]');
   draw.dataset.projectAction = '';
-  draw.onclick = () => proposeWiring(wiring);
+  draw.onclick = () => {
+    if (drawWiring(wiring) && wiring.placement === 'append') draw.remove();
+  };
   card.querySelectorAll('[data-copy]').forEach((b) => {
     b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); b.textContent = '복사됨'; };
   });
@@ -914,30 +976,68 @@ function partCard(part) {
 }
 
 let projectGeneration = 0;
-async function askAgent(message, { shown, ctx = {} } = {}) {
+let activeAgentRequest = null;
+async function askAgent(message, { shown, ctx = {}, diagnosis = null } = {}) {
   if (state.busy) return;
   const requestGeneration = projectGeneration;
-  const isCurrent = () => requestGeneration === projectGeneration;
+  const request = activeAgentRequest = { stopped: false };
+  const isCurrent = () => requestGeneration === projectGeneration && !request.stopped;
+  const finish = () => {
+    if (activeAgentRequest !== request) return;
+    activeAgentRequest = null;
+    state.busy = false;
+    $('btnSend').disabled = false;
+  };
   state.busy = true;
   $('compactReply').hidden = true;
   $('btnSend').disabled = true;
   if (shown) addMessage('user', shown);
   const typing = addMessage('agent', '에이전트가 생각하는 중…');
   typing.classList.add('typing');
+  const waitingLabel = document.createElement('span');
+  typing.replaceChildren(waitingLabel);
   const waitingSince = Date.now();
   let waitingStage = '요청 준비 중';
-  const refreshWaiting = () => { typing.textContent = `${waitingStage} · ${Math.floor((Date.now() - waitingSince) / 1000)}초`; };
+  let lastProgress = 0;
+  const refreshWaiting = () => { waitingLabel.textContent = `${waitingStage} · ${Math.floor((Date.now() - waitingSince) / 1000)}초`; };
+  refreshWaiting();
   const waitingTimer = setInterval(refreshWaiting, 1000);
+  if (state.settings.mode === 'server') {
+    const stop = document.createElement('button');
+    stop.type = 'button';
+    stop.textContent = '대기 중지';
+    stop.onclick = () => {
+      if (!isCurrent()) return;
+      request.stopped = true;
+      clearInterval(waitingTimer);
+      typing.remove();
+      void api.resetAgent().catch(() => {});
+      finish();
+      addMessage('system', '응답 대기를 중지했어요. 이미 시작한 에이전트 작업은 이어질 수 있어요.');
+    };
+    typing.appendChild(stop);
+  }
   try {
     let reply;
     const res = await api.sendToAgent(message, buildCatalog(state.defs), (progress) => {
+      if (!isCurrent()) return;
+      const entries = Array.isArray(progress.progress) ? progress.progress : [];
+      for (const entry of entries) {
+        if (!Number.isInteger(entry.seq) || entry.seq <= lastProgress || typeof entry.message !== 'string') continue;
+        lastProgress = entry.seq;
+        const status = addMessage('agent', entry.message);
+        status.classList.add('progress');
+        status.setAttribute('role', 'status');
+        typing.parentElement?.appendChild(typing);
+      }
       waitingStage = progress.stage === 'opening' ? 'Copilot 대화 연결 중'
         : progress.stage === 'reconnecting' ? 'Microsoft 연결 재확인 중'
-        : progress.stage === 'receiving' ? 'Copilot 응답 수신 중' : 'Copilot 응답 대기 중';
+        : progress.stage === 'receiving' ? 'Copilot 응답 수신 중'
+        : lastProgress ? '다음 작업 소식 대기 중' : 'Copilot 응답 대기 중';
       refreshWaiting();
     });
     if (res.demo) {
-      typing.textContent = '저장된 데모 예시를 확인하는 중…';
+      waitingLabel.textContent = '저장된 데모 예시를 확인하는 중…';
       await new Promise((r) => setTimeout(r, 500));
       reply = demoReply(message, ctx);
     } else {
@@ -946,31 +1046,53 @@ async function askAgent(message, { shown, ctx = {} } = {}) {
     typing.remove();
     if (!isCurrent()) return;
     const { text, wiring, part, circuit, clarification } = parseReply(reply);
+    if (diagnosis) {
+      const draw = (value) => {
+        if (!isCurrent() || snapshotState() !== diagnosis.snapshot || state.pendingProposal) {
+          addMessage('system', '배선이 바뀌었거나 수정안이 열려 있습니다. 현재 배선으로 다시 진단해 주세요.');
+          return false;
+        }
+        proposeWiring(value);
+        return true;
+      };
+      addMessage('agent', text || '진단 결과를 확인해 주세요.', wiring ? wiringCard(wiring, draw) : null, true);
+      if (!res.demo) {
+        const newParts = (wiring?.parts || []).map((p) => p.part).filter((id) => id && !state.defs.has(id));
+        try { await backend.refreshDiagnosedParts([...diagnosis.ids, ...newParts], isCurrent); }
+        catch (e) { if (isCurrent()) addMessage('system', `부품 사양을 다시 읽지 못했습니다. ${e.message}`); }
+      }
+      if (wiring && isCurrent()) draw(wiring);
+      return;
+    }
     let extra = circuit ? null : wiring ? wiringCard(wiring) : part ? partCard(part) : null;
     if (circuit) {
       extra = document.createElement('button');
       extra.disabled = true;
       extra.dataset.projectAction = '';
-      extra.textContent = '에이전트 회로를 DB에서 불러오기';
-      extra.onclick = () => backend.openCircuit(circuit.circuit_id || circuit.id, { showPanel: false });
+      extra.textContent = '회로를 캔버스에 반영';
+      extra.onclick = async () => {
+        if (await backend.applyAgentCircuit(circuit.circuit_id || circuit.id, { isCurrent })) extra.remove();
+      };
     }
     addMessage('agent', text || (circuit ? '회로 ID가 반환되었습니다. 저장된 배선을 확인합니다.' : wiring ? '배선을 제안합니다.' : '(빈 응답)'), extra, true);
     const applied = await applyAgentResult({ wiring, circuit, clarification }, { backend,
-      hasInstances: () => state.instances.length > 0, drawWiring: proposeWiring, isCurrent, isDemo: !!res.demo })
+      drawWiring: (value) => {
+        if (drawAgentWiring(value) && value.placement === 'append') extra?.querySelector('[data-act="draw"]')?.remove();
+      }, isCurrent, isDemo: !!res.demo })
       .finally(() => { if (circuit && isCurrent()) extra.disabled = false; });
     if (!isCurrent()) return;
+    if (circuit && applied !== 'circuit-available') extra.remove();
     if (applied === 'text-only' && !part && message.includes('[요청 종류: 배선 추천]')) {
       addMessage('system', '에이전트 응답에 회로 ID나 배선 데이터가 없어 그림을 만들지 못했습니다. 부품 등록과 배선 설계는 별도 단계입니다. 응답의 확인 질문이나 부족한 사양을 확인해 주세요.');
     }
   } catch (e) {
     typing.remove();
-    if (requestGeneration !== projectGeneration) return;
+    if (!isCurrent()) return;
     if (shown && !$('chatInput').value.trim()) $('chatInput').value = shown;
     addMessage('system', `에이전트 호출 실패: ${String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\n⚙ 설정에서 연결 정보를 확인하세요.`, null, true);
   } finally {
     clearInterval(waitingTimer);
-    state.busy = false;
-    $('btnSend').disabled = false;
+    finish();
   }
 }
 
@@ -1013,26 +1135,6 @@ function measurementReport(sim) {
   return lines.join('\n');
 }
 
-// 데모 진단용 힌트 (연결된 에이전트가 없을 때만 쓴다)
-function demoProblems(sim) {
-  const out = [];
-  for (const [key, net] of Object.entries(sim.netByPin)) {
-    const [ref, pid] = splitKey(key);
-    const inst = state.instances.find((i) => i.ref === ref);
-    const pin = state.defs.get(inst?.part)?.pins.find((p) => p.id === pid);
-    if (!pin || !state.wires.some((w) => w.from === key || w.to === key)) continue;
-    if (net.short) out.push(`${key}: 서로 다른 전원이 한 선에 직접 붙어 있습니다(단락). 배선 문제입니다.`);
-    else if (pin.maxVoltage != null && net.voltage != null && net.voltage > pin.maxVoltage) out.push(`${key}: ${net.voltage}V가 들어오지만 허용 최대는 ${pin.maxVoltage}V입니다. 전원 전압을 낮추거나 레벨 변환이 필요합니다.`);
-    else if (pin.type === 'power_in' && pin.minVoltage != null && net.voltage != null && net.voltage < pin.minVoltage && net.voltage > 0) out.push(`${key}: ${net.voltage}V로는 부족합니다(최소 ${pin.minVoltage}V).`);
-  }
-  for (const [ref, st] of Object.entries(sim.parts)) {
-    if (st.burnt) out.push(`${ref}: LED에 전류 제한 저항이 없습니다.`);
-    if (st.shorting) out.push(`${ref}: 다이오드 방향이 반대라 전원을 단락시킵니다. 띠(K)를 + 쪽으로 바꾸세요.`);
-    if (st.powered && st.linked === false) out.push(`${ref}: I2C SDA/SCL이 보드의 SDA/SCL 핀에 연결되지 않았습니다.`);
-  }
-  return [...new Set(out)];
-}
-
 // 사람이 가상환경에서 테스트한 뒤, 측정값과 배선을 보내 원인·수정안을 받는다.
 // 입력창에 적은 내용(무엇이 이상했는지)이 있으면 함께 보낸다.
 async function requestDiagnosis() {
@@ -1044,15 +1146,18 @@ async function requestDiagnosis() {
   const memo = $('chatInput').value.trim();
   $('chatInput').value = '';
   const sim = runSim();
+  const issues = circuitDiagnostics(state, sim);
   const message = buildDiagnoseRequest({
     snapshot: wiringSnapshot(state, state.defs),
     checklist: [],
     measurements: measurementReport(sim),
+    issues,
     memo
   });
   await askAgent(message, {
     shown: memo ? `가상 테스트 결과로 진단해줘: ${memo}` : '가상 테스트 결과로 원인과 수정안을 알려줘.',
-    ctx: { problems: demoProblems(sim) }
+    ctx: { problems: issues.map(({ message }) => message) },
+    diagnosis: { snapshot: snapshotState(), ids: issues.map(({ component_id }) => component_id).filter(Boolean) }
   });
 }
 
@@ -1195,6 +1300,7 @@ $('btnPreviewApply').onclick = () => state.pendingProposal && applyProposal(stat
 $('btnPreviewCancel').onclick = () => { clearPreview(); refresh(); };
 
 $('btnDiagnose').onclick = requestDiagnosis;
+$('btnPowerDiagnose').onclick = requestDiagnosis;
 
 // Keep chat below the work toolbar, including when font/window sizes change.
 function alignAgentBelowToolbar() {
@@ -1559,6 +1665,11 @@ const backend = initBackendPanel({
   },
   renderParts: () => { renderPalette(); refresh(); },
   message: (text) => addMessage('system', text),
+  updateProjectParts: (parts) => setProjectParts(new Map([...projectParts, ...parts])),
+  merge: (next, parts, sourceId) => {
+    setProjectParts(new Map([...projectParts, ...parts]));
+    mergeOnCanvas(next, sourceId);
+  },
   replace: (next, parts) => {
     projectGeneration++;
     // Detach the native save target before the next save can be queued.
@@ -1588,6 +1699,7 @@ if (api.browserMode) {
   applyAppIcon();
   await loadSettings();
   await backend.connectAutomatically();
+  await backend.openLinkedCircuit();
   greet();
 })().catch((error) => {
   addMessage('system', `미르 초기화 실패: ${error.message}\n앱을 다시 실행하거나 연결 설정을 확인해 주세요.`, null, true);

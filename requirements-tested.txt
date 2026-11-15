@@ -17,6 +17,7 @@ jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 mcp==1.30.0
 packaging==25.0
+Pillow==13.0.0
 pluggy==1.6.0
 pycparser==3.12
 pydantic==2.11.7
@@ -25,6 +26,7 @@ pydantic_core==2.33.2
 Pygments==2.19.2
 PyJWT==2.15.1
 pypdf==6.21.3
+pypdfium2==5.15.2
 pytest==8.4.1
 python-dotenv==1.2.4
 python-multipart==0.0.32

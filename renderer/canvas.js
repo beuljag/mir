@@ -1,8 +1,8 @@
 import { confirmAction } from './confirm-dialog.js';
 // 2D 가상 실습 화면 (SVG). 부품 배치, 배선 그리기/삭제, 핀 정보, 가상 전원 표시를 담당한다.
 import { pinKey, splitKey } from './sim.js?v=v84-merge-1';
-import { drawArt, lookOf, BARE, isBareArt, labelInset } from './art.js';
-import { routeWire, routeWires, pointsToPath, softAlignedPath } from './wire-router.js';
+import { drawArt, lookOf, BARE, isBareArt, labelInset } from './art.js?v=physical-parts-1';
+import { routeWire, routeWires, pointsToPath, softAlignedPath, pinBoardLead } from './wire-router.js?v=inset-pins-2';
 import { defFor } from './props.js';
 
 function selectionBounds(start, end) {
@@ -21,6 +21,26 @@ function pinCaption(pin, limit = 18) {
   return name.length > limit ? name.slice(0, limit - 1) + '…' : name;
 }
 
+function physicalPinLabel(pin, positions) {
+  const vertical = pin.side === 'top' || pin.side === 'bottom';
+  const outward = pin.side === 'top' || pin.side === 'left' ? -1 : 1;
+  const axis = vertical ? 'y' : 'x';
+  const cross = vertical ? 'x' : 'y';
+  const outerRow = !Object.values(positions).some((other) =>
+    other.side === pin.side && Math.abs(other[cross] - pin[cross]) < 5
+    && (other[axis] - pin[axis]) * outward > 5);
+  const direction = outerRow ? outward : -outward;
+  const caption = pinCaption(pin.def, 12);
+  const label = caption.match(/^G(?:PIO|P)\d+\b/i)?.[0] || caption;
+  if (vertical) {
+    const x = pin.x + 5, y = pin.y + direction * 9;
+    return { label, top: direction < 0 ? y - label.length * 6.5 : y,
+      attrs: { x, y, transform: `rotate(-90 ${x} ${y})`, 'text-anchor': direction < 0 ? 'start' : 'end' } };
+  }
+  const y = pin.y - 3;
+  return { label, top: y - 10, attrs: { x: pin.x + direction * 9, y, 'text-anchor': direction < 0 ? 'end' : 'start' } };
+}
+
 const el = (tag, attrs = {}, parent) => {
   const e = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
@@ -31,6 +51,11 @@ const el = (tag, attrs = {}, parent) => {
 // 부품의 크기와 각 핀 좌표(부품 기준)를 계산한다.
 export function layoutPart(def) {
   if (def._layout) return def._layout;
+  if (def.physicalLayout) {
+    const { width, height } = def.physicalLayout;
+    const pos = Object.fromEntries(def.pins.map((pin) => [pin.id, { ...pin.position, side: pin.side, def: pin }]));
+    return (def._layout = { w: width, h: height, pos, top: 0 });
+  }
   const by = { left: [], right: [], top: [], bottom: [] };
   for (const p of def.pins) (by[p.side] || by.left).push(p);
   const isBoard = def.behavior?.kind === 'board';
@@ -158,6 +183,8 @@ export class WiringCanvas {
     this.bg = el('rect', { x: -5000, y: -5000, width: 10000, height: 10000, fill: 'url(#grid)' }, this.root);
     this.wireLayer = el('g', {}, this.root);
     this.partLayer = el('g', {}, this.root);
+    this.boardLeadLayer = el('g', { 'pointer-events': 'none' }, this.root);
+    this.pinLabelLayer = el('g', { 'pointer-events': 'none' }, this.root);
     this.overLayer = el('g', {}, this.root);
     this.bindEvents();
     this.applyView();
@@ -173,16 +200,26 @@ export class WiringCanvas {
     const i = instances.find((x) => x.ref === ref);
     const def = i && defFor(this.getDefs(), i);
     if (!def) return null;
-    const p = layoutPart(def).pos[pid];
+    const positions = layoutPart(def).pos;
+    const p = positions[pid];
     if (!p) return null;
     const { w, h, angle, cos, sin } = partGeometry(i, def);
-    const dx = (p.x - w / 2) * (i.mirrored ? -1 : 1), dy = p.y - h / 2;
+    const world = (pos) => {
+      const dx = (pos.x - w / 2) * (i.mirrored ? -1 : 1), dy = pos.y - h / 2;
+      return { x: i.x + w / 2 + dx * cos - dy * sin, y: i.y + h / 2 + dx * sin + dy * cos };
+    };
     const originalSide = pinSides.indexOf(p.side);
     const sideIndex = i.mirrored && originalSide >= 0 && originalSide % 2 === 0
       ? (originalSide + 2) % 4 : originalSide;
     const side = sideIndex < 0 ? p.side : pinSides[(sideIndex + Math.round(angle / 90)) % 4];
-    return { x: i.x + w / 2 + dx * cos - dy * sin, y: i.y + h / 2 + dx * sin + dy * cos,
-      side, owner: ref, def: p.def };
+    const point = { ...world(p), side, owner: ref, def: p.def };
+    if (def.physicalLayout || def.imagePresentation?.physical_layout) {
+      const bounds = partBounds(i, def);
+      const neighbors = Object.values(positions).filter((other) => other !== p).map(world);
+      point.boardLead = pinBoardLead({ x: point.x, y: point.y, side },
+        { x: bounds.x, y: bounds.y, width: bounds.w, height: bounds.h }, neighbors);
+    }
+    return point;
   }
 
   applyView() {
@@ -203,6 +240,13 @@ export class WiringCanvas {
       const { x, y, w, h } = partBounds(i, def);
       x0 = Math.min(x0, x - 60); y0 = Math.min(y0, y - 40);
       x1 = Math.max(x1, x + w + 60); y1 = Math.max(y1, y + h + 40);
+    }
+    if (this.pinLabelLayer.childElementCount) {
+      for (const layer of [this.partLayer, this.pinLabelLayer]) {
+        const box = layer.getBBox();
+        x0 = Math.min(x0, box.x - 40); y0 = Math.min(y0, box.y - 24);
+        x1 = Math.max(x1, box.x + box.width + 40); y1 = Math.max(y1, box.y + box.height + 24);
+      }
     }
     const r = this.svg.getBoundingClientRect();
     const k = Math.min(1.4, Math.max(0.3, Math.min(r.width / (x1 - x0), r.height / (y1 - y0))));
@@ -455,7 +499,10 @@ export class WiringCanvas {
     const connections = wires.flatMap(w => {
       const start = this.pinPos(w.from, instances), end = this.pinPos(w.to, instances);
       if (!start || !end) return [];
-      const point = p => ({ x: p.x, y: p.y, side: p.side, owner: p.owner });
+      const point = p => {
+        const { x, y } = p.boardLead?.at(-1) || p;
+        return { x, y, side: p.side, owner: p.owner };
+      };
       return [{ id: w.id, start: point(start), end: point(end) }];
     });
     const key = JSON.stringify([obstacles, connections, this.wireStyle]);
@@ -500,6 +547,8 @@ export class WiringCanvas {
     const power = !!this.sim;
     this.wireLayer.replaceChildren();
     this.partLayer.replaceChildren();
+    this.boardLeadLayer.replaceChildren();
+    this.pinLabelLayer.replaceChildren();
     const shown = [...this.instances, ...(this.preview?.addedParts || [])];
     if(!this.draggingPart)this.updateRoutes(shown, [...this.wires, ...(this.preview?.added || [])]);
 
@@ -515,7 +564,7 @@ export class WiringCanvas {
       const color = power ? this.netColor(net) : chosen || wireColor(a.def, b.def);
       const sel = this.selected?.type === 'wire' && this.selected.id === w.id;
       const route = this.routingPaths.get(w.id);
-      const d = this.draggingPart || this.wireStyle === "curve" ? this.wirePath(a,b) : route?.path || this.wirePath(a, b);
+      const d = (!this.draggingPart && route?.path) || this.wirePath(a, b);
       const focus = this.selected?.type === 'part' ? this.selected.ref : null;
       const dim = focus && !this.preview && !net?.short &&
         splitKey(w.from)[0] !== focus && splitKey(w.to)[0] !== focus;
@@ -523,13 +572,26 @@ export class WiringCanvas {
       if (!cls) { pinColor[w.from] = color; pinColor[w.to] = color; }
       el('path', { d, class: 'wire-hit', 'data-kind': 'wire', 'data-id': w.id }, layer);
       el('path', { d, class: `wire-casing ${cls || ''}`, 'data-wire-id':w.id }, layer);
+      const classes = `wire ${cls || ''} ${sel ? 'selected' : ''} ${net?.short ? 'short' : ''} ${route?.blocked ? 'routing-blocked' : ''} ${w.origin === 'ai' ? 'ai' : ''}`;
       const p = el('path', {
-        d, style: `stroke:${color}`, class: `wire ${cls || ''} ${sel ? 'selected' : ''} ${net?.short ? 'short' : ''} ${this.wireStyle !== 'curve' && route?.blocked ? 'routing-blocked' : ''}`,
+        d, style: `stroke:${color}`, class: classes,
         'data-kind': 'wire', 'data-id': w.id
       }, layer);
-      if (this.wireStyle !== 'curve' && route?.blocked) el('title', {}, p).textContent = '부품이 겹치거나 핀 주변 여백이 부족합니다. 부품을 조금 떨어뜨려 주세요.';
-      if (w.origin === 'ai') p.classList.add('ai');
-      if (power && net?.voltage > 0 && !net.short && !cls) el('path', { d, class: 'wire-pulse' }, layer);
+      if (route?.blocked) el('title', {}, p).textContent = '부품이 겹치거나 핀 주변 여백이 부족합니다. 부품을 조금 떨어뜨려 주세요.';
+      const pulse = power && net?.voltage > 0 && !net.short && !cls;
+      if (pulse) el('path', { d, class: 'wire-pulse' }, layer);
+      if (this.draggingPart) return;
+      for (const pin of [a, b]) {
+        if (!pin.boardLead) continue;
+        const [start, next] = pin.boardLead;
+        const length = Math.hypot(next.x - start.x, next.y - start.y);
+        const offset = Math.min(1, 5 / length);
+        const lead = pointsToPath([{ x: start.x + (next.x - start.x) * offset, y: start.y + (next.y - start.y) * offset },
+          ...pin.boardLead.slice(1)], 2);
+        const topLayer = dim ? el('g', { opacity: 0.2 }, this.boardLeadLayer) : this.boardLeadLayer;
+        el('path', { d: lead, style: `stroke:${color}`, class: classes, 'data-wire-lead': w.id }, topLayer);
+        if (pulse) el('path', { d: lead, class: 'wire-pulse' }, topLayer);
+      }
     };
     for (const w of this.wires) drawWire(w, this.preview?.removed.has(w.id) ? 'removed' : '');
     if (this.preview) for (const w of this.preview.added) drawWire(w, 'added');
@@ -555,18 +617,25 @@ export class WiringCanvas {
       const sel = this.selected?.type === 'part' && this.selected.ref === i.ref || this.selected?.type === 'group' && this.selected.refs.has(i.ref);
       const look = lookOf(def);
       const bare = isBareArt(def);
+      const physical = def.physicalLayout || def.imagePresentation?.physical_layout;
+      const physicalLabels = physical && new Map(Object.entries(pos).map(([id, pin]) => [id, physicalPinLabel(pin, pos)]));
+      const labels = physical && el('g', { transform: g.getAttribute('transform') }, this.pinLabelLayer);
       // 맨 소자(LED·저항 등)는 캔버스 바탕 위에 그리므로 글자색을 화면 테마에 맞춘다
       const light = bare ? null : isLight(def.color);
       const tone = bare || def.imageData ? 'on-canvas' : light ? 'dark' : '';
       el('rect', {
-        width: w, height: h, rx: 8, style: bare ? null : def.imageData ? 'fill:transparent' : `fill:${def.color || 'var(--slate-600)'}`,
+        width: w, height: h, rx: 8, style: bare ? null : def.imageData || def.physicalLayout ? 'fill:transparent' : `fill:${def.color || 'var(--slate-600)'}`,
         class: `part-body ${bare ? 'bare' : ''} ${sel ? 'selected' : ''} ${isPreview ? 'added' : ''}`
       }, g);
       drawArt(g, { w, h, top, pos, st, def, power });
-      const title = el('text', { x: w / 2, y: (bare ? 14 : 19) + top, class: `part-title ${tone}`, 'text-anchor': 'middle' }, g);
+      const titleY = physical ? Math.min(0, ...[...physicalLabels.values()].map((label) => label.top)) - 12 : (bare ? 14 : 19) + top;
+      const title = el('text', { x: w / 2, y: titleY, class: `part-title ${physical ? 'on-canvas' : tone}`, 'text-anchor': 'middle' }, g);
       title.textContent = shortName(`${i.ref} · ${def.name}`, w);
       el('title', {}, g).textContent = `${i.ref} · ${def.name}${i.label ? ` — ${i.label}` : ''}`;
-      if (i.label) el('text', { x: w / 2, y: -6, class: 'part-label', 'text-anchor': 'middle' }, g).textContent = shortName(i.label, w);
+      if ((i.label || def.artworkUnavailable) && !physical) {
+        const label = def.artworkUnavailable ? [i.label, '외형 미등록'].filter(Boolean).join(' · ') : i.label;
+        el('text', { x: w / 2, y: -6, class: 'part-label', 'text-anchor': 'middle' }, g).textContent = shortName(label, w);
+      }
 
       this.drawBehavior(g, def, st, w, h, tone, power);
       const inset = labelInset(look);
@@ -578,9 +647,16 @@ export class WiringCanvas {
         const tx = p.side === 'left' ? 10 + inset.left : p.side === 'right' ? -10 + inset.right : 0;
         const ty = bare && (p.side === 'left' || p.side === 'right') ? 20 : p.side === 'top' ? 18 : p.side === 'bottom' ? -8 : 4;
         const anchor = p.side === 'left' ? 'start' : p.side === 'right' ? 'end' : 'middle';
-        el('text', { x: p.x + tx, y: p.y + ty, 'text-anchor': anchor, class: `pin-label ${tone} ${p.def.type === 'nc' ? 'nc' : ''}` }, g).textContent = pinCaption(p.def, anchor === 'middle' ? 7 : 18);
+        const nc = p.def.type === 'nc' ? ' nc' : '';
+        if (physical) {
+          const { attrs, label } = physicalLabels.get(pid);
+          el('text', { ...attrs, class: `pin-label on-canvas${nc}`, 'data-pin-label': key }, labels).textContent = label;
+        } else {
+          el('text', { x: p.x + tx, y: p.y + ty, 'text-anchor': anchor, class: `pin-label ${tone}${nc}` }, g).textContent = pinCaption(p.def, anchor === 'middle' ? 7 : 18);
+        }
         // 보이는 핀은 작게, 클릭 영역은 넉넉하게 (입문자도 정확히 누를 수 있도록)
-        el('circle', { cx: p.x, cy: p.y, r: 9, class: 'pin-hit', 'data-kind': 'pin', 'data-key': key }, g);
+        const hit = el('circle', { cx: p.x, cy: p.y, r: 9, class: 'pin-hit', 'data-kind': 'pin', 'data-key': key }, g);
+        if (physical) el('title', {}, hit).textContent = p.def.label === pid ? pid : `${pid} · ${p.def.label}`;
         const c = el('circle', {
           cx: p.x, cy: p.y, r: 5, class: `pin pin-${p.def.type} ${used ? 'used' : ''} ${this.pending === key ? 'pending' : ''}`
         }, g);

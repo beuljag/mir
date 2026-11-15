@@ -13,6 +13,50 @@ def app(tmp_path):
     return create_app(str(tmp_path / 'local.db'), {KEY: 'local-owner'})
 
 
+def test_loopback_html_can_call_key_authenticated_api_from_other_port(app):
+    origin = 'http://127.0.0.1:5500'
+    with TestClient(app, base_url='http://127.0.0.1:8000', client=('127.0.0.1', 54000)) as client:
+        response = client.options('/components/search', headers={
+            'Origin': origin, 'Access-Control-Request-Method': 'GET',
+            'Access-Control-Request-Headers': 'x-api-key',
+        })
+        assert response.status_code == 200
+        assert response.headers['access-control-allow-origin'] == origin
+        assert client.get('/components/search', headers={'Origin': origin}).status_code == 401
+        response = client.post('http://127.0.0.1:8002/local-connection/request', headers={'Origin': origin},
+                               json={'path': '/components/search?limit=100'})
+        assert response.status_code == 403
+
+
+def test_standalone_html_can_use_key_authenticated_editor_api(app):
+    with TestClient(app, base_url='http://127.0.0.1:8000') as client:
+        headers = {'Origin': 'null'}
+        preflight = {**headers, 'Access-Control-Request-Method': 'GET',
+                     'Access-Control-Request-Headers': 'x-api-key'}
+        response = client.options('/components/search?limit=100', headers=preflight)
+        assert response.status_code == 200
+        assert response.headers['access-control-allow-origin'] == 'null'
+
+        denied = client.get('/components/search', headers=headers)
+        assert denied.status_code == 401
+        assert denied.headers['access-control-allow-origin'] == 'null'
+        allowed = client.get('/components/search', headers={**headers, 'X-API-Key': KEY})
+        assert allowed.status_code == 200
+        assert allowed.headers['access-control-allow-origin'] == 'null'
+
+        authenticated = {**headers, 'X-API-Key': KEY}
+        capabilities = client.get('/circuits/capabilities', headers=authenticated)
+        assert capabilities.status_code == 200
+        assert capabilities.headers['access-control-allow-origin'] == 'null'
+        assert capabilities.json() == client.get('/verification/config', headers=authenticated).json()
+        assert client.get('/circuits/capabilities', headers=headers).status_code == 401
+
+        assert 'access-control-allow-origin' not in client.options('/mcp', headers=preflight).headers
+        local = client.get('http://127.0.0.1:8002/local-connection/status', headers=headers)
+        assert local.status_code == 403
+        assert 'access-control-allow-origin' not in local.headers
+
+
 def test_local_connection_authenticates_without_exposing_key(app):
     with TestClient(app, base_url='http://127.0.0.1:8002', client=('127.0.0.1', 54000)) as client:
         status = client.get('/local-connection/status')
@@ -20,7 +64,8 @@ def test_local_connection_authenticates_without_exposing_key(app):
         response = client.post('/local-connection/request', headers={'Origin': 'http://127.0.0.1:8000'},
                                json={'path': '/components/search?limit=100'})
         assert response.status_code == 200
-        assert response.json()['status'] == 200 and len(response.json()['body']) == 3
+        assert response.json()['status'] == 200
+        assert {'virtual-sensor', 'led-red', 'esp32-devkitc'} <= {p['id'] for p in response.json()['body']}
         assert KEY not in status.text + response.text
         create = client.post('/local-connection/request', json={'path': '/circuits', 'method': 'POST', 'body': {
             'name': '자동 인증 회로', 'component_instances': [{'instance_id': 'P', 'component_definition_id': 'virtual-supply'}]}}).json()

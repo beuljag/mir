@@ -351,7 +351,9 @@ button.power.on::before { background: var(--warning); box-shadow: 0 0 0 3px var(
 .msg.user { align-self: flex-end; background: var(--primary-soft); color: var(--primary-text); border-bottom-right-radius: var(--space-1); }
 .msg.agent { align-self: flex-start; background: var(--bg-subtle); border: 1px solid var(--border); border-bottom-left-radius: var(--space-1); }
 .msg.system { align-self: stretch; background: var(--warning-soft); color: var(--warning-text); font-size: var(--text-xs); line-height: var(--lh-xs); }
-.msg.typing { color: var(--text-muted); }
+.msg.typing, .msg.progress { color: var(--text-muted); }
+.msg.typing { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.msg.typing button { font-size: var(--text-xs); }
 .msg pre {
   background: var(--slate-900); color: var(--slate-100); padding: var(--space-3); border-radius: var(--radius-sm);
   overflow: auto; font-size: var(--text-xs); line-height: var(--lh-xs); white-space: pre; position: relative;

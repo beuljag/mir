@@ -10,7 +10,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Security
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
-from .local_connection import attach_local_connection, env_settings, load_api_keys, ORIGINS
+from starlette.datastructures import Headers
+from .local_connection import attach_local_connection, env_settings, load_api_keys, ORIGINS, ROUTES
 
 from .models import (ApplyRequest, ApplyResult, CircuitDraft, CircuitRecord, CircuitUpdate,
                      ComponentDefinition, ResearchRequest, ResearchResult, SimulationResult,
@@ -21,6 +22,17 @@ from .validation import validate
 
 ROOT = Path(__file__).resolve().parent.parent
 key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+class EditorCORSMiddleware(CORSMiddleware):
+    async def __call__(self, scope, receive, send):
+        # Local HTML and sandboxed pages share the opaque origin "null".
+        # Enable it only on the editor's key-authenticated API routes.
+        if (scope["type"] == "http" and Headers(scope=scope).get("origin") == "null"
+                and not ROUTES.fullmatch(scope["path"])):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
 
 
 def create_app(db_path=None, api_keys=None):
@@ -36,7 +48,9 @@ def create_app(db_path=None, api_keys=None):
     research_service = ResearchService(store)
     app = FastAPI(title="Circuit Agent API", version="0.2.0", description="회로 API와 공식 자료 조사·문서 분석·사람 검토. 기본 샘플은 가상 테스트 전용입니다.")
     app.state.research = research_service
-    app.add_middleware(CORSMiddleware, allow_origins=list(ORIGINS), allow_methods=['GET', 'POST', 'PUT', 'DELETE'],
+    app.add_middleware(EditorCORSMiddleware, allow_origins=[*ORIGINS, "null"],
+                       allow_origin_regex=r"https?://(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]{1,5})?",
+                       allow_methods=['GET', 'POST', 'PUT', 'DELETE'],
                        allow_headers=['Content-Type', 'X-API-Key'])
 
     def owner(api_key: Annotated[str | None, Security(key_header)]):
@@ -76,7 +90,8 @@ def create_app(db_path=None, api_keys=None):
              description="DB에서 모델/제조사/ID를 검색합니다. 빈 검색어는 전체 샘플 목록을 반환합니다.")
     def search(user: User, q: str = Query(default="", max_length=200), limit: int = Query(default=20, ge=1, le=100),
                offset: int = Query(default=0, ge=0, le=10000)):
-        return [c for c in store.components(user).values() if q.casefold() in f"{c.id} {c.model} {c.manufacturer}".casefold()][offset:offset + limit]
+        return [c for c in store.components(user).values() if q.casefold() in
+                " ".join((c.id, c.model, c.manufacturer, *store.builtin_names.get(c.id, ()))).casefold()][offset:offset + limit]
 
     @app.get("/components/{component_id}", response_model=ComponentDefinition, operation_id="GetComponentDetails", tags=["components"])
     def details(component_id: str, user: User):
@@ -159,6 +174,10 @@ def create_app(db_path=None, api_keys=None):
         circuit = CircuitRecord(**body.model_dump(), id=str(uuid4()), version=1)
         store.create(circuit, user)
         return circuit
+
+    @app.get("/circuits/capabilities", include_in_schema=False)
+    def circuit_capabilities(user: User):
+        return app.state.verification.config()
 
     @app.get("/circuits/{circuit_id}", response_model=CircuitRecord, operation_id="GetCircuitStatus", tags=["circuits"])
     def get(circuit_id: str, user: User):

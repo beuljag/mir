@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class Model(BaseModel):
@@ -77,6 +77,23 @@ class ComponentCreateRequest(Model):
         ids = [pin.id for pin in self.pins]
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate pin IDs")
+        return self
+
+
+class PinVoltageUpdate(Model):
+    output_voltage: float | None = None
+    voltage_min: float | None = None
+    voltage_max: float | None = None
+    source_url: HttpUrl
+    source_title: str = Field(min_length=1, max_length=240)
+    evidence: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def valid_update(self):
+        if all(value is None for value in (self.output_voltage, self.voltage_min, self.voltage_max)):
+            raise ValueError("At least one voltage value is required")
+        if self.source_url.scheme != "https" or not self.source_title.strip() or not self.evidence.strip():
+            raise ValueError("HTTPS source and evidence are required")
         return self
 
 
@@ -243,10 +260,31 @@ class SimulationResult(Model):
     reason: str
 
 
+class ImagePinPosition(Model):
+    x: float = Field(ge=0, le=4000)
+    y: float = Field(ge=0, le=4000)
+    side: Literal["left", "right", "top", "bottom"]
+
+
+class PhysicalImageLayout(Model):
+    reference_url: HttpUrl
+    width: float = Field(gt=0, le=4000)
+    height: float = Field(gt=0, le=4000)
+    pins: dict[str, ImagePinPosition] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def check_positions(self):
+        positions = [(p.x, p.y) for p in self.pins.values()]
+        if len(set(positions)) != len(positions) or any(x > self.width or y > self.height for x, y in positions):
+            raise ValueError("Pin positions must be distinct and inside the physical layout")
+        return self
+
+
 class ImagePresentation(Model):
     kind: Literal["pcb", "bare"] = "pcb"
     color: str = Field(default="#1d3557", pattern=r"^#[0-9a-fA-F]{6}$")
     pin_sides: dict[str, Literal["left", "right", "top", "bottom"]] = Field(default_factory=dict, max_length=100)
+    physical_layout: PhysicalImageLayout | None = None
 
 
 class ImageSpecRequest(Model):
@@ -294,6 +332,13 @@ class ImageApplyRequest(Model):
 
 class SvgSaveRequest(ImageRequest):
     svg: str = Field(min_length=10, max_length=200000)
+
+
+class FritzingImportRequest(Model):
+    component_id: str = Field(min_length=1, max_length=200)
+    source_url: HttpUrl
+    request_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    pin_map: dict[str, str] = Field(default_factory=dict, max_length=100)
 
 
 class VerificationFile(Model):

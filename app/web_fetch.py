@@ -45,10 +45,12 @@ class PinnedHTTPSConnection(http.client.HTTPSConnection):
             raise
 
 
-def fetch_public(url, *, max_bytes=10_000_000, timeout=15, headers=None):
+def fetch_public(url, *, max_bytes=10_000_000, timeout=15, headers=None, allowed_hosts=None):
     original_host = urlsplit(url).hostname
     deadline = time.monotonic() + timeout
     for _ in range(4):
+        if allowed_hosts is not None and urlsplit(url).hostname not in allowed_hosts:
+            raise FetchError("FETCH_HOST_NOT_ALLOWED")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise FetchError("FETCH_TIMEOUT")

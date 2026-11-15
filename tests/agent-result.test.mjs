@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const load = async name => import('data:text/javascript;base64,'+Buffer.from(readFileSync(new URL('../renderer/'+name,import.meta.url),'utf8')).toString('base64'));
-const {applyAgentResult}=await load('agent-result.js');
+const {applyAgentResult,mergeAgentCircuit}=await load('agent-result.js');
 const {buildRecommendRequest,buildChatRequest,parseReply}=await load('agent.js');
 test('부품 등록 뒤 회로 저장 계약을 전달하고 현재 배선 미첨부 때도 유지',()=>{
   for (const text of [buildRecommendRequest('펌프 제어'),buildChatRequest('배선을 만들어줘',null)]) {
@@ -12,13 +12,35 @@ test('부품 등록 뒤 회로 저장 계약을 전달하고 현재 배선 미�
 test('빈 화면은 실제 회로 ID를 불러오고 원시 배선보다 DB 회로를 우선',async()=>{
   const calls=[];
   const result=parseReply('```json\n{"type":"circuit_reference","circuit_id":"saved"}\n```');
-  const backend={refreshAfterAgent:async()=>calls.push('refresh'),openCircuit:async(id,options)=>{calls.push([id,options]);return true;}};
-  assert.equal(await applyAgentResult({...result,wiring:{}},{backend,hasInstances:()=>false,drawWiring:()=>assert.fail('DB 회로 우선')}),'circuit-loaded');
-  assert.deepEqual(calls,['refresh',['saved',{showPanel:false,automatic:true}]]);
+  const backend={refreshAfterAgent:async()=>calls.push('refresh'),applyAgentCircuit:async(id,{isCurrent})=>{calls.push([id,isCurrent()]);return 'circuit-loaded';}};
+  assert.equal(await applyAgentResult({...result,wiring:{}},{backend,drawWiring:()=>assert.fail('DB 회로 우선')}),'circuit-loaded');
+  assert.deepEqual(calls,['refresh',['saved',true]]);
 });
-test('편집 중인 화면은 DB 회로 응답으로 자동 덮어쓰지 않음',async()=>{
-  const backend={refreshAfterAgent:async()=>{},openCircuit:async()=>assert.fail('기존 회로 덮어쓰기 금지')};
-  assert.equal(await applyAgentResult({circuit:{circuit_id:'saved'}},{backend,hasInstances:()=>true}),'circuit-available');
+test('독립 회로의 중복 부품 참조와 선 ID를 바꿔 기존 선과 연결되지 않게 한다',()=>{
+  const old={instances:[{ref:'U1',part:'pi'},{ref:'R1',part:'resistor'}],
+    wires:[{id:'db-0',from:'U1.GPIO17',to:'R1.P1'}]};
+  const incoming={instances:[{ref:'U1',part:'uno'},{ref:'S1',part:'ultrasonic'}],
+    wires:[{id:'db-0',from:'U1.D7',to:'S1.TRIG'}]};
+  const combined=mergeAgentCircuit(old,incoming,{arrange:(added,others,previous)=>{
+    assert.deepEqual(others,old.instances); assert.deepEqual(previous,[]);
+    added.forEach(i=>i.y=200);
+  }});
+  assert.deepEqual(combined.instances.map(i=>i.ref),['U1','R1','U1_2','S1']);
+  assert.deepEqual(combined.wires,[old.wires[0],{id:'db-0_2',from:'U1_2.D7',to:'S1.TRIG'}]);
+  assert.deepEqual(combined.instances.slice(0,2),old.instances);
+});
+test('같은 DB 회로의 수정은 원래 참조를 재사용하며 다른 회로를 유지한다',()=>{
+  const source={id:'second',version:1,ref:'U1'};
+  const first={ref:'U1',part:'pi'};
+  const second={ref:'U1_2',part:'uno',circuitSource:source};
+  const old={instances:[first,second],wires:[]};
+  const incoming={instances:[{...second,ref:'U1',circuitSource:{...source,version:2}}],wires:[]};
+  const result=mergeAgentCircuit(old,incoming,{sourceId:'second',arrange:(added,others,previous)=>{
+    assert.deepEqual(others,[first]); assert.deepEqual(previous,[second]);
+  }});
+  assert.equal(result.instances[0],first);
+  assert.equal(result.instances[1].ref,'U1_2');
+  assert.equal(result.instances[1].circuitSource.version,2);
 });
 test('새로 만든 부품·이미지를 먼저 읽은 후 배선을 그린다',async()=>{
   const defs=new Set();let rendered=false;
@@ -33,7 +55,7 @@ test('DB 불러오기 버튼 경로가 실제 회로를 조회하여 선과 배�
   const circuitApi=await load('circuit-api.js');
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,{value:'',disabled:false,textContent:'',classList:{add(){},remove(){}}});return elements.get(id);};
-  globalThis.document={getElementById:element};globalThis.location={search:''};globalThis.confirm=()=>true;
+  globalThis.document={getElementById:element};globalThis.location={search:'?circuit=saved'};globalThis.confirm=()=>true;
   const definition={id:'new-board',model:'Uno draft',category:'board',is_virtual:true,is_draft:true,verification_status:'unverified',pins:[
     {id:'D2',type:'gpio',name:'D2'},{id:'GND',type:'gnd',name:'GND'}],source_references:[]};
   const record={id:'saved',version:1,status:'unknown',name:'2D draft',requirements:'test',component_instances:[{instance_id:'U1',component_definition_id:'new-board'}],
@@ -42,7 +64,7 @@ test('DB 불러오기 버튼 경로가 실제 회로를 조회하여 선과 배�
   globalThis.resultTestApi={getAutoAuthStatus:async()=>({ready:true}),requestCircuit:async(path)=>{
     requests.push(path);
     if(path.startsWith('/components/search'))return{status:200,body:[definition]};
-    if(path.endsWith('/image'))return{status:404,body:{}};
+    if(path.endsWith('/image?optional=true'))return{status:200,body:{image_data:null}};
     if(path.startsWith('/components/'))return{status:200,body:definition};
     assert.equal(path,'/circuits/saved');return{status:200,body:record};
   }};
@@ -52,7 +74,8 @@ test('DB 불러오기 버튼 경로가 실제 회로를 조회하여 선과 배�
   const {initBackendPanel}=await import('data:text/javascript;base64,'+Buffer.from(prefix+source).toString('base64'));
   const state={defs:new Map(),instances:[],wires:[]};let replaced;
   const panel=initBackendPanel({getState:()=>state,replace:value=>{replaced=value;},renderParts(){},message(){}});
-  await panel.openCircuit('saved',{showPanel:false});
+  await panel.connectAutomatically();
+  await panel.openLinkedCircuit();
   assert.ok(requests.includes('/circuits/saved'));
   assert.equal(replaced.instances[0].part,'new-board');assert.equal(replaced.instances[0].x,50);
   assert.deepEqual(replaced.wires.map(w=>[w.from,w.to]),[['U1.D2','U1.GND']]);

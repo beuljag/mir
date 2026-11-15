@@ -35,6 +35,10 @@ test('서버 SVG 크기와 연결 좌표를 캔버스에서 그대로 사용하�
 
 test('이미지가 없으면 기존 그림을 유지하고 잘못된 핀 집합은 거부', async () => {
   const part = { id: 'test', pins: [{ id: 'P' }] };
+  assert.equal(await loadComponentImage({ call: async () => ({ image_data: null }) }, part), part);
+  assert.equal((await loadComponentImage({
+    call: async () => ({ image_data: null, artwork_status: 'unavailable' }),
+  }, part)).artworkUnavailable, true);
   assert.equal(await loadComponentImage({ call: async () => { throw Object.assign(new Error(), { status: 404 }); } }, part), part);
   await assert.rejects(() => loadComponentImage({ call: async () => ({ image_data: 'data:image/svg+xml;base64,AAA', layout: { pins: [] } }) }, part), /핀 목록/);
   await assert.rejects(() => loadComponentImage({ call: async () => ({ image_data: 'https://example.com/image.svg', layout: {} }) }, part), /형식/);

@@ -37,7 +37,7 @@ def test_initialize_and_discover_seven_tools(client):
     init = rpc(client, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "pytest", "version": "1"}})
     assert init["result"]["serverInfo"]["name"] == "Circuit Agent"
     tools = rpc(client, "tools/list")["result"]["tools"]
-    assert {t["name"] for t in tools} == {"GetCircuitVerificationConfig", "ImportKiCadProject", "GetKiCadProject", "VerifyKiCadProject", "SearchComponents", "GetComponentDetails", "CreateComponent", "CreateCircuitDraft", "GetCircuitStatus", "UpdateCircuit", "ValidateCircuit", "ApplyCircuitLayout", "ResearchComponent", "AnalyzeDatasheet", "GetJobStatus", "GetComponentCandidate", "ListComponentCandidates", "GetImageGenerationConfig", "GenerateComponentImage", "ListComponentImages", "GetComponentImage", "ApplyComponentImage", "GetComponentImageSpec", "SaveComponentSvg"}
+    assert {t["name"] for t in tools} == {"ReportChatProgress", "GetCircuitVerificationConfig", "ImportKiCadProject", "GetKiCadProject", "VerifyKiCadProject", "SearchComponents", "GetComponentDetails", "CreateComponent", "FillComponentPinVoltage", "CreateCircuitDraft", "GetCircuitStatus", "UpdateCircuit", "ValidateCircuit", "ApplyCircuitLayout", "ResearchComponent", "AnalyzeDatasheet", "GetJobStatus", "GetComponentCandidate", "ListComponentCandidates", "GetImageGenerationConfig", "GenerateComponentImage", "ListComponentImages", "GetComponentImage", "ApplyComponentImage", "GetComponentImageSpec", "SaveComponentSvg", "ImportFritzingArtwork", "ImportArduinoCadArtwork"}
     for t in tools:
         assert "ctx" not in t["inputSchema"].get("properties", {})
         for schema in (t["inputSchema"], t.get("outputSchema", {})):
@@ -75,3 +75,37 @@ def test_mcp_full_lifecycle_and_owner_isolation(client):
 def test_mcp_rejects_invalid_json_without_writes(client):
     result = tool(client, "CreateCircuitDraft", {"draft_json": "not JSON"})
     assert result.get("isError") and "INVALID_CIRCUIT_JSON" in str(result)
+
+
+@pytest.mark.parametrize("direction", ["power_in", "bidirectional"])
+def test_mcp_fills_missing_pin_voltage_and_keeps_existing_circuit(client, direction):
+    def create(model, pins):
+        return data(tool(client, "CreateComponent", {"component_json": json.dumps({
+            "request_id": "voltage-" + model, "model": model, "manufacturer": "Test", "category": "board", "pins": pins
+        })}))
+    supply = create("fixture-supply", [{"id": "OUT/5V", "label": "5V", "direction": "power_out", "signal_type": "power"}])
+    sensor = create("fixture-input", [{"id": "VCC", "label": "VCC", "direction": direction, "signal_type": "power",
+                                      "voltage_max": 3.3}])
+    payload = {"name": "voltage fixture",
+               "component_instances": [{"instance_id": "U1", "component_definition_id": supply["id"]},
+                                       {"instance_id": "S1", "component_definition_id": sensor["id"]}],
+               "nets": [{"net_id": "power", "connected_pin_refs": [{"instance_id": "U1", "pin_id": "OUT/5V"},
+                                                                  {"instance_id": "S1", "pin_id": "VCC"}]}]}
+    circuit = data(tool(client, "CreateCircuitDraft", {"draft_json": json.dumps(payload)}))
+    check = {"circuit_id": circuit["id"], "expected_version": 1}
+    assert "MISSING_OUTPUT_VOLTAGE" in {i["code"] for i in data(tool(client, "ValidateCircuit", check))["issues"]}
+    args = {"component_id": supply["id"], "pin_id": "OUT/5V"}
+    fields = {"output_voltage": 5, "source_url": "https://manufacturer.example/board", "source_title": "Board fixture",
+              "evidence": "OUT/5V supplies 5 V."}
+    def fill(value, headers=None):
+        return tool(client, "FillComponentPinVoltage", {**args, "voltage_json": json.dumps({**fields, "output_voltage": value})}, headers)
+    assert fill(5, {"X-API-Key": KEY_B}).get("isError")
+    saved = data(fill(5))
+    assert saved["id"] == supply["id"] and saved["pins"][0]["output_voltage"] == 5
+    assert saved["source_references"][0]["reference"] == fields["source_url"]
+    assert data(fill(5)) == saved
+    assert "PIN_VOLTAGE_ALREADY_SET" in str(fill(3.3))
+    verified = data(tool(client, "ValidateCircuit", check))
+    assert verified["status"] == "failed"
+    assert "VOLTAGE_OUT_OF_RANGE" in {i["code"] for i in verified["issues"]}
+    assert "MISSING_OUTPUT_VOLTAGE" not in {i["code"] for i in verified["issues"]}
