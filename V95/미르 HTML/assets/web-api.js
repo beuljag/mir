@@ -4,6 +4,8 @@ import { createServerChatApi } from './server-chat.js';
 import { createBrowserProjects } from './browser-projects.js';
 
 const DEFAULT_SERVER = 'https://rqc76xf3-8000.jpe1.devtunnels.ms';
+const launcherPage = location.origin === 'http://127.0.0.1:8791';
+let hostedPage = false;
 let connection = { mode: 'remote', url: DEFAULT_SERVER, key: '' };
 let availability = { db: false, ai: false, editorWires: false };
 
@@ -15,6 +17,7 @@ function setAvailability(next) {
 
 const serverErrors = {
   INVALID_API_KEY: '배선 API 키를 확인해 주세요.',
+  MIR_PUBLIC_ACCESS_DISABLED: '이 서버의 공개 접속이 꺼져 있어요. 서버 관리자에게 MIR_PUBLIC_ACCESS 설정을 확인해 달라고 하거나 배선 API 키를 입력해 주세요.',
   LOCAL_API_KEY_NOT_CONFIGURED: '이 PC의 배선 서버에 API 키를 설정해 주세요.',
   COPILOT_SECRET_NOT_CONFIGURED: '배선 서버에 Copilot Direct Line 비밀 키를 설정해 주세요.',
   DIRECT_LINE_AUTH_FAILED: 'Copilot 인증에 실패했어요. 서버의 Direct Line 설정을 확인해 주세요.',
@@ -23,8 +26,10 @@ const serverErrors = {
 
 async function requestAt(config, route, { method = 'GET', body, signal } = {}) {
   const timeout = AbortSignal.timeout(route.startsWith('/chat/') ? 50000 : 25000);
-  if (location.protocol === 'file:') {
-    if (config.mode !== 'remote') throw new Error('HTML 직접 실행에서는 공유 서버를 선택하고 서버 주소와 배선 API 키를 입력해 주세요.');
+  if (!launcherPage) {
+    if (config.mode !== 'remote' && !(hostedPage && ['127.0.0.1', 'localhost'].includes(location.hostname))) {
+      throw new Error('이 PC의 서버에 연결하려면 서버 PC에서 미르를 열어 주세요.');
+    }
     const transport = window.MirServerConnection.createTransport({
       read: () => config,
       fetcher: (url, options) => fetch(url, {
@@ -41,7 +46,7 @@ async function requestAt(config, route, { method = 'GET', body, signal } = {}) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(config.mode === 'remote' ? { 'X-API-Key': config.key } : {})
+      ...(config.mode === 'remote' && config.key ? { 'X-API-Key': config.key } : {})
     },
     body: JSON.stringify({ mode: config.mode, url: config.url, route, method, body }),
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout
@@ -59,10 +64,11 @@ function requireResult(result, valid, message) {
   return result.body;
 }
 
-async function verifyAI(candidate, signal) {
+async function verifyAI(candidate, signal, openSession) {
   const info = await requestAt(candidate, '/chat/config', { signal });
   requireResult(info, config => config?.mode === 'directline' && config.configured === true,
     '배선 서버에 Copilot Direct Line 비밀 키를 설정해 주세요.');
+  if (!openSession) return;
   const opened = await requestAt(candidate, '/chat/sessions', { method: 'POST', signal });
   const { session_id: id } = requireResult(opened,
     session => typeof session?.session_id === 'string' && /^[a-f0-9]{1,64}$/.test(session.session_id),
@@ -202,7 +208,7 @@ window.api = {
   resetAgent: async () => {},
   listParts: async () => {
     let parts = builtInParts, errors = [];
-    if (location.protocol !== 'file:') {
+    if (launcherPage) {
       const response = await fetch('/api/parts');
       if (!response.ok) throw new Error('기본 부품 목록을 읽을 수 없어요.');
       ({ parts, errors } = await response.json());
@@ -229,7 +235,21 @@ export const runtimeApi = createServerChatApi(window.api);
 runtimeApi.selectMode('server');
 runtimeApi.getSettings = window.api.getSettings;
 
-export async function connectRequired(input, { signal, progress = () => {} } = {}) {
+export async function connectOnLoad(signal) {
+  if (!launcherPage && location.protocol !== 'file:') {
+    const hosted = await fetch('./connection', { signal, cache: 'no-store' })
+      .then(response => response.ok ? response.json() : null).catch(() => null);
+    signal.throwIfAborted();
+    hostedPage = hosted?.hosted === true;
+    if (hostedPage) {
+      const local = ['127.0.0.1', 'localhost'].includes(location.hostname);
+      connection = local ? { mode: 'local', url: '', key: '' } : { mode: 'remote', url: location.origin, key: '' };
+    }
+  }
+  return connectRequired(connection, { signal, openSession: false });
+}
+
+export async function connectRequired(input, { signal, progress = () => {}, openSession = true } = {}) {
   const candidate = window.MirServerConnection.updateConnection(connection, input);
   const sameServer = candidate.mode === connection.mode && candidate.url === connection.url && candidate.key === connection.key;
   progress('DB 부품 목록을 확인하고 있어요.');
@@ -239,7 +259,7 @@ export async function connectRequired(input, { signal, progress = () => {} } = {
   progress('DB 확인 완료 · Copilot AI 연결을 확인하고 있어요.');
   const [capabilities, agent] = await Promise.allSettled([
     requestAt(candidate, '/circuits/capabilities', { signal }),
-    verifyAI(candidate, signal)
+    verifyAI(candidate, signal, openSession)
   ]);
   signal?.throwIfAborted();
   const aiError = agent.status === 'rejected' ? agent.reason.message : '';

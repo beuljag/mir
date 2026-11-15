@@ -28,11 +28,19 @@ key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 class EditorCORSMiddleware(CORSMiddleware):
+    def __init__(self, app, **kwargs):
+        super().__init__(app, **kwargs)
+        self.public_cors = CORSMiddleware(app, allow_origins=['*'], allow_methods=['POST'],
+                                          allow_headers=['Content-Type'])
+
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"] == PUBLIC_CONNECTION:
+            await self.public_cors(scope, receive, send)
+            return
         # Local HTML and sandboxed pages share the opaque origin "null".
         # Enable it only on the editor's key-authenticated API routes.
         if (scope["type"] == "http" and Headers(scope=scope).get("origin") == "null"
-                and scope["path"] != PUBLIC_CONNECTION and not ROUTES.fullmatch(scope["path"])):
+                and not ROUTES.fullmatch(scope["path"])):
             await self.app(scope, receive, send)
             return
         await super().__call__(scope, receive, send)

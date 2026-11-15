@@ -74,8 +74,9 @@ try {
         }
         if (-not $publicReady) { throw 'Local API is ready, but the public tunnel is not responding. Check logs\tunnel.log and DEVTUNNEL_HOST_TOKEN (or Dev Tunnels sign-in).' }
         Write-Host ('[OK] Public MCP: ' + $tunnelConfig.public_url.TrimEnd('/') + '/mcp')
+        Write-Host ('[OK] Public editor: ' + $tunnelConfig.public_url.TrimEnd('/') + '/mir/')
     }
-    Write-Host '[OK] Editor: http://127.0.0.1:8000'
+    Write-Host '[OK] Editor: http://127.0.0.1:8000/mir/'
     Write-Host '[OK] API docs: http://127.0.0.1:8000/docs'
     Write-Host 'The fixed API key is unchanged. Closing this window does not stop the services.'
     exit 0

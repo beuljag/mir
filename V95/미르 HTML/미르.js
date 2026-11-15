@@ -6,11 +6,7 @@
   var __getProtoOf = Object.getPrototypeOf;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
   var __commonJS = (cb, mod) => function __require() {
-    try {
-      return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-    } catch (e) {
-      throw mod = 0, e;
-    }
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
@@ -116,7 +112,7 @@
           if (input2.mode !== "remote") return { mode: "local", url: "", key: "" };
           const url = normalizeServerUrl(input2.url.trim());
           const key2 = input2.key?.trim() || (previous.url === url ? previous.key : "");
-          if (!key2 || key2.length < 24 || /[\r\n]/.test(key2)) throw new Error("\uBC30\uC120 API \uD0A4\uB97C \uC785\uB825\uD558\uC138\uC694. \uC11C\uBC84 \uC8FC\uC18C\uB97C \uBC14\uAFB8\uBA74 \uD0A4\uB3C4 \uB2E4\uC2DC \uC785\uB825\uD574\uC57C \uD569\uB2C8\uB2E4.");
+          if (key2 && (key2.length < 24 || /[\r\n]/.test(key2))) throw new Error("\uBC30\uC120 API \uD0A4 \uD615\uC2DD\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
           return { mode: "remote", url, key: key2 };
         }
         function createTransport({ read, fetcher = (...args) => fetch(...args) }) {
@@ -124,11 +120,13 @@
             if (!routes.test(route) || !["GET", "POST", "PUT", "DELETE"].includes(options.method || "GET")) throw new Error("\uD5C8\uC6A9\uB418\uC9C0 \uC54A\uC740 API \uC694\uCCAD\uC785\uB2C8\uB2E4.");
             const config = read();
             const remote = config.mode === "remote";
-            if (remote && !config.key) throw new Error("\uC5F0\uACB0 \uC124\uC815\uC5D0\uC11C \uBC30\uC120 API \uD0A4\uB97C \uB2E4\uC2DC \uC785\uB825\uD558\uC138\uC694.");
-            const direct = remote || options.headers?.["X-API-Key"];
-            const response = await fetcher(direct ? (remote ? normalizeServerUrl(config.url) : "http://127.0.0.1:8000") + route : "http://127.0.0.1:8002/local-connection/request", {
+            const url = remote ? normalizeServerUrl(config.url) : "http://127.0.0.1:8000";
+            const key2 = remote ? config.key : options.headers?.["X-API-Key"];
+            const direct = Boolean(key2);
+            const target = direct ? url + route : remote ? url + "/mir/api" : "http://127.0.0.1:8002/local-connection/request";
+            const response = await fetcher(target, {
               method: direct ? options.method || "GET" : "POST",
-              headers: { "Content-Type": "application/json", ...direct ? { "X-API-Key": remote ? config.key : options.headers["X-API-Key"] } : {} },
+              headers: { "Content-Type": "application/json", "Accept": "application/json", ...direct ? { "X-API-Key": key2 } : {} },
               ...direct ? options.body ? { body: options.body } : {} : { body: JSON.stringify({ path: route, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null }) },
               redirect: "error",
               cache: "no-store",
@@ -631,6 +629,8 @@
 
   // assets/web-api.js
   var DEFAULT_SERVER = "https://rqc76xf3-8000.jpe1.devtunnels.ms";
+  var launcherPage = location.origin === "http://127.0.0.1:8791";
+  var hostedPage = false;
   var connection = { mode: "remote", url: DEFAULT_SERVER, key: "" };
   var availability = { db: false, ai: false, editorWires: false };
   function setAvailability(next) {
@@ -640,6 +640,7 @@
   }
   var serverErrors = {
     INVALID_API_KEY: "\uBC30\uC120 API \uD0A4\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+    MIR_PUBLIC_ACCESS_DISABLED: "\uC774 \uC11C\uBC84\uC758 \uACF5\uAC1C \uC811\uC18D\uC774 \uAEBC\uC838 \uC788\uC5B4\uC694. \uC11C\uBC84 \uAD00\uB9AC\uC790\uC5D0\uAC8C MIR_PUBLIC_ACCESS \uC124\uC815\uC744 \uD655\uC778\uD574 \uB2EC\uB77C\uACE0 \uD558\uAC70\uB098 \uBC30\uC120 API \uD0A4\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
     LOCAL_API_KEY_NOT_CONFIGURED: "\uC774 PC\uC758 \uBC30\uC120 \uC11C\uBC84\uC5D0 API \uD0A4\uB97C \uC124\uC815\uD574 \uC8FC\uC138\uC694.",
     COPILOT_SECRET_NOT_CONFIGURED: "\uBC30\uC120 \uC11C\uBC84\uC5D0 Copilot Direct Line \uBE44\uBC00 \uD0A4\uB97C \uC124\uC815\uD574 \uC8FC\uC138\uC694.",
     DIRECT_LINE_AUTH_FAILED: "Copilot \uC778\uC99D\uC5D0 \uC2E4\uD328\uD588\uC5B4\uC694. \uC11C\uBC84\uC758 Direct Line \uC124\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
@@ -647,8 +648,10 @@
   };
   async function requestAt(config, route, { method = "GET", body, signal } = {}) {
     const timeout = AbortSignal.timeout(route.startsWith("/chat/") ? 5e4 : 25e3);
-    if (location.protocol === "file:") {
-      if (config.mode !== "remote") throw new Error("HTML \uC9C1\uC811 \uC2E4\uD589\uC5D0\uC11C\uB294 \uACF5\uC720 \uC11C\uBC84\uB97C \uC120\uD0DD\uD558\uACE0 \uC11C\uBC84 \uC8FC\uC18C\uC640 \uBC30\uC120 API \uD0A4\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+    if (!launcherPage) {
+      if (config.mode !== "remote" && !(hostedPage && ["127.0.0.1", "localhost"].includes(location.hostname))) {
+        throw new Error("\uC774 PC\uC758 \uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD558\uB824\uBA74 \uC11C\uBC84 PC\uC5D0\uC11C \uBBF8\uB974\uB97C \uC5F4\uC5B4 \uC8FC\uC138\uC694.");
+      }
       const transport = window.MirServerConnection.createTransport({
         read: () => config,
         fetcher: (url, options) => fetch(url, {
@@ -667,7 +670,7 @@
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...config.mode === "remote" ? { "X-API-Key": config.key } : {}
+        ...config.mode === "remote" && config.key ? { "X-API-Key": config.key } : {}
       },
       body: JSON.stringify({ mode: config.mode, url: config.url, route, method, body }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout
@@ -683,13 +686,14 @@
     }
     return result.body;
   }
-  async function verifyAI(candidate, signal) {
+  async function verifyAI(candidate, signal, openSession) {
     const info = await requestAt(candidate, "/chat/config", { signal });
     requireResult(
       info,
       (config) => config?.mode === "directline" && config.configured === true,
       "\uBC30\uC120 \uC11C\uBC84\uC5D0 Copilot Direct Line \uBE44\uBC00 \uD0A4\uB97C \uC124\uC815\uD574 \uC8FC\uC138\uC694."
     );
+    if (!openSession) return;
     const opened = await requestAt(candidate, "/chat/sessions", { method: "POST", signal });
     const { session_id: id } = requireResult(
       opened,
@@ -830,7 +834,7 @@
     },
     listParts: async () => {
       let parts = builtInParts, errors = [];
-      if (location.protocol !== "file:") {
+      if (launcherPage) {
         const response = await fetch("/api/parts");
         if (!response.ok) throw new Error("\uAE30\uBCF8 \uBD80\uD488 \uBAA9\uB85D\uC744 \uC77D\uC744 \uC218 \uC5C6\uC5B4\uC694.");
         ({ parts, errors } = await response.json());
@@ -855,8 +859,20 @@
   var runtimeApi = createServerChatApi(window.api);
   runtimeApi.selectMode("server");
   runtimeApi.getSettings = window.api.getSettings;
+  async function connectOnLoad(signal) {
+    if (!launcherPage && location.protocol !== "file:") {
+      const hosted = await fetch("./connection", { signal, cache: "no-store" }).then((response) => response.ok ? response.json() : null).catch(() => null);
+      signal.throwIfAborted();
+      hostedPage = hosted?.hosted === true;
+      if (hostedPage) {
+        const local = ["127.0.0.1", "localhost"].includes(location.hostname);
+        connection = local ? { mode: "local", url: "", key: "" } : { mode: "remote", url: location.origin, key: "" };
+      }
+    }
+    return connectRequired(connection, { signal, openSession: false });
+  }
   async function connectRequired(input2, { signal, progress = () => {
-  } } = {}) {
+  }, openSession = true } = {}) {
     const candidate = window.MirServerConnection.updateConnection(connection, input2);
     const sameServer = candidate.mode === connection.mode && candidate.url === connection.url && candidate.key === connection.key;
     progress("DB \uBD80\uD488 \uBAA9\uB85D\uC744 \uD655\uC778\uD558\uACE0 \uC788\uC5B4\uC694.");
@@ -865,7 +881,7 @@
     progress("DB \uD655\uC778 \uC644\uB8CC \xB7 Copilot AI \uC5F0\uACB0\uC744 \uD655\uC778\uD558\uACE0 \uC788\uC5B4\uC694.");
     const [capabilities, agent] = await Promise.allSettled([
       requestAt(candidate, "/circuits/capabilities", { signal }),
-      verifyAI(candidate, signal)
+      verifyAI(candidate, signal, openSession)
     ]);
     signal?.throwIfAborted();
     const aiError = agent.status === "rejected" ? agent.reason.message : "";
@@ -1386,6 +1402,11 @@ ${result.issues.map((i) => `[${i.severity}] ${i.message}`).join("\n") || "\uAD6C
     return {
       reset,
       fetchPart,
+      openLinkedCircuit: async () => {
+        if (!linked || !client) return;
+        const loaded = await run(() => load(linked, { automatic: true, guardDialog: true }));
+        if (loaded && dialog2.open) dialog2.close();
+      },
       connectionChanged(sameServer) {
         client = null;
         if (!sameServer) {
@@ -4589,7 +4610,7 @@ ${problems.map((p) => `- ${p}`).join("\n")}`;
     $("serverConnectionMode").value = connection2.mode;
     $("inServerUrl").value = connection2.url;
     $("inServerKey").value = "";
-    $("inServerKey").placeholder = connection2.hasKey ? "\uD604\uC7AC \uD0A4 \uC720\uC9C0" : "\uC11C\uBC84 \uAD00\uB9AC\uC790\uC5D0\uAC8C \uBC1B\uC740 \uD0A4";
+    $("inServerKey").placeholder = connection2.hasKey ? "\uD604\uC7AC \uD0A4 \uC720\uC9C0" : "\uACF5\uAC1C \uACF5\uC720 \uC11C\uBC84\uC5D0\uC11C\uB294 \uBE44\uC6CC\uB450\uC138\uC694";
     $("testResult").textContent = "";
     $("testResult").className = "test-result";
     updateSettingsFields();
@@ -4931,6 +4952,7 @@ ${r.errors.join("\n")}`);
     askAgent(buildPartRequest(text2), { shown: "\uB370\uC774\uD130\uC2DC\uD2B8 \uB0B4\uC6A9\uC73C\uB85C \uC0C8 \uBD80\uD488\uC744 \uB9CC\uB4E4\uC5B4\uC918" });
   };
   var connectionAttempt = null;
+  var automaticConnection = null;
   $("btnSettings").onclick = openSettings;
   $("btnSettingsCancel").onclick = () => $("settingsModal").close();
   $("settingsModal").addEventListener("close", () => {
@@ -4949,6 +4971,7 @@ ${r.errors.join("\n")}`);
       return;
     }
     for (const control of controls) control.disabled = true;
+    automaticConnection?.abort();
     const attempt = new AbortController();
     connectionAttempt = attempt;
     status.className = "test-result";
@@ -5182,7 +5205,17 @@ ${r.errors.join("\n")}`);
     alignAgentBelowToolbar();
     void refreshRecentProjects();
     greet();
-    void backend.connectAutomatically();
+    automaticConnection = new AbortController();
+    const signal = AbortSignal.any([automaticConnection.signal, AbortSignal.timeout(12e3)]);
+    void connectOnLoad(signal).then(async ({ aiError }) => {
+      await loadSettings();
+      addMessage("system", aiError ? "\uBC30\uC120 DB\uB97C \uC5F0\uACB0\uD588\uC5B4\uC694. Copilot AI\uB294 \uC11C\uBC84 \uC124\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694." : "Copilot AI\uC640 \uBC30\uC120 DB\uB97C \uC5F0\uACB0\uD588\uC5B4\uC694.");
+      await backend.connectAutomatically();
+      await backend.openLinkedCircuit();
+    }).catch(() => {
+    }).finally(() => {
+      automaticConnection = null;
+    });
   }
   var closePromptOpen = false;
   window.api?.onConfirmClose?.(async () => {

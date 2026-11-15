@@ -1,7 +1,7 @@
 import './project-validation.js';
 import { confirmAction } from './confirm-dialog.js';
 import { applyAgentResult } from './agent-result.js';
-import { runtimeApi, connectRequired } from './web-api.js';
+import { runtimeApi, connectOnLoad, connectRequired } from './web-api.js';
 import './appearance.js';
 import { initBackendPanel } from './backend-panel.js?v=research-evidence-7';
 import { initVerificationPanel } from './verification-panel.js?v=research-evidence-7';
@@ -1097,7 +1097,7 @@ async function openSettings() {
   $('serverConnectionMode').value = connection.mode;
   $('inServerUrl').value = connection.url;
   $('inServerKey').value = '';
-  $('inServerKey').placeholder = connection.hasKey ? '현재 키 유지' : '서버 관리자에게 받은 키';
+  $('inServerKey').placeholder = connection.hasKey ? '현재 키 유지' : '공개 공유 서버에서는 비워두세요';
   $('testResult').textContent = '';
   $('testResult').className = 'test-result';
   updateSettingsFields();
@@ -1379,6 +1379,7 @@ $('btnPartAsk').onclick = () => {
 };
 
 let connectionAttempt = null;
+let automaticConnection = null;
 $('btnSettings').onclick = openSettings;
 $('btnSettingsCancel').onclick = () => $('settingsModal').close();
 $('settingsModal').addEventListener('close', () => {
@@ -1397,6 +1398,7 @@ $('connectionSettings').onsubmit = async (event) => {
     return;
   }
   for (const control of controls) control.disabled = true;
+  automaticConnection?.abort();
   const attempt = new AbortController();
   connectionAttempt = attempt;
   status.className = 'test-result';
@@ -1610,7 +1612,14 @@ export async function initWorkspace() {
   alignAgentBelowToolbar();
   void refreshRecentProjects();
   greet();
-  void backend.connectAutomatically();
+  automaticConnection = new AbortController();
+  const signal = AbortSignal.any([automaticConnection.signal, AbortSignal.timeout(12000)]);
+  void connectOnLoad(signal).then(async ({ aiError }) => {
+    await loadSettings();
+    addMessage('system', aiError ? '배선 DB를 연결했어요. Copilot AI는 서버 설정을 확인해 주세요.' : 'Copilot AI와 배선 DB를 연결했어요.');
+    await backend.connectAutomatically();
+    await backend.openLinkedCircuit();
+  }).catch(() => {}).finally(() => { automaticConnection = null; });
 }
 
 let closePromptOpen=false;

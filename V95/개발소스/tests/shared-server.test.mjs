@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 const require = createRequire(import.meta.url);
 const { normalizeServerUrl, updateConnection, createTransport } = require('../renderer/server-connection.js');
+const htmlConnection = require('../../미르 HTML/assets/server-connection.js');
 const key = 'synthetic-shared-server-test-key';
 test('공유 서버 주소를 바꾸면 이전 키를 보내지 않고 공개 연결을 선택', () => {
   assert.equal(normalizeServerUrl('https://example.com/'), 'https://example.com');
@@ -26,6 +27,21 @@ test('공개 공유 서버에 키 없이 미르 전용 요청 전송', async () 
     },
   });
   assert.deepEqual(await request('/chat/config'), { status: 200, body: { configured: true } });
+});
+
+test('미르 HTML 공유 연결에서 빈 키를 허용하고 서버의 공개 DB를 조회', async () => {
+  const config = htmlConnection.updateConnection({}, { mode: 'remote', url: 'https://team.example', key: '' });
+  const request = htmlConnection.createTransport({
+    read: () => config,
+    fetcher: async (url, options) => {
+      assert.equal(url, 'https://team.example/mir/api');
+      assert.equal(options.method, 'POST');
+      assert.equal(options.headers['X-API-Key'], undefined);
+      assert.deepEqual(JSON.parse(options.body), { path: '/components/search?limit=100', method: 'GET', body: null });
+      return Response.json({ status: 200, body: [] });
+    },
+  });
+  assert.deepEqual(await request('/components/search?limit=100'), { status: 200, body: [] });
 });
 test('공유 서버에만 키를 보내며 리디렉션·임의 경로를 차단', async () => {
   const calls = [];

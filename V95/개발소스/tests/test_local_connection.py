@@ -144,8 +144,15 @@ def test_public_mir_uses_server_owner_for_chat_and_circuits(tmp_path, monkeypatc
                                json={'path': path, 'method': method, 'body': body})
 
         found = call('/components/search?limit=100')
-        assert found.headers['access-control-allow-origin'] == 'null'
+        assert found.headers['access-control-allow-origin'] == '*'
         assert found.json()['status'] == 200
+        external_headers = {'Origin': 'https://example.github.io',
+                            'Access-Control-Request-Method': 'POST',
+                            'Access-Control-Request-Headers': 'content-type'}
+        preflight = client.options('/mir/api', headers=external_headers)
+        assert preflight.status_code == 200
+        assert preflight.headers['access-control-allow-origin'] == '*'
+        assert 'access-control-allow-origin' not in client.options('/components/search', headers=external_headers).headers
         capability = call('/circuits/capabilities').json()['body']
         assert capability['editor_wires'] is True
         assert capability['authentication_required'] is True

@@ -164,7 +164,11 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
   });
   const linked = new URLSearchParams(location.search).get('circuit');
   if (linked) { $('dbCircuitId').value = linked; openDialog(); }
-  return { reset, fetchPart, connectionChanged(sameServer) {
+  return { reset, fetchPart, openLinkedCircuit: async () => {
+    if (!linked || !client) return;
+    const loaded = await run(() => load(linked, { automatic: true, guardDialog: true }));
+    if (loaded && dialog.open) dialog.close();
+  }, connectionChanged(sameServer) {
     client = null;
     if (!sameServer) {
       current = null;

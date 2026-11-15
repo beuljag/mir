@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: http://127.0.0.1:8000; frame-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: http://127.0.0.1:8000 http://127.0.0.1:8002; frame-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>미르 HTML</title>
   <link rel="icon" href="assets/mir-icon.png">
   <link rel="stylesheet" href="미르.css">
-  <script defer src="미르.js"></script>
+  <script defer src="미르.js?v=public-connection-1"></script>
 </head>
 <body class="mir-connecting">
   <dialog id="mirStart" open aria-labelledby="mirStartTitle">
@@ -210,10 +210,10 @@
           <input id="inServerUrl" type="url" placeholder="https://공유서버주소" spellcheck="false">
         </div>
         <div class="field">
-          <label for="inServerKey">배선 API 키</label>
-          <input id="inServerKey" type="password" autocomplete="off" placeholder="서버 관리자에게 받은 키">
+          <label for="inServerKey">배선 API 키 (비공개 서버에서만 필요)</label>
+          <input id="inServerKey" type="password" autocomplete="off" placeholder="공개 공유 서버에서는 비워두세요">
         </div>
-        <small class="muted">키는 이 탭에서 사용해요. 탭을 닫거나 새로고침하면 다시 입력해 주세요.</small>
+        <small class="muted">입력한 키는 이 탭이 열려 있는 동안만 사용해요.</small>
       </div>
       <div id="testResult" class="test-result" role="status"></div>
       <div class="modal-actions">
