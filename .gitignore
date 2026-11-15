@@ -16,6 +16,7 @@ work/
 **/data/verification/
 logs/
 **/tools/devtunnel.exe
+**/tools/devtunnel
 
 **/config/tunnel.json
 **/config/distribution-connection.local.json

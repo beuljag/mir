@@ -34,6 +34,19 @@ class Pin(Model):
         return self
 
 
+SwitchContacts = tuple[tuple[str, ...], tuple[str, ...]]
+
+
+def validate_switch_contacts(contacts: SwitchContacts | None, pins: list[Pin]):
+    if contacts is None:
+        return
+    passive_ids = {pin.id for pin in pins if pin.direction == 'passive'}
+    terminals = [pin_id for group in contacts for pin_id in group]
+    if (not all(contacts) or len(terminals) != len(set(terminals))
+            or not set(terminals) <= passive_ids):
+        raise ValueError('Switch contact groups must contain distinct, existing passive pins')
+
+
 class ComponentDefinition(Model):
     id: str
     manufacturer: str
@@ -48,6 +61,7 @@ class ComponentDefinition(Model):
     is_draft: bool = False
     unresolved_fields: list[str] = Field(default_factory=list)
     research_candidate_id: str | None = None
+    switch_contacts: SwitchContacts | None = None
 
     @model_validator(mode="after")
     def valid_definition(self):
@@ -56,6 +70,7 @@ class ComponentDefinition(Model):
             raise ValueError("Duplicate pin IDs")
         if self.verification_status == "verified" and (not self.pins or self.is_draft):
             raise ValueError("Verified components require pins and cannot be drafts")
+        validate_switch_contacts(self.switch_contacts, self.pins)
         return self
 
 
@@ -71,12 +86,14 @@ class ComponentCreateRequest(Model):
     notes: str = Field(default="", max_length=4000)
     is_virtual: bool = False
     unresolved_fields: list[str] = Field(default_factory=list, max_length=30)
+    switch_contacts: SwitchContacts | None = None
 
     @model_validator(mode="after")
     def unique_pins(self):
         ids = [pin.id for pin in self.pins]
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate pin IDs")
+        validate_switch_contacts(self.switch_contacts, self.pins)
         return self
 
 
@@ -92,6 +109,19 @@ class PinVoltageUpdate(Model):
     def valid_update(self):
         if all(value is None for value in (self.output_voltage, self.voltage_min, self.voltage_max)):
             raise ValueError("At least one voltage value is required")
+        if self.source_url.scheme != "https" or not self.source_title.strip() or not self.evidence.strip():
+            raise ValueError("HTTPS source and evidence are required")
+        return self
+
+
+class SwitchContactsUpdate(Model):
+    switch_contacts: SwitchContacts
+    source_url: HttpUrl
+    source_title: str = Field(min_length=1, max_length=240)
+    evidence: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def valid_source(self):
         if self.source_url.scheme != "https" or not self.source_title.strip() or not self.evidence.strip():
             raise ValueError("HTTPS source and evidence are required")
         return self

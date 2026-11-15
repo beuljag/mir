@@ -37,7 +37,7 @@ def test_initialize_and_discover_seven_tools(client):
     init = rpc(client, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "pytest", "version": "1"}})
     assert init["result"]["serverInfo"]["name"] == "Circuit Agent"
     tools = rpc(client, "tools/list")["result"]["tools"]
-    assert {t["name"] for t in tools} == {"ReportChatProgress", "GetCircuitVerificationConfig", "ImportKiCadProject", "GetKiCadProject", "VerifyKiCadProject", "SearchComponents", "GetComponentDetails", "CreateComponent", "FillComponentPinVoltage", "CreateCircuitDraft", "GetCircuitStatus", "UpdateCircuit", "ValidateCircuit", "ApplyCircuitLayout", "ResearchComponent", "AnalyzeDatasheet", "GetJobStatus", "GetComponentCandidate", "ListComponentCandidates", "GetImageGenerationConfig", "GenerateComponentImage", "ListComponentImages", "GetComponentImage", "ApplyComponentImage", "GetComponentImageSpec", "SaveComponentSvg", "ImportFritzingArtwork", "ImportArduinoCadArtwork"}
+    assert {t["name"] for t in tools} == {"FillComponentSwitchContacts", "ReportChatProgress", "GetCircuitVerificationConfig", "ImportKiCadProject", "GetKiCadProject", "VerifyKiCadProject", "SearchComponents", "GetComponentDetails", "CreateComponent", "FillComponentPinVoltage", "CreateCircuitDraft", "GetCircuitStatus", "UpdateCircuit", "ValidateCircuit", "ApplyCircuitLayout", "ResearchComponent", "AnalyzeDatasheet", "GetJobStatus", "GetComponentCandidate", "ListComponentCandidates", "GetImageGenerationConfig", "GenerateComponentImage", "ListComponentImages", "GetComponentImage", "ApplyComponentImage", "GetComponentImageSpec", "SaveComponentSvg", "ImportFritzingArtwork", "ImportArduinoCadArtwork"}
     for t in tools:
         assert "ctx" not in t["inputSchema"].get("properties", {})
         for schema in (t["inputSchema"], t.get("outputSchema", {})):
@@ -109,3 +109,34 @@ def test_mcp_fills_missing_pin_voltage_and_keeps_existing_circuit(client, direct
     assert verified["status"] == "failed"
     assert "VOLTAGE_OUT_OF_RANGE" in {i["code"] for i in verified["issues"]}
     assert "MISSING_OUTPUT_VOLTAGE" not in {i["code"] for i in verified["issues"]}
+
+
+def test_mcp_fills_old_switch_draft_without_changing_pin_ids(client):
+    pins = [{"id": pin, "label": pin, "direction": "passive", "signal_type": "passive"}
+            for pin in ("TL", "TR", "BL", "BR")]
+    component = data(tool(client, "CreateComponent", {"component_json": json.dumps({
+        "request_id": "switch-contacts-fixture", "model": "fixture switch", "category": "input",
+        "pins": pins, "unresolved_fields": ["switch_contacts"],
+    })}))
+    cid = component["id"]
+    assert component["switch_contacts"] is None
+    groups = [["TL", "TR"], ["BL", "BR"]]
+
+    def fill(contacts, headers=None):
+        payload = {"switch_contacts": contacts, "source_url": "https://manufacturer.example/switch",
+                   "source_title": "Switch fixture", "evidence": "Top view: two internally paired contact groups."}
+        return tool(client, "FillComponentSwitchContacts", {
+            "component_id": cid, "contacts_json": json.dumps(payload),
+        }, headers)
+
+    assert "COMPONENT_DRAFT_NOT_FOUND" in str(fill(groups, {"X-API-Key": KEY_B}))
+    assert "INVALID_SWITCH_CONTACTS" in str(fill([["TL", "TR"], ["TR", "BR"]]))
+    assert client.patch(f"/components/{cid}/switch-contacts", headers={"X-API-Key": ""}, json={}).status_code == 401
+    saved = data(fill(groups))
+    assert saved["id"] == cid and saved["pins"] == component["pins"]
+    assert saved["switch_contacts"] == groups
+    assert saved["source_references"][0]["reference"].endswith("/switch")
+    assert "switch_contacts" not in saved["unresolved_fields"]
+    assert data(fill([["BR", "BL"], ["TR", "TL"]])) == saved
+    assert "SWITCH_CONTACTS_ALREADY_SET" in str(fill([["TL", "BL"], ["TR", "BR"]]))
+    assert data(tool(client, "GetComponentDetails", {"component_id": cid})) == saved

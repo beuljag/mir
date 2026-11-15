@@ -110,9 +110,15 @@ function namedPowerRail(pin) {
 export function definitionToPart(def, localPart) {
   const types = { ground: 'gnd', bidirectional: 'gpio' };
   const isBoard = ['board', 'controller'].includes(def.category);
+  const contacts = def.switch_contacts;
+  const button = contacts ? {
+    behavior: { kind: 'button', a: contacts[0][0], b: contacts[1][0] },
+    internalNets: contacts,
+  } : {};
   const converted = {
     id: def.id, name: def.model, category: def.category,
     ...(isBoard ? { behavior: { kind: 'board' } } : {}),
+    ...button,
     description: `${def.manufacturer} · ${def.verification_status}${def.is_draft ? ' · 미검증 설계 부품' : ''}${def.is_virtual ? ' · 가상 부품' : ''}${!def.pins.length ? ' · 핀 정보 미확인' : ''}`,
     isDraft: !!def.is_draft,
     unresolvedFields: def.unresolved_fields || [],
@@ -142,7 +148,12 @@ export function definitionToPart(def, localPart) {
   return { ...local, ...converted, pins: converted.pins.map((pin) => {
     const previous = localPins.get(pin.id);
     const type = pin.type === 'passive' && ['nc', 'contact'].includes(previous.type) ? previous.type : pin.type;
-    return { ...previous, ...pin, type, side: previous.side };
+    const merged = { ...previous, ...pin, type, side: previous.side };
+    if (previous.voltageFromLabel && !pin.voltageFromLabel) {
+      delete merged.voltageFromLabel;
+      if (pin.voltage == null) delete merged.voltage;
+    }
+    return merged;
   }) };
 }
 

@@ -5,10 +5,40 @@ from uuid import NAMESPACE_URL, uuid5
 
 from fastapi import Depends, HTTPException
 
-from .models import ComponentCreateRequest, ComponentDefinition, PinVoltageUpdate, Source
+from .models import (
+    ComponentCreateRequest, ComponentDefinition, PinVoltageUpdate, Source,
+    SwitchContactsUpdate, validate_switch_contacts,
+)
 
 
 def attach_component_catalog(app, store, owner):
+    @app.patch('/components/{component_id}/switch-contacts', response_model=ComponentDefinition,
+               operation_id='FillComponentSwitchContacts', tags=['components'])
+    def fill_switch_contacts(component_id: str, body: SwitchContactsUpdate, user: str = Depends(owner)):
+        def update(component):
+            try:
+                validate_switch_contacts(body.switch_contacts, component.pins)
+            except ValueError as exc:
+                raise HTTPException(422, detail={'code': 'INVALID_SWITCH_CONTACTS'}) from exc
+            if component.switch_contacts is not None:
+                if {frozenset(group) for group in component.switch_contacts} != {frozenset(group) for group in body.switch_contacts}:
+                    raise HTTPException(409, detail={'code': 'SWITCH_CONTACTS_ALREADY_SET'})
+                return component
+            source = Source(title=body.source_title.strip(), reference=str(body.source_url))
+            sources = component.source_references if source in component.source_references else [*component.source_references, source]
+            note = f'Switch contacts: {body.evidence.strip()} [{source.reference}]'
+            return component.model_copy(update={
+                'switch_contacts': body.switch_contacts,
+                'source_references': sources,
+                'notes': component.notes + '\n' + note,
+                'unresolved_fields': [field for field in component.unresolved_fields if field != 'switch_contacts'],
+            })
+
+        updated = store.update_draft_component(component_id, user, update)
+        if updated is None:
+            raise HTTPException(404, detail={'code': 'COMPONENT_DRAFT_NOT_FOUND'})
+        return updated
+
     @app.patch('/components/{component_id}/pins/{pin_id:path}/voltage', response_model=ComponentDefinition,
                operation_id='FillComponentPinVoltage', tags=['components'])
     def fill_pin_voltage(component_id: str, pin_id: str, body: PinVoltageUpdate, user: str = Depends(owner)):
@@ -44,7 +74,9 @@ def attach_component_catalog(app, store, owner):
     @app.post('/components', response_model=ComponentDefinition, status_code=201,
               operation_id='CreateComponent', tags=['components'])
     def create_component(body: ComponentCreateRequest, user: str = Depends(owner)):
-        fingerprint = hashlib.sha256(body.model_dump_json().encode('utf-8')).hexdigest()
+        # Preserve idempotency for requests made before switch contacts were supported.
+        omitted = {'switch_contacts'} if body.switch_contacts is None else None
+        fingerprint = hashlib.sha256(body.model_dump_json(exclude=omitted).encode('utf-8')).hexdigest()
         existing = store.component_request(user, body.request_id)
         if existing:
             if existing[1] != fingerprint:
@@ -79,7 +111,8 @@ def attach_component_catalog(app, store, owner):
             manufacturer=body.manufacturer, model=body.model, revision=body.revision, category=body.category,
             pins=body.pins, source_references=sources, notes='미검증 설계 부품.\n' + notes.strip(),
             is_virtual=body.is_virtual, verification_status='unverified', is_draft=True,
-            unresolved_fields=list(dict.fromkeys(missing)), research_candidate_id=body.candidate_id)
+            unresolved_fields=list(dict.fromkeys(missing)), research_candidate_id=body.candidate_id,
+            switch_contacts=body.switch_contacts)
         try:
             store.create_component(component, user, body.request_id, fingerprint)
         except sqlite3.IntegrityError:

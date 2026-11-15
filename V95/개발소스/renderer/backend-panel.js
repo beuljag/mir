@@ -1,5 +1,5 @@
 import { confirmAction } from './confirm-dialog.js';
-import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js?v=v95-integration-1';
+import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js?v=switch-contacts-1';
 import { runtimeApi } from './web-api.js?v=v95-integration-1';
 
 export function initBackendPanel({ getState, getProjectGeneration = () => 0, canReplace = () => true,

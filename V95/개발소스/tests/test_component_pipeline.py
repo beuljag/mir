@@ -99,6 +99,17 @@ def test_creation_deduplication_owner_isolation_and_no_verification_override(cli
     assert other['id'] != cid
 
 
+def test_switch_contacts_are_stored_and_require_distinct_passive_pins(client):
+    payload = {'request_id': 'test-switch-001', 'model': '4pin fixture', 'category': 'input',
+               'pins': [{'id': pin, 'label': pin, 'direction': 'passive', 'signal_type': 'passive'}
+                        for pin in ('P1', 'P2', 'P3', 'P4')],
+               'switch_contacts': [['P1', 'P2'], ['P3', 'P4']]}
+    component = call(client, 'CreateComponent', {'component_json': json.dumps(payload)})
+    assert client.get('/components/' + component['id']).json()['switch_contacts'] == payload['switch_contacts']
+    invalid = {**payload, 'request_id': 'test-switch-002', 'switch_contacts': [['P1', 'P2'], ['P2', 'P4']]}
+    assert client.post('/components', json=invalid).status_code == 422
+
+
 def test_unknown_pinout_still_creates_reusable_body_and_validation_stays_unknown(client):
     component = client.post('/components', json={'request_id': 'unknown-supply', 'model': '외부 전원 (모델 미확인)', 'category': 'power', 'is_virtual': True}).json()
     assert component['pins'] == [] and 'pinout' in component['unresolved_fields']

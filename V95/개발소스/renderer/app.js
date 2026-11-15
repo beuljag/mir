@@ -3,7 +3,7 @@ import { confirmAction } from './confirm-dialog.js';
 import { applyAgentResult, mergeAgentCircuit } from './agent-result.js?v=circuit-append-1';
 import { runtimeApi } from './web-api.js?v=v95-integration-1';
 import './appearance.js?v=v95-integration-1';
-import { initBackendPanel } from './backend-panel.js?v=v95-integration-1';
+import { initBackendPanel } from './backend-panel.js?v=switch-contacts-1';
 import { initVerificationPanel } from './verification-panel.js?v=v95-integration-1';
 import { WiringCanvas, layoutPart, partBounds, rotationDegrees, separateParts } from './canvas.js?v=v95-integration-1';
 import { drawArt, isBareArt } from './art.js?v=physical-parts-1';

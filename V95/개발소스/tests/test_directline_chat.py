@@ -83,6 +83,7 @@ def test_secret_and_tokens_stay_on_server_chat_roundtrip(chat):
     assert posted_text.startswith('부품 목록\n\n라즈베리파이 펌프\n\n')
     assert '[미르 조사 우선·확인 질문 규칙]' in posted_text and 'clarification' in posted_text
     assert '질문보다 조사를 먼저' in posted_text and '핀 이름·핀 개수·핀 기능을 전부 나열하도록 요구하지 않습니다' in posted_text
+    assert 'nets에는 사용자가 실제로 연결할 외부 배선의 핀만 넣습니다' in posted_text
     assert client.delete(f'/chat/sessions/{sid}').json() == {'ok': True}
 
 
@@ -395,7 +396,7 @@ def test_long_work_timeout_is_configurable_and_bounded(chat):
     sid = opened['session_id']
     client.post(f'/chat/sessions/{sid}/messages',json={'message':'research'})
     session = service.sessions[sid]
-    assert 599 < session.deadline - session.sent_at <= 600
+    assert session.deadline - session.sent_at == pytest.approx(600, abs=1e-6)
     env.write_text('COPILOT_DIRECT_LINE_SECRET=' + SECRET + '\nCOPILOT_REPLY_TIMEOUT_SECONDS=0\n', encoding='utf-8')
     assert client.get('/chat/config').json()['reply_timeout_seconds'] is None
     for invalid in ['29','901','NaN']:
@@ -501,6 +502,30 @@ def test_design_waits_past_unrecognized_english_progress_until_saved_reference(c
     assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
     assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
     assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='completed'
+
+
+def test_existing_circuit_edit_keeps_waiting_after_english_tool_note(chat):
+    client, service, _, _ = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    message = '아두이노용 푸시버튼으로 만들어 줘. 그 다리 4개 달린거'
+    rid = client.post(f'/chat/sessions/{sid}/messages', json={'message': message}).json()['request_id']
+    assert not service.sessions[sid].requires_design_result
+    batches = iter([
+        [{'id': 'note', 'type': 'message', 'from': {'role': 'bot'},
+          'text': 'Now the image and circuit update (get version first).'}],
+        [],
+        [{'id': 'final', 'type': 'message', 'from': {'role': 'bot'},
+          'text': '4핀 버튼을 반영했습니다.\n{"type":"circuit_reference","circuit_id":"saved-circuit","version":3}'}],
+    ])
+    service.transport = httpx.MockTransport(lambda request: httpx.Response(200, json={'activities': next(batches)}))
+    poll = f'/chat/sessions/{sid}/messages/{rid}'
+    waiting = client.get(poll).json()
+    assert waiting['status'] == 'waiting' and waiting['progress'] == []
+    assert client.get(poll).json()['status'] == 'waiting'
+    final = client.get(poll).json()
+    assert final['status'] == 'completed'
+    assert '"version":3' in final['reply']
+    assert 'get version first' not in final['reply']
 
 
 def test_design_question_marker_finishes_without_inventing_connections(chat):

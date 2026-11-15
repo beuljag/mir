@@ -67,6 +67,10 @@ def settings(env_file=None):
 
 
 FINAL_MARKER = '<!--MIR_TURN_COMPLETE-->'
+ENGLISH_WORK_NOTE = re.compile(
+    r'now (?:the )?(?:[\w-]+ ){0,4}(?:image(?: and circuit update)?|circuit update)'
+    r'(?:\s*\([^\n)]{1,80}\))?[.!]?', re.IGNORECASE
+)
 PROGRESS_STAGES = {
     'lookup': '부품함에서 사용할 부품을 확인하고 있어요.',
     'research': '제조사 자료에서 핀 배치와 전압 사양을 확인하고 있어요.',
@@ -143,7 +147,7 @@ def has_design_result(text):
 
 def is_progress_message(text, input_hint=None):
     # Bot Framework의 ignoringInput과 명확한 진행 안내는 최종 응답이 아니다.
-    if input_hint == 'ignoringInput': return True
+    if input_hint == 'ignoringInput' or ENGLISH_WORK_NOTE.fullmatch(text.strip()): return True
     if input_hint == 'acceptingInput': return False
     last = text.strip().split('\n')[-1].strip()
     return bool(re.search(r'(?:조사|검색|조회|확인|분석|생성|제작|저장|등록|처리|위임|전달|요청|진행)(?:합니다|하겠습니다|할게요|하고 있습니다| 중입니다| 중이에요)[.!。…]*$', last)
@@ -372,6 +376,7 @@ class DirectLineChat:
             session.add_progress('찾은 제조사 도면을 첨부해 설계를 이어가고 있어요.')
         text = ('[미르 제조사 자료 확인 결과] 직전 사용자 요청을 이어서 처리하세요. 이미지 보기 기능으로 첨부를 열어 '
                 '모델·핀 배치·헤더 방향을 확인하세요. '
+                '스위치 접점 도면을 요청한 경우 첨부에서 상시 연결과 누름 시 연결을 읽어 기존 부품의 접점 정보를 먼저 저장하세요. '
                 '제조사 도면에서 기판 외곽과 패드 중심이 보이면 그 페이지를 SVG 배치 근거로 사용합니다. '
                 '이미 처리한 주소는 다시 요청하지 마세요.')
         if not existing_circuit:
@@ -428,6 +433,17 @@ class DirectLineChat:
                      '맞는 기본 부품의 ID·그림·가상 동작을 재사용합니다. 빨간 LED는 led-red, 220Ω 저항은 resistor-220입니다. '
                      '새 실물 부품은 정확한 모델의 제조사 공식 제품 페이지·데이터시트·외형 자료를 우선 확인합니다. '
                      '실물 보드의 그림은 공식 사진 또는 CAD와 핀 배치도로 커넥터 위치를 확인하고 physical_layout을 사용합니다.')
+            text += ('\n\n[외부 배선과 보드 내부 연결] 회로 설계 에이전트에게도 이 규칙을 전달하세요. '
+                     'nets에는 사용자가 실제로 연결할 외부 배선의 핀만 넣습니다. '
+                     '같은 보드 내부에서 이미 공통으로 연결된 것으로 확인한 GND 단자가 여럿이면 '
+                     '단순한 LED처럼 단일 접지 귀로에 하나만 선택합니다. 사용하지 않는 GND 단자까지 같은 net에 열거하지 마세요. '
+                     '서로 다른 장치의 공통 접지, 분리된 접지, 제조사가 여러 단자 연결을 요구하는 경우는 각각 확인해 필요한 연결을 유지하세요.')
+            text += ('\n\n[기존 버튼 접점 확인] 회로에 순간동작 스위치를 쓰기 전에 GetComponentDetails로 switch_contacts를 확인하세요. '
+                     'DB 초안의 값이 비어 있으면 부품 검색 에이전트에게 정확한 모델과 리비전의 제조사 접점 도면을 조사하게 하세요. '
+                     '그림으로 된 접점 도면을 읽을 수 없다면 위 mir_board_references 형식으로 해당 PDF 페이지 또는 도면 이미지를 요청하세요. '
+                     '정상 개방형 버튼에서 상시 연결된 두 그룹이 눌림 상태에서 서로 이어지는지와 DB 핀 ID 대응을 확인한 뒤 '
+                     'FillComponentSwitchContacts로 출처와 함께 같은 부품 ID에 저장하고 다시 조회하세요. 그 부품으로 배선을 진행하고 '
+                     '접점이 확인되지 않으면 추측하지 말고 미확인 부품으로 표시하세요. 이미 작동 정보가 있는 미르 기본 버튼은 재사용하세요.')
             text += REFERENCE_INSTRUCTIONS
             text += ('\n\n[미르 진행 안내] 작업 단계가 바뀔 때 ReportChatProgress를 사용할 수 있으면 '
                      f'request_id={request_id}로 현재 단계(lookup, research, artwork, wiring, verify, save)를 한 번씩 알리세요. '
@@ -448,8 +464,10 @@ class DirectLineChat:
                          '확인한 핀만 배선에 사용합니다.')
                 if images:
                     text += '\n첨부 파일과 출처:\n' + '\n'.join(f'- {image.filename} → {image.url}' for image in images)
-            if session.requires_design_result:
-                text += '\n\n[미르 응답 계약] 진행 중 안내는 최종 결과가 아닙니다. 실제 회로 저장 결과 또는 화면용 배선 JSON까지 실행하세요. 최종 답변은 한국어로 작성하고 맨 마지막에 ' + FINAL_MARKER + '를 붙이세요. 정보가 부족해 작업을 멈추고 질문하는 경우에도 마지막에 이 표식을 붙이세요. 단순 중간 안내에는 표식을 붙이지 마세요.'
+            text += ('\n\n[미르 응답 계약] 내부 작업 메모를 채팅 답변으로 보내지 말고 진행 안내 도구를 사용하세요. '
+                     '새 배선과 기존 회로 수정 모두 실제 저장을 끝낸 뒤 회로 ID와 버전 또는 화면용 배선 JSON을 최종 답변에 포함하세요. '
+                     '완료한 결과나 필요한 확인 질문은 한국어로 답하고 맨 끝에 ' + FINAL_MARKER + '를 붙이세요. '
+                     '중간 안내에는 이 표식을 붙이지 마세요.')
             if len(text.encode('utf-8')) > 200000:
                 raise ChatError(422, 'CHAT_MESSAGE_TOO_LARGE')
             # 초기 인사와 이전 응답이 다음 요청의 응답으로 섞이지 않게 현재 위치를 읽는다.
@@ -535,7 +553,8 @@ class DirectLineChat:
                             final = final_marked or has_design_result(text) or activity.get('inputHint') == 'expectingInput'
                             connection_required = text.lstrip().startswith('Connection Required') and 'Set up your connection' in text
                             if not final and not connection_required and is_progress_message(text, activity.get('inputHint')):
-                                session.add_progress(text)
+                                if not ENGLISH_WORK_NOTE.fullmatch(text):
+                                    session.add_progress(text)
                                 session.awaiting_work = not session.final_result_seen
                                 session.last_reply = time.monotonic()
                                 continue

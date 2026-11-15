@@ -20,7 +20,8 @@ from starlette.responses import JSONResponse
 
 from .directline_chat import PROGRESS_STAGES
 from .models import (CircuitDraft, CircuitUpdate, DatasheetRequest, ResearchRequest, ImageRequest, SvgSaveRequest,
-                     FritzingImportRequest, ImagePresentation, ImageSpecRequest, ComponentCreateRequest, PinVoltageUpdate, KiCadImport, KiCadChecks)
+                     FritzingImportRequest, ImagePresentation, ImageSpecRequest, ComponentCreateRequest,
+                     PinVoltageUpdate, SwitchContactsUpdate, KiCadImport, KiCadChecks)
 
 PositiveVersion = Annotated[int, Field(ge=1)]
 
@@ -133,7 +134,7 @@ def attach_mcp(app, authenticate):
 
     @mcp.tool(name="CreateComponent", annotations=write)
     async def create_component(ctx: Context, component_json: str) -> str:
-        """DB에 없는 부품을 미검증 설계 부품으로 저장하고 재사용 가능한 id를 반환합니다. component_json은 request_id(8~80자 영문/숫자/-/_), model, category, manufacturer, revision, pins, source_references, notes, unresolved_fields 및 선택 candidate_id를 담은 JSON 문자열입니다. 핀을 모르면 pins=[]로 외형 초안부터 저장하며 사양을 추측하지 않습니다. 같은 요청 재확인은 같은 request_id를 사용합니다. 반환 id로 이미지 제작·저장·적용과 회로 설계를 계속하세요. 후보 승인 도구가 아닙니다."""
+        """DB에 없는 부품을 미검증 설계 부품으로 저장하고 재사용 가능한 id를 반환합니다. component_json은 request_id(8~80자 영문/숫자/-/_), model, category, manufacturer, revision, pins, source_references, notes, unresolved_fields 및 선택 candidate_id를 담은 JSON 문자열입니다. 핀을 모르면 pins=[]로 외형 초안부터 저장하며 사양을 추측하지 않습니다. 같은 요청 재확인은 같은 request_id를 사용합니다. 반환 id로 이미지 제작·저장·적용과 회로 설계를 계속하세요. 후보 승인 도구가 아닙니다. 누를 때만 연결되는 버튼은 확인된 두 접점 그룹의 핀 ID를 switch_contacts에 넣습니다."""
         try:
             request = ComponentCreateRequest.model_validate_json(component_json)
         except ValidationError as exc:
@@ -142,7 +143,7 @@ def attach_mcp(app, authenticate):
 
     @mcp.tool(name="GetComponentDetails", annotations=read)
     async def get_component_details(ctx: Context, component_id: str) -> str:
-        """부품 ID의 핀·전압 제한·출처·가상 부품 여부를 조회합니다."""
+        """부품 ID의 핀·전압 제한·스위치 접점(switch_contacts)·출처·가상 부품 여부를 조회합니다."""
         return await call(ctx, "GET", f"/components/{quote(component_id, safe='')}")
 
     @mcp.tool(name="FillComponentPinVoltage", annotations=write)
@@ -153,6 +154,16 @@ def attach_mcp(app, authenticate):
         except ValidationError as exc:
             raise ToolError("INVALID_PIN_VOLTAGE_JSON: " + exc.json(include_input=False, include_url=False)) from None
         return await call(ctx, "PATCH", f"/components/{quote(component_id, safe='')}/pins/{quote(pin_id, safe='')}/voltage",
+                          request.model_dump(mode="json"))
+
+    @mcp.tool(name="FillComponentSwitchContacts", annotations=write)
+    async def fill_component_switch_contacts(ctx: Context, component_id: str, contacts_json: str) -> str:
+        """기존 부품 ID를 유지하며 비어 있는 버튼 접점만 채웁니다. 사용하려는 순간동작 스위치의 switch_contacts가 비어 있으면 정확한 모델·리비전의 제조사 도면에서 상시 연결된 두 그룹과 누를 때 두 그룹이 이어지는지 확인하고, contacts_json에 switch_contacts(실제 DB 핀 ID의 두 그룹), source_url(HTTPS), source_title, evidence를 넣어 호출하세요. 그림과 핀 ID는 유지됩니다. 값이 이미 있으면 GetComponentDetails로 조회하여 사용하세요."""
+        try:
+            request = SwitchContactsUpdate.model_validate_json(contacts_json)
+        except ValidationError as exc:
+            raise ToolError("INVALID_SWITCH_CONTACTS_JSON: " + exc.json(include_input=False, include_url=False)) from None
+        return await call(ctx, "PATCH", f"/components/{quote(component_id, safe='')}/switch-contacts",
                           request.model_dump(mode="json"))
 
     @mcp.tool(name="CreateCircuitDraft", annotations=write)

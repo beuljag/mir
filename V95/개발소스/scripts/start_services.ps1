@@ -16,8 +16,17 @@ function Test-CircuitApi {
 
 try {
     if (-not (Test-Path -LiteralPath $pythonWindowless)) {
-        throw 'Virtual environment is missing. Run start.ps1 once to install dependencies.'
+        $pythonLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+        if ($pythonLauncher) { & $pythonLauncher.Source -3 (Join-Path $PSScriptRoot 'bootstrap_server.py') }
+        else {
+            $pythonLauncher = Get-Command python.exe -ErrorAction SilentlyContinue
+            if (-not $pythonLauncher) { throw 'Install Python 3.11 or newer, then run this file again.' }
+            & $pythonLauncher.Source (Join-Path $PSScriptRoot 'bootstrap_server.py')
+        }
+    } else {
+        & $python (Join-Path $PSScriptRoot 'bootstrap_server.py')
     }
+    if ($LASTEXITCODE -ne 0) { throw 'Server dependency setup failed. See the message above.' }
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'config\local-api-keys.json'))) {
         & $python (Join-Path $PSScriptRoot 'setup_local_key.py')
         if ($LASTEXITCODE -ne 0) { throw 'Persistent key setup failed.' }
@@ -38,31 +47,32 @@ try {
     }
 
     if (-not $NoTunnel) {
-        $configPath = Join-Path $projectRoot 'config\tunnel.json'
-        if (-not (Test-Path -LiteralPath $configPath)) { throw 'config\tunnel.json is missing.' }
-        if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'tools\devtunnel.exe'))) { throw 'tools\devtunnel.exe is missing.' }
-        $tunnelConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+        $tunnelScript = Join-Path $PSScriptRoot 'run_tunnel.py'
+        $settingsJson = & $python $tunnelScript --settings
+        if ($LASTEXITCODE -ne 0) { throw 'Check DEVTUNNEL_ID and DEVTUNNEL_PUBLIC_URL in .env.' }
+        $tunnelConfig = $settingsJson | ConvertFrom-Json
+        & $python $tunnelScript --prepare
+        if ($LASTEXITCODE -ne 0) { throw 'Dev Tunnels CLI setup failed.' }
         $tunnelPattern = [regex]::Escape($tunnelConfig.tunnel_id)
         $runningTunnel = Get-CimInstance Win32_Process -Filter "Name = 'devtunnel.exe'" |
             Where-Object { $_.CommandLine -match $tunnelPattern -and $_.CommandLine -match '\bhost\b' }
         if ($runningTunnel) {
             Write-Host '[OK] The saved tunnel process is already running.'
         } else {
-            $tunnelScript = Join-Path $PSScriptRoot 'run_tunnel.py'
             # run_tunnel.py also holds a lock so repeated clicks do not create extra supervisors.
             Start-Process -FilePath $pythonWindowless -ArgumentList ('"' + $tunnelScript + '"') -WorkingDirectory $projectRoot -WindowStyle Hidden
             Write-Host '[INFO] Starting the saved tunnel in the background...'
         }
 
         $publicReady = $false
-        for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        for ($attempt = 0; $attempt -lt 12; $attempt++) {
             try {
                 $health = Invoke-RestMethod -Uri ($tunnelConfig.public_url.TrimEnd('/') + '/health') -Headers @{Accept='application/json'} -TimeoutSec 5
                 if ($health.status -eq 'ok') { $publicReady = $true; break }
             } catch { }
             Start-Sleep -Seconds 1
         }
-        if (-not $publicReady) { throw 'Local API is ready, but the public tunnel is not responding. Check logs\tunnel.log. Dev Tunnels may need login again.' }
+        if (-not $publicReady) { throw 'Local API is ready, but the public tunnel is not responding. Check logs\tunnel.log and DEVTUNNEL_HOST_TOKEN (or Dev Tunnels sign-in).' }
         Write-Host ('[OK] Public MCP: ' + $tunnelConfig.public_url.TrimEnd('/') + '/mcp')
     }
     Write-Host '[OK] Editor: http://127.0.0.1:8000'

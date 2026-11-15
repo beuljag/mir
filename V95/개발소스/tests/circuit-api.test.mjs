@@ -88,10 +88,34 @@ test('전압이 이름에 명시된 DB 보드 전원 핀은 LED를 구동하고 
   assert.equal(limited.parts.D1.burnt, false);
 });
 
-test('가상 전원 진단은 DB 누락과 5V에서 3.3V 입력으로의 과전압을 따로 전달한다', () => {
-  const toPart = (id, pins) => definitionToPart({
-    id, model: id, category: 'board', manufacturer: 'Test', is_draft: true, source_references: [], pins
+test('DB 4핀 버튼은 같은 접점 쌍을 유지하고 누를 때만 LED로 전원을 전달한다', () => {
+  const button = definitionToPart({
+    id: 'db-switch', model: '4핀 버튼', category: 'input', manufacturer: 'Test', source_references: [],
+    pins: ['P1', 'P2', 'P3', 'P4'].map(id => ({ id, label: id, direction: 'passive' })),
+    switch_contacts: [['P1', 'P2'], ['P3', 'P4']],
   });
+  const load = id => JSON.parse(readFileSync(new URL(`../parts/${id}.json`, import.meta.url), 'utf8'));
+  const supply = { id: 'supply', behavior: { kind: 'supply' },
+    pins: [{ id: 'V', type: 'power_out', voltage: 5 }, { id: 'G', type: 'gnd' }] };
+  const defs = new Map([supply, button, load('resistor-220'), load('led-red')].map(part => [part.id, part]));
+  const instances = [{ ref: 'U1', part: 'supply' }, { ref: 'SW1', part: button.id },
+    { ref: 'R1', part: 'resistor-220' }, { ref: 'D1', part: 'led-red' }];
+  const wires = [{ from: 'U1.V', to: 'SW1.P1' }, { from: 'SW1.P3', to: 'R1.P1' },
+    { from: 'R1.P2', to: 'D1.A' }, { from: 'D1.K', to: 'U1.G' }];
+  const released = simulate({ defs, instances, wires });
+  const pressed = simulate({ defs, instances, wires, pressed: new Set(['SW1']) });
+  assert.equal(released.netByPin['SW1.P2'].voltage, 5);
+  assert.notEqual(released.netByPin['SW1.P4'].voltage, 5);
+  assert.equal(Boolean(released.parts.D1.lit), false);
+  assert.equal(pressed.netByPin['SW1.P4'].voltage, 5);
+  assert.equal(pressed.parts.SW1.pressed, true);
+  assert.equal(pressed.parts.D1.lit, true);
+});
+
+test('가상 전원 진단은 DB 누락과 5V에서 3.3V 입력으로의 과전압을 따로 전달한다', () => {
+  const toPart = (id, pins, previous) => definitionToPart({
+    id, model: id, category: 'board', manufacturer: 'Test', is_draft: true, source_references: [], pins
+  }, previous);
   const supply = toPart('supply', [{ id: '5V', label: '+5V', direction: 'power_out' }]);
   const sensor = toPart('sensor', [
     { id: 'VCC', label: 'VCC', direction: 'power_in', signal_type: 'power', voltage_max: 3.3 },
@@ -107,7 +131,9 @@ test('가상 전원 진단은 DB 누락과 5V에서 3.3V 입력으로의 과전�
     ['REQUIRED_PIN_UNCONNECTED', 'sensor', 'GND']
   ]);
   assert.match(before[0].message, /5V.*3.3V/);
-  delete supply.pins[0].voltageFromLabel;
+  const updated = toPart('supply', [{ id: '5V', label: '+5V', direction: 'power_out', output_voltage: 5 }], supply);
+  state.defs.set('supply', updated);
+  assert.equal(simulate(state).netByPin['U1.5V'].voltage, 5);
   assert.deepEqual(circuitDiagnostics(state, simulate(state)).map(({ code }) => code),
     ['OVERVOLTAGE', 'REQUIRED_PIN_UNCONNECTED']);
 });

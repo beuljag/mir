@@ -33,7 +33,7 @@ def verify(base_url):
     result = rpc("tools/call", {"name": "GetComponentDetails", "arguments": {"component_id": "virtual-sensor"}})
     assert not result.get("isError"), result
     names = sorted(t["name"] for t in tools)
-    assert {"ReportChatProgress", "GetCircuitVerificationConfig", "ImportKiCadProject", "GetKiCadProject", "VerifyKiCadProject", "SearchComponents", "GetComponentDetails", "CreateComponent", "CreateCircuitDraft", "GetCircuitStatus", "UpdateCircuit", "ValidateCircuit", "ApplyCircuitLayout", "ResearchComponent", "AnalyzeDatasheet", "GetJobStatus", "GetComponentCandidate", "ListComponentCandidates", "GetComponentImageSpec", "SaveComponentSvg", "ImportFritzingArtwork", "ImportArduinoCadArtwork", "GetImageGenerationConfig", "GenerateComponentImage", "GetComponentImage", "ListComponentImages", "ApplyComponentImage"}.issubset(names), names
+    assert {"FillComponentSwitchContacts", "ReportChatProgress", "GetCircuitVerificationConfig", "ImportKiCadProject", "GetKiCadProject", "VerifyKiCadProject", "SearchComponents", "GetComponentDetails", "CreateComponent", "CreateCircuitDraft", "GetCircuitStatus", "UpdateCircuit", "ValidateCircuit", "ApplyCircuitLayout", "ResearchComponent", "AnalyzeDatasheet", "GetJobStatus", "GetComponentCandidate", "ListComponentCandidates", "GetComponentImageSpec", "SaveComponentSvg", "ImportFritzingArtwork", "ImportArduinoCadArtwork", "GetImageGenerationConfig", "GenerateComponentImage", "GetComponentImage", "ListComponentImages", "ApplyComponentImage"}.issubset(names), names
     return {"endpoint": endpoint, "authentication_required": True, "tools": names, "sample_call": "GetComponentDetails: OK"}
 
 
