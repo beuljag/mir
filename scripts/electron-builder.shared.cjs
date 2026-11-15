@@ -23,12 +23,9 @@ function prepareDistribution() {
   }
   const defaults = JSON.parse(fs.readFileSync(path.join(root, 'renderer', 'server-defaults.json'), 'utf8'));
   const url = env.MIR_DISTRIBUTION_SERVER_URL || profile.url || defaults.sharedServerUrl;
-  const key = env.MIR_DISTRIBUTION_API_KEY || profile.key || env.CIRCUIT_API_KEY;
-  if (!key) throw new Error('전달받은 자동 연결 설정 파일을 config/distribution-connection.local.json에 넣은 뒤 다시 빌드하세요.');
-  if (typeof key !== 'string' || typeof url !== 'string') {
-    throw new Error('자동 연결 빌드 설정의 서버 주소와 키는 문자열이어야 합니다.');
-  }
-  const connection = updateConnection({}, { mode: 'remote', url, key });
+  if (typeof url !== 'string') throw new Error('배포 서버 주소는 문자열이어야 합니다.');
+  const { mode, url: normalized } = updateConnection({}, { mode: 'remote', url });
+  const connection = { mode, url: normalized };
   if (!connection.url.startsWith('https://')) throw new Error('배포용 공유 서버는 HTTPS 주소여야 합니다.');
   const id = createHash('sha256').update(JSON.stringify(connection)).digest('hex');
   fs.mkdirSync(path.dirname(generated), { recursive: true });

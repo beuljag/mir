@@ -5,13 +5,27 @@ import { createServer } from 'node:http';
 const require = createRequire(import.meta.url);
 const { normalizeServerUrl, updateConnection, createTransport } = require('../renderer/server-connection.js');
 const key = 'synthetic-shared-server-test-key';
-test('공유 서버 URL과 서버 변경 시 키 재입력을 검사', () => {
+test('공유 서버 주소를 바꾸면 이전 키를 보내지 않고 공개 연결을 선택', () => {
   assert.equal(normalizeServerUrl('https://example.com/'), 'https://example.com');
   for (const url of ['http://example.com', 'https://a:b@example.com', 'https://example.com/mcp', 'https://example.com/?key=x', 'https://example.com/#x', 'file:///x']) assert.throws(() => normalizeServerUrl(url));
   const old = { mode: 'remote', url: 'https://example.com', key };
   assert.equal(updateConnection(old, { mode: 'remote', url: old.url, key: '' }).key, key);
-  assert.throws(() => updateConnection(old, { mode: 'remote', url: 'https://other.example', key: '' }));
+  assert.deepEqual(updateConnection(old, { mode: 'remote', url: 'https://other.example', key: '' }),
+    { mode: 'remote', url: 'https://other.example', key: '' });
   assert.deepEqual(updateConnection(old, { mode: 'local' }), { mode: 'local', url: '', key: '' });
+});
+
+test('공개 공유 서버에 키 없이 미르 전용 요청 전송', async () => {
+  const request = createTransport({
+    read: () => ({ mode: 'remote', url: 'https://team.example' }),
+    fetcher: async (url, options) => {
+      assert.equal(url, 'https://team.example/mir/api');
+      assert.deepEqual(options.headers, { 'Content-Type': 'application/json' });
+      assert.deepEqual(JSON.parse(options.body), { path: '/chat/config', method: 'GET', body: null });
+      return { ok: true, status: 200, json: async () => ({ status: 200, body: { configured: true } }) };
+    },
+  });
+  assert.deepEqual(await request('/chat/config'), { status: 200, body: { configured: true } });
 });
 test('공유 서버에만 키를 보내며 리디렉션·임의 경로를 차단', async () => {
   const calls = [];

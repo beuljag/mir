@@ -1,6 +1,6 @@
 import { confirmAction } from './confirm-dialog.js';
 import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js?v=wiring-diagnosis-1';
-import { runtimeApi } from './web-api.js?v=chat-progress-1';
+import { runtimeApi } from './web-api.js?v=public-server-1';
 
 export function initBackendPanel({ getState, getProjectGeneration = () => 0, canReplace = () => true,
   getCatalog = () => getState().defs, registerParts = (parts) => { for (const [id, def] of parts) getState().defs.set(id, def); },
@@ -26,7 +26,7 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     }
   }
   async function connect() {
-    if (!(await runtimeApi.getAutoAuthStatus?.())?.ready) throw new Error('서버 연결이 준비되지 않았습니다. 연결 설정의 공유 서버 주소·키 또는 로컬 서버 실행 상태를 확인하세요.');
+    if (!(await runtimeApi.getAutoAuthStatus?.())?.ready) throw new Error('서버 연결이 준비되지 않았습니다. 연결 설정의 공유 서버 주소, 공개 연결 설정 또는 로컬 서버 실행 상태를 확인하세요.');
     const next = new CircuitApi(runtimeApi.requestCircuit, '');
     const parts = await loadComponentCatalog(next);
     client = next;

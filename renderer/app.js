@@ -1,10 +1,10 @@
 import './project-validation.js?v=circuit-append-1';
 import { confirmAction } from './confirm-dialog.js';
 import { applyAgentResult, mergeAgentCircuit } from './agent-result.js?v=circuit-append-1';
-import { runtimeApi } from './web-api.js?v=chat-progress-1';
+import { runtimeApi } from './web-api.js?v=public-server-1';
 import './appearance.js';
-import { initBackendPanel } from './backend-panel.js?v=wiring-diagnosis-1';
-import { initVerificationPanel } from './verification-panel.js?v=optional-image-2';
+import { initBackendPanel } from './backend-panel.js?v=public-server-1';
+import { initVerificationPanel } from './verification-panel.js?v=public-server-1';
 import { WiringCanvas, layoutPart, partBounds, rotationDegrees, separateParts } from './canvas.js?v=physical-pin-labels-1';
 import { drawArt, isBareArt } from './art.js?v=physical-parts-1';
 import { simulate, splitKey, circuitDiagnostics } from './sim.js?v=wiring-diagnosis-2';
@@ -1193,7 +1193,7 @@ async function openSettings() {
   $('serverConnectionMode').value = connection.mode;
   $('inServerUrl').value = connection.url || '';
   $('inServerKey').value = '';
-  $('inServerKey').placeholder = connection.hasKey ? '저장된 키 있음 (바꿀 때만 입력)' : '서버 관리자가 전달한 배선 API 키';
+  $('inServerKey').placeholder = connection.hasKey ? '저장된 키 있음 (바꿀 때만 입력)' : '공개 공유 서버에서는 비워두세요';
   const s = state.settings;
   document.querySelectorAll('input[name="mode"]').forEach((r) => { r.checked = r.value === s.mode; });
   $('inSecret').value = '';
@@ -1201,8 +1201,8 @@ async function openSettings() {
   $('inToken').value = s.tokenEndpoint || '';
   $('inWebChat').value = s.webChatUrl || '';
   $('serverChatStatus').textContent = s.serverSecretConfigured
-    ? '연결된 서버에 Direct Line 비밀 키가 설정되어 있습니다. 공유 서버는 설정한 주소와 배선 API 키로 연결합니다.'
-    : '로컬 서버를 실행하거나 공유 서버 주소·배선 API 키를 입력하세요. Direct Line 비밀 키는 서버 관리자가 설정합니다.';
+    ? '연결된 서버에 Direct Line 비밀 키가 설정되어 있습니다. 공개 공유 서버에서는 주소만으로 연결합니다.'
+    : '로컬 서버를 실행하거나 공유 서버 주소를 확인하세요. Direct Line 비밀 키는 서버 관리자가 설정합니다.';
   $('testResult').textContent = readError;
   $('testResult').className=readError?'test-result bad':'test-result';
   $('btnSettingsSave').disabled=!!readError;$('btnTest').disabled=!!readError;

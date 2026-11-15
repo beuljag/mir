@@ -6,7 +6,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { initializeDistribution, distributionId } = require('../src/distribution');
 
-test('다른 빌드 PC처럼 .env 없이 전달받은 설정 파일만으로 배포 설정을 생성한다', () => {
+test('다른 PC에서 키 없이 빌드하고 배포 설정에는 서버 주소만 넣는다', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mir-team-build-'));
   for (const dir of ['scripts', 'renderer', 'config']) fs.mkdirSync(path.join(root, dir));
   for (const name of ['scripts/electron-builder.shared.cjs', 'renderer/server-connection.js', 'renderer/server-defaults.json', 'package.json']) {
@@ -22,7 +22,7 @@ test('다른 빌드 PC처럼 .env 없이 전달받은 설정 파일만으로 배
   const result = spawnSync(process.execPath, ['-e', script], options);
   assert.equal(result.status, 0, result.stderr);
   const generated = JSON.parse(fs.readFileSync(path.join(root, 'work', 'distribution-connection.json')));
-  assert.equal(generated.key, key);
+  assert.equal(generated.key, undefined);
   assert.equal(generated.url, 'https://example.com');
   assert.equal(generated.mode, 'remote');
   assert.equal(require('../package.json').scripts.dist, 'npm run dist:shared');
@@ -30,11 +30,12 @@ test('다른 빌드 PC처럼 .env 없이 전달받은 설정 파일만으로 배
     ...options, env: { ...options.env, CIRCUIT_API_KEY: 'old-local-server-api-key-12345' }
   });
   assert.equal(staleLocalKey.status, 0, staleLocalKey.stderr);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'work', 'distribution-connection.json'))).key, key);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'work', 'distribution-connection.json'))).key, undefined);
   fs.unlinkSync(profile);
   const missing = spawnSync(process.execPath, ['-e', script], options);
-  assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /distribution-connection.local.json/);
+  assert.equal(missing.status, 0, missing.stderr);
+  const defaults = require('../renderer/server-defaults.json');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'work', 'distribution-connection.json'))).url, defaults.sharedServerUrl);
 });
 
 test('배포 설정으로 최초 자동 연결하고 이후 사용자 선택을 유지하며 키 교체 시 갱신한다', () => {
@@ -70,6 +71,9 @@ test('배포 설정으로 최초 자동 연결하고 이후 사용자 선택을 
   initializeDistribution(options);
   assert.equal(JSON.parse(fs.readFileSync(settingsPath)).mode, 'server');
   assert.equal(distributionId(settingsPath), 'second');
+  fs.writeFileSync(configPath, JSON.stringify({ id: 'public', mode: 'remote', url: 'https://example.com' }));
+  initializeDistribution({ ...options, encryptKey() { throw new Error('no key to encrypt'); } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(connectionPath)), { mode: 'remote', url: 'https://example.com' });
 });
 
 test('암호화 실패 시 적용 완료로 기록하지 않고 다시 실행하면 복구한다', () => {

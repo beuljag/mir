@@ -1,5 +1,5 @@
 import './web-chat.js';
-import './server-connection.js?v=optional-image-2';
+import './server-connection.js?v=public-server-1';
 import { createServerChatApi } from './server-chat.js?v=chat-progress-1';
 // Electron의 기존 연결은 유지하고, 일반 브라우저에서만 대체 연결을 만든다.
 if (!window.api) {

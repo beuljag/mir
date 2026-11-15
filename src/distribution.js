@@ -19,7 +19,7 @@ function initializeDistribution({ resourcesPath, userDataPath, encryptKey }) {
   if (typeof config.id !== 'string' || !config.id) throw new Error('배포 연결 버전이 없습니다.');
   const connection = updateConnection({}, config);
   if (connection.mode !== 'remote') throw new Error('배포 서버 주소가 없습니다.');
-  const keyEnc = encryptKey(connection.key).toString('base64');
+  const keyEnc = connection.key ? encryptKey(connection.key).toString('base64') : undefined;
   fs.mkdirSync(userDataPath, { recursive: true });
   fs.writeFileSync(path.join(userDataPath, 'server-connection.json'),
     JSON.stringify({ mode: 'remote', url: connection.url, keyEnc }, null, 2));

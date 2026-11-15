@@ -126,3 +126,51 @@ def test_chat_starts_without_browser_key_via_local_connection(app, tmp_path, mon
         assert response.status_code == 200 and response.json()['status'] == 201
         assert 'session_id' in response.json()['body']
         assert KEY not in response.text and 'private-token' not in response.text and 'mock-secret-for-local-chat' not in response.text
+
+
+def test_public_mir_uses_server_owner_for_chat_and_circuits(tmp_path, monkeypatch):
+    monkeypatch.setenv('MIR_PUBLIC_ACCESS', '1')
+    monkeypatch.setenv('COPILOT_DIRECT_LINE_SECRET', 'mock-secret-for-public-chat')
+    app = create_app(str(tmp_path / 'public.db'), {KEY: 'copilot-owner'})
+
+    def handle(request):
+        return httpx.Response(201, json={'conversationId': 'private-conversation', 'token': 'private-token'})
+
+    app.state.chat = DirectLineChat(transport=httpx.MockTransport(handle))
+    with TestClient(app) as client:
+        def call(path, method='GET', body=None):
+            return client.post('/mir/api', headers={'Origin': 'null'},
+                               json={'path': path, 'method': method, 'body': body})
+
+        found = call('/components/search?limit=100')
+        assert found.headers['access-control-allow-origin'] == 'null'
+        assert found.json()['status'] == 200
+        circuit = call('/circuits', 'POST', {
+            'name': '공개 미르 회로',
+            'component_instances': [{'instance_id': 'P', 'component_definition_id': 'virtual-supply'}],
+        }).json()
+        assert circuit['status'] == 201
+        path = '/circuits/' + circuit['body']['id']
+        assert call(path).json()['body']['name'] == '공개 미르 회로'
+        assert client.get(path, headers={'X-API-Key': KEY}).status_code == 200
+        assert client.get(path).status_code == 401
+        chat = call('/chat/sessions', 'POST')
+        assert chat.json()['status'] == 201
+        assert all(secret not in chat.text for secret in (KEY, 'private-token', 'private-conversation'))
+        for route, method in (
+            ('/mcp', 'POST'), ('/components/search', 'PUT'), ('/chat/diagnostics', 'GET'),
+            ('/components/%2e%2e', 'GET'), ('/verification/projects', 'POST'), (path, 'DELETE'),
+        ):
+            assert call(route, method).status_code == 403
+        for _ in range(19):
+            assert call('/chat/sessions', 'POST').status_code == 200
+        assert call('/chat/sessions', 'POST').status_code == 429
+
+
+def test_public_mir_disabled_by_default(tmp_path, monkeypatch):
+    monkeypatch.setenv('MIR_PUBLIC_ACCESS', '0')
+    app = create_app(str(tmp_path / 'private.db'), {KEY: 'owner'})
+    with TestClient(app) as client:
+        response = client.post('/mir/api', json={'path': '/components/search'})
+        assert response.status_code == 403
+        assert response.json()['detail']['code'] == 'MIR_PUBLIC_ACCESS_DISABLED'

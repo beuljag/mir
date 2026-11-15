@@ -11,7 +11,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import Headers
-from .local_connection import attach_local_connection, env_settings, load_api_keys, ORIGINS, ROUTES
+from .local_connection import (
+    ORIGINS, PUBLIC_CONNECTION, ROUTES, attach_local_connection, attach_public_connection,
+    env_settings, load_api_keys,
+)
 
 from .models import (ApplyRequest, ApplyResult, CircuitDraft, CircuitRecord, CircuitUpdate,
                      ComponentDefinition, ResearchRequest, ResearchResult, SimulationResult,
@@ -29,7 +32,7 @@ class EditorCORSMiddleware(CORSMiddleware):
         # Local HTML and sandboxed pages share the opaque origin "null".
         # Enable it only on the editor's key-authenticated API routes.
         if (scope["type"] == "http" and Headers(scope=scope).get("origin") == "null"
-                and not ROUTES.fullmatch(scope["path"])):
+                and scope["path"] != PUBLIC_CONNECTION and not ROUTES.fullmatch(scope["path"])):
             await self.app(scope, receive, send)
             return
         await super().__call__(scope, receive, send)
@@ -222,6 +225,8 @@ def create_app(db_path=None, api_keys=None):
     from .kicad_verification import attach_kicad_verification
     attach_kicad_verification(app, store, owner, ROOT)
     attach_local_connection(app, auto_key)
+    public_enabled = env_settings(ROOT).get("MIR_PUBLIC_ACCESS") == "1"
+    attach_public_connection(app, auto_key if public_enabled else "")
     from .directline_chat import attach_chat
     attach_chat(app, owner)
     from .mir_web import attach_mir
