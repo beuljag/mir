@@ -44,6 +44,10 @@ export function labelInset(look) {
  */
 export function drawArt(g, ctx) {
   const { def } = ctx;
+  const asset = def.physicalLayout?.asset;
+  if (asset && /^[a-z0-9-]+\.svg$/.test(asset)) {
+    return drawImage(g, { ...ctx, def: { imageData: new URL(`./assets/${asset}`, import.meta.url).href } });
+  }
   if (Array.isArray(def.imageNodes) && drawGeneratedArt(g, ctx)) return;
   if (def.imageData) return drawImage(g, ctx);
   const look = lookOf(def);

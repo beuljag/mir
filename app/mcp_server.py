@@ -18,8 +18,9 @@ from typing import Annotated
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
+from .directline_chat import PROGRESS_STAGES
 from .models import (CircuitDraft, CircuitUpdate, DatasheetRequest, ResearchRequest, ImageRequest, SvgSaveRequest,
-                     ImagePresentation, ImageSpecRequest, ComponentCreateRequest, KiCadImport, KiCadChecks)
+                     FritzingImportRequest, ImagePresentation, ImageSpecRequest, ComponentCreateRequest, PinVoltageUpdate, KiCadImport, KiCadChecks)
 
 PositiveVersion = Annotated[int, Field(ge=1)]
 
@@ -114,8 +115,21 @@ def attach_mcp(app, authenticate):
     @mcp.tool(name="SearchComponents", annotations=read)
     async def search_components(ctx: Context, q: str = "", limit: Annotated[int, Field(ge=1, le=100)] = 20,
                                 offset: Annotated[int, Field(ge=0, le=10000)] = 0) -> str:
-        """DB의 부품을 모델명·제조사·ID로 검색합니다. 인터넷 검색은 하지 않습니다."""
+        """미르 부품함의 기본 부품과 DB 등록 부품을 검색합니다. 모델명·제조사·ID를 검색하며 기본 부품을 먼저 반환합니다. 적합한 기본 부품 ID는 그림과 가상 동작까지 재사용하므로 CreateComponent 및 이미지 제작을 건너뜁니다."""
         return await call(ctx, "GET", "/components/search", params={"q": q, "limit": limit, "offset": offset})
+
+    @mcp.tool(name="ReportChatProgress", annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False))
+    async def report_chat_progress(ctx: Context, request_id: str, stage: str) -> str:
+        """미르 채팅의 현재 작업 단계를 알립니다. 요청에 포함된 request_id와 실제 시작한 단계 lookup, research, artwork, wiring, verify, save 중 하나를 사용하세요. 같은 단계는 한 번만 보고하세요. 진행 알림이므로 보고 뒤 설계를 계속하고 최종 답변을 별도로 보냅니다."""
+        if stage not in PROGRESS_STAGES:
+            raise ToolError("INVALID_CHAT_PROGRESS_STAGE")
+        request = ctx.request_context.request
+        if request is None:
+            raise ToolError("Authenticated HTTP request required")
+        authenticate(request.headers.get("x-api-key"))
+        accepted = app.state.chat.report_progress(request_id, stage)
+        return json.dumps({"accepted": accepted})
 
     @mcp.tool(name="CreateComponent", annotations=write)
     async def create_component(ctx: Context, component_json: str) -> str:
@@ -130,6 +144,16 @@ def attach_mcp(app, authenticate):
     async def get_component_details(ctx: Context, component_id: str) -> str:
         """부품 ID의 핀·전압 제한·출처·가상 부품 여부를 조회합니다."""
         return await call(ctx, "GET", f"/components/{quote(component_id, safe='')}")
+
+    @mcp.tool(name="FillComponentPinVoltage", annotations=write)
+    async def fill_component_pin_voltage(ctx: Context, component_id: str, pin_id: str, voltage_json: str) -> str:
+        """진단에서 확인한 소유 부품 초안의 비어 있는 전압 사양만 채웁니다. 제조사 자료의 정확한 모델·핀·동작 조건을 확인하세요. voltage_json에는 output_voltage(출력), voltage_min 및 voltage_max(입력 허용 범위) 중 근거가 있는 값과 source_url(HTTPS), source_title, evidence를 넣습니다. 논리 HIGH 출력과 입력 허용 범위를 구분합니다. 과전압 배선 문제를 해결하기 위해 정격을 변경하지 않습니다."""
+        try:
+            request = PinVoltageUpdate.model_validate_json(voltage_json)
+        except ValidationError as exc:
+            raise ToolError("INVALID_PIN_VOLTAGE_JSON: " + exc.json(include_input=False, include_url=False)) from None
+        return await call(ctx, "PATCH", f"/components/{quote(component_id, safe='')}/pins/{quote(pin_id, safe='')}/voltage",
+                          request.model_dump(mode="json"))
 
     @mcp.tool(name="CreateCircuitDraft", annotations=write)
     async def create_circuit_draft(ctx: Context, draft_json: str) -> str:
@@ -205,7 +229,7 @@ def attach_mcp(app, authenticate):
 
     @mcp.tool(name="GetComponentImageSpec", annotations=read)
     async def get_component_image_spec(ctx: Context, component_id: str = "", candidate_id: str = "", presentation_json: str = "null") -> str:
-        """제작 크기·핀 좌표·최신 기본 그림 디자인 양식을 조회합니다. component_id/candidate_id 중 하나를 지정합니다. presentation_json은 선택 JSON 문자열: {kind:pcb 또는 bare,color:#RRGGBB,pin_sides:{핀ID:left/right/top/bottom}}. 반환 presentation을 SaveComponentSvg 요청에 복사하세요. 몸체의 작은 text와 재료 클래스 지원. 별도 이미지 서비스 키 불필요."""
+        """제작 크기와 핀 좌표를 조회합니다. reuse_builtin_artwork=true이면 기본 그림을 재사용합니다. 새 실물 보드는 제조사 공식 외형·핀 배치 자료를 먼저 확인하고 presentation_json에 physical_layout:{reference_url,width,height,pins:{핀ID:{x,y,side}}}를 전달합니다. 모든 등록 핀의 실제 커넥터 위치를 사용하세요. 반환 presentation을 SaveComponentSvg 요청에 복사합니다."""
         try:
             raw = json.loads(presentation_json)
             request = ImageSpecRequest(component_id=component_id or None, candidate_id=candidate_id or None,
@@ -213,6 +237,25 @@ def attach_mcp(app, authenticate):
         except (ValidationError, ValueError, TypeError):
             raise ToolError("INVALID_IMAGE_PRESENTATION") from None
         return await call(ctx, "POST", "/component-images/spec", request.model_dump(mode="json"))
+
+    def artwork_import_request(component_id, source_url, request_id, pin_map_json, invalid_code):
+        try:
+            return FritzingImportRequest(component_id=component_id, source_url=source_url, request_id=request_id,
+                                         pin_map=json.loads(pin_map_json))
+        except (ValidationError, ValueError, TypeError):
+            raise ToolError(invalid_code) from None
+
+    @mcp.tool(name="ImportFritzingArtwork", annotations=research_write)
+    async def import_fritzing_artwork(ctx: Context, component_id: str, source_url: str, request_id: str, pin_map_json: str = "{}") -> str:
+        """Arduino 공식 제품 페이지/Fritzing .fzpz 또는 Fritzing 공식 GitHub의 raw core .fzp에서 원본 그림과 좌표를 가져와 저장합니다. 같은 모델과 등록 핀이 모두 매핑돼야 합니다. 같은 이름의 복수 핀은 공식 핀 배치로 확인한 {등록 핀 ID: Fritzing connector ID}를 pin_map_json에 전달합니다. result.asset_id를 ApplyComponentImage에 사용합니다. 이미지 생성 API 키는 필요 없습니다."""
+        request = artwork_import_request(component_id, source_url, request_id, pin_map_json, "INVALID_FRITZING_IMPORT_REQUEST")
+        return await call(ctx, "POST", "/component-images/fritzing", request.model_dump(mode="json"))
+
+    @mcp.tool(name="ImportArduinoCadArtwork", annotations=research_write)
+    async def import_arduino_cad_artwork(ctx: Context, component_id: str, source_url: str, request_id: str, pin_map_json: str = "{}") -> str:
+        """Arduino 공식 제품 페이지나 CAD ZIP의 IPC-D-356 및 ASST Gerber로 보드 그림과 좌표를 저장합니다. UNO Q ABX00162의 JDIGITAL/JANALOG는 자동 매핑합니다. 다른 호환 CAD는 공식 도면에서 확인한 {등록 핀 ID: CAD 패드 참조}를 pin_map_json에 넣습니다. 완료 시 result.asset_id를 ApplyComponentImage에 전달하세요. STEP 전용 파일은 이 도구에서 지원하지 않습니다."""
+        request = artwork_import_request(component_id, source_url, request_id, pin_map_json, "INVALID_ARDUINO_CAD_IMPORT_REQUEST")
+        return await call(ctx, "POST", "/component-images/arduino-cad", request.model_dump(mode="json"))
 
     @mcp.tool(name="SaveComponentSvg", annotations=write)
     async def save_component_svg(ctx: Context, request_json: str) -> str:

@@ -1,4 +1,28 @@
 {
+  "ESP32-P4-NANO": {
+    "urls": ["https://docs.waveshare.com/ESP32-P4-NANO"],
+    "scope": "official_board_artwork",
+    "chat_reference_url": "https://docs.waveshare.com/ESP32-P4-NANO",
+    "artwork_sources": {
+      "official_manual": "https://docs.waveshare.com/ESP32-P4-NANO",
+      "pin_table": "https://docs.waveshare.com/assets/images/ESP32-P4-NANO-details-inter-7d57c8d9e67e7deb6af7fbf47ba97a1a.webp",
+      "mechanical_dimensions": "https://docs.waveshare.com/assets/images/ESP32-P4-NANO-details-size-798ac734595a5fe6392d26511e09b83d.webp"
+    }
+  },
+  "NUCLEO-F103RB": {
+    "urls": [
+      "https://www.easymanua.ls/st/nucleo-f103rb/manual?p=39"
+    ],
+    "scope": "exact_board_manual",
+    "artwork_sources": {
+      "official_manual": "https://www.st.com/resource/en/user_manual/um1724-stm32-nucleo64-boards-mb1136-stmicroelectronics.pdf",
+      "board_photo": "https://www.easymanua.ls/st/nucleo-f103rb/manual",
+      "top_view": "https://www.easymanua.ls/st/nucleo-f103rb/manual?p=13",
+      "mechanical_dimensions": "https://www.easymanua.ls/st/nucleo-f103rb/manual?p=15",
+      "pin_table": "https://www.easymanua.ls/st/nucleo-f103rb/manual?p=39"
+    },
+    "note": "ST UM1724 Rev 14 공개 사본의 상면도·치수도·핀표입니다. 문서 번호와 모델을 확인하고, 실물 리비전은 확인된 경우에만 단정합니다."
+  },
   "TEMT6000": {
     "urls": [
       "https://learn.sparkfun.com/tutorials/temt6000-ambient-light-sensor-hookup-guide/all",

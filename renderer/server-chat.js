@@ -1,6 +1,6 @@
 // 서버의 Direct Line 연결을 미르의 기존 채팅 UI에 붙인다. 비밀 키는 받지 않는다.
 export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
-  let apiKey = '', sessionId = null, selectedMode = null, generation = 0, inFlight = false, sessionTimeout = 300;
+  let apiKey = '', sessionId = null, selectedMode = null, generation = 0, inFlight = null, sessionTimeout = null;
   const messages = {
     CIRCUIT_API_KEY_REQUIRED: '서버에 연결되지 않았습니다. 에이전트 연결 탭에서 연결 정보를 확인하세요.',
     COPILOT_TOOL_CONNECTION_REQUIRED: 'Copilot Studio의 CircuitAgent 도구 연결이 필요합니다. 도구의 연결 계정·자격 증명을 확인하고 에이전트를 다시 게시하세요. Direct Line 키를 바꿀 문제는 아닙니다.',
@@ -37,7 +37,9 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
       let config;
       try { config = await call('/chat/config'); } catch { config = null; }
       const autoAuth = await base.getAutoAuthStatus?.();
-      const mode = selectedMode || (previous.mode === 'demo' && previous.modeExplicit !== true && config?.mode === 'directline' && config.configured && autoAuth?.ready ? 'server' : previous.mode);
+      const serverReady = config?.mode === 'directline' && config.configured && (apiKey || autoAuth?.ready);
+      const useServerByDefault = previous.mode === 'web' || (previous.mode === 'demo' && previous.modeExplicit !== true);
+      const mode = selectedMode || (serverReady && useServerByDefault ? 'server' : previous.mode);
       return { ...previous, mode, serverSecretConfigured: !!config?.configured, apiKeyReady: !!apiKey || !!autoAuth?.ready };
     },
     setSettings: async (settings) => {
@@ -46,28 +48,36 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
     },
     sendToAgent: async (text, catalog, onProgress = () => {}) => {
       if (selectedMode !== 'server') return base.sendToAgent(text, catalog);
-      await requireKey();
-      if (inFlight) throw error('CHAT_REQUEST_IN_PROGRESS');
       const current = generation;
-      inFlight = true;
+      await requireKey();
+      checkGeneration(current);
+      if (inFlight === current) throw error('CHAT_REQUEST_IN_PROGRESS');
+      inFlight = current;
       let usedSession = sessionId;
       try {
         if (!sessionId) {
           onProgress({ stage: 'opening' });
           const opened = await call('/chat/sessions', 'POST');
-          checkGeneration(current); sessionId = opened.session_id;
-          usedSession = sessionId;
-          sessionTimeout = opened.reply_timeout_seconds || 300;
+          usedSession = opened.session_id;
+          if (generation !== current) {
+            void call(`/chat/sessions/${usedSession}`, 'DELETE').catch(() => {});
+            checkGeneration(current);
+          }
+          sessionId = usedSession;
+          sessionTimeout = opened.reply_timeout_seconds ?? null;
         }
-        const sent = await call(`/chat/sessions/${sessionId}/messages`, 'POST', { message: text, catalog: catalog || '' });
-        onProgress({ stage: 'waiting' });
+        const sent = await call(`/chat/sessions/${usedSession}/messages`, 'POST', { message: text, catalog: catalog || '' });
         checkGeneration(current);
-        const until = Date.now() + (sessionTimeout + 30) * 1000;
+        onProgress({ stage: 'waiting' });
+        const started = Date.now();
+        const deadline = seconds => Number.isFinite(seconds) ? started + (seconds + 30) * 1000 : Infinity;
+        let until = deadline(sent.reply_timeout_seconds === undefined ? sessionTimeout : sent.reply_timeout_seconds);
         while (Date.now() < until) {
           await sleep(900); checkGeneration(current);
-          const result = await call(`/chat/sessions/${sessionId}/messages/${sent.request_id}`);
-          onProgress({ ...result, stage: result.recovering_connection ? 'reconnecting' : result.bot_message_count ? 'receiving' : 'waiting' });
+          const result = await call(`/chat/sessions/${usedSession}/messages/${sent.request_id}`);
           checkGeneration(current);
+          if (result.reply_timeout_seconds !== undefined) until = deadline(result.reply_timeout_seconds);
+          onProgress({ ...result, stage: result.recovering_connection ? 'reconnecting' : result.bot_message_count ? 'receiving' : 'waiting' });
           if (result.status === 'completed') return { reply: result.reply };
           if (result.status === 'failed') throw error(result.error || 'DIRECT_LINE_REPLY_FAILED');
         }
@@ -79,7 +89,7 @@ export function createServerChatApi(base, { sleep = (ms) => new Promise((r) => s
           if (usedSession) void call(`/chat/sessions/${usedSession}`, 'DELETE').catch(() => {});
         }
         throw failure;
-      } finally { inFlight = false; }
+      } finally { if (inFlight === current) inFlight = null; }
     },
     testAgent: async () => {
       if (selectedMode !== 'server') return base.testAgent();

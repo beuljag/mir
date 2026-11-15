@@ -41,6 +41,9 @@ def validate(circuit: CircuitRecord, definitions: dict[str, ComponentDefinition]
         if len(valid) < 2:
             report("INSUFFICIENT_NET_PINS", "error", "net에 유효한 서로 다른 핀이 2개 이상 필요합니다.", [net.net_id])
         drivers = [(label, pin) for label, pin in valid if pin.direction in ("output", "power_out")]
+        for label, pin in drivers:
+            if pin.direction == "power_out" and pin.output_voltage is None:
+                report("MISSING_OUTPUT_VOLTAGE", "unknown", "전원 출력 전압이 등록되지 않았습니다.", [net.net_id, label])
         if len(drivers) > 1:
             report("MULTIPLE_DRIVERS", "error", "복수 출력이 연결되었습니다. 공유 가능 출력 모델은 미지원입니다.", [net.net_id])
         if any(p.direction == "power_out" for _, p in valid) and any(p.signal_type == "ground" for _, p in valid):
@@ -49,15 +52,18 @@ def validate(circuit: CircuitRecord, definitions: dict[str, ComponentDefinition]
         if len(types) > 1:
             report("SIGNAL_TYPE_CONFLICT", "error", "서로 다른 신호 타입이 연결되었습니다.", [net.net_id])
         for label, pin in valid:
-            if pin.direction in ("input", "power_in"):
+            if pin.direction in ("input", "power_in") or (pin.direction == "bidirectional" and drivers):
                 if not drivers:
                     report("NO_MODELED_DRIVER", "unknown", "입력을 구동할 출력이 확인되지 않았습니다.", [net.net_id, label])
-                for _, driver in drivers:
+                for driver_label, driver in drivers:
                     voltage = driver.output_voltage
-                    if voltage is None or pin.voltage_min is None or pin.voltage_max is None:
-                        report("MISSING_VOLTAGE_SPEC", "unknown", "전압 호환성 검사에 필요한 사양이 없습니다.", [label])
-                    elif not pin.voltage_min <= voltage <= pin.voltage_max:
-                        report("VOLTAGE_OUT_OF_RANGE", "error", "출력 전압이 입력 허용 범위를 벗어납니다.", [net.net_id, label])
+                    outside = voltage is not None and (
+                        pin.voltage_min is not None and voltage < pin.voltage_min
+                        or pin.voltage_max is not None and voltage > pin.voltage_max)
+                    if outside:
+                        report("VOLTAGE_OUT_OF_RANGE", "error", "출력 전압이 입력 허용 범위를 벗어납니다.", [net.net_id, driver_label, label])
+                    elif voltage is None or pin.voltage_min is None or pin.voltage_max is None:
+                        report("MISSING_VOLTAGE_SPEC", "unknown", "전압 호환성 검사에 필요한 사양이 없습니다.", [driver_label, label])
     for key, pin in pins.items():
         if pin.required and key not in membership:
             report("REQUIRED_PIN_UNCONNECTED", "error", "필수 핀이 연결되지 않았습니다.", [".".join(key)])

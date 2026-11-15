@@ -3146,13 +3146,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",
@@ -3274,7 +3267,7 @@
   },
   "servers": [
     {
-      "url": "https://YOUR-API-HOST.example.com"
+      "url": "https://rqc76xf3-8000.jpe1.devtunnels.ms"
     }
   ]
 }

@@ -5,10 +5,42 @@ from uuid import NAMESPACE_URL, uuid5
 
 from fastapi import Depends, HTTPException
 
-from .models import ComponentCreateRequest, ComponentDefinition, Source
+from .models import ComponentCreateRequest, ComponentDefinition, PinVoltageUpdate, Source
 
 
 def attach_component_catalog(app, store, owner):
+    @app.patch('/components/{component_id}/pins/{pin_id:path}/voltage', response_model=ComponentDefinition,
+               operation_id='FillComponentPinVoltage', tags=['components'])
+    def fill_pin_voltage(component_id: str, pin_id: str, body: PinVoltageUpdate, user: str = Depends(owner)):
+        def update(component):
+            pin = next((pin for pin in component.pins if pin.id == pin_id), None)
+            if pin is None:
+                raise HTTPException(404, detail={'code': 'PIN_NOT_FOUND'})
+            fields = {name: getattr(body, name) for name in ('output_voltage', 'voltage_min', 'voltage_max')
+                      if getattr(body, name) is not None}
+            if ('output_voltage' in fields and pin.direction not in ('power_out', 'output', 'bidirectional')
+                    or fields.keys() & {'voltage_min', 'voltage_max'} and pin.direction not in ('power_in', 'input', 'bidirectional')):
+                raise HTTPException(422, detail={'code': 'VOLTAGE_FIELD_DIRECTION_MISMATCH'})
+            if any(getattr(pin, name) not in (None, value) for name, value in fields.items()):
+                raise HTTPException(409, detail={'code': 'PIN_VOLTAGE_ALREADY_SET'})
+            if all(getattr(pin, name) == value for name, value in fields.items()):
+                return component
+            values = {**pin.model_dump(), **fields}
+            low, high = values['voltage_min'], values['voltage_max']
+            if low is not None and high is not None and low > high:
+                raise HTTPException(422, detail={'code': 'INVALID_VOLTAGE_RANGE'})
+            pins = [p.model_validate(values) if p.id == pin_id else p for p in component.pins]
+            source = Source(title=body.source_title, reference=str(body.source_url))
+            sources = component.source_references if source in component.source_references else [*component.source_references, source]
+            note = f'{pin_id} ({", ".join(fields)}): {body.evidence.strip()} [{source.reference}]'
+            return component.model_copy(update={'pins': pins, 'source_references': sources,
+                                                'notes': component.notes + '\n' + note})
+
+        updated = store.update_draft_component(component_id, user, update)
+        if updated is None:
+            raise HTTPException(404, detail={'code': 'COMPONENT_DRAFT_NOT_FOUND'})
+        return updated
+
     @app.post('/components', response_model=ComponentDefinition, status_code=201,
               operation_id='CreateComponent', tags=['components'])
     def create_component(body: ComponentCreateRequest, user: str = Depends(owner)):
@@ -18,6 +50,9 @@ def attach_component_catalog(app, store, owner):
             if existing[1] != fingerprint:
                 raise HTTPException(409, detail={'code': 'COMPONENT_REQUEST_ID_CONFLICT'})
             return existing[0]
+        builtin = store.matching_builtin(body)
+        if builtin:
+            return builtin
         sources = list(body.source_references)
         notes = body.notes
         if body.candidate_id:

@@ -217,3 +217,19 @@ def test_reference_catalog_is_related_document_lookup_not_general_search(client)
     assert any('dfrobot.com' in url for url in urls)
     assert 'reference_catalog:related_module_reference' in methods
     assert not any(method.startswith('brave') for method in methods)
+
+
+def test_exact_board_manual_keeps_a_fallback_when_official_slots_are_full(monkeypatch):
+    from app import local_connection
+    from app.models import ResearchRequest
+    from app.research import ResearchService
+
+    monkeypatch.setattr(local_connection, 'env_settings', lambda root: {})
+    service = ResearchService.__new__(ResearchService)
+    service.fetcher = lambda *args, **kwargs: {'body': b'{}'}
+    official = [f'https://www.st.com/example/{index}.pdf' for index in range(3)]
+    urls, methods = service.discover(ResearchRequest(
+        model='NUCLEO-F103RB (MB1136)', manufacturer='STMicroelectronics', source_urls=official))
+    assert urls[:2] == official[:2]
+    assert urls[-1] == 'https://www.easymanua.ls/st/nucleo-f103rb/manual?p=39'
+    assert 'reference_catalog:exact_board_manual' in methods

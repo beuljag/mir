@@ -7,6 +7,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 
+class MirStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if path in (".", "index.html"):
+            # The entry page selects the current versions of the renderer modules.
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def attach_mir(app):
     base = Path(__file__).resolve().parents[1]
     root = base if (base / "renderer" / "index.html").is_file() else base / "mir"
@@ -36,4 +45,4 @@ def attach_mir(app):
     def directline():
         return FileResponse(root / "src" / "directline.js", media_type="text/javascript")
 
-    app.mount("/mir", StaticFiles(directory=root / "renderer", html=True), name="mir")
+    app.mount("/mir", MirStaticFiles(directory=root / "renderer", html=True), name="mir")

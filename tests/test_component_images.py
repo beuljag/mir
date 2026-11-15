@@ -2,18 +2,58 @@ import base64
 import json
 import time
 import xml.etree.ElementTree as ET
+from io import BytesIO
+from zipfile import ZipFile
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.component_images import ImageError, ImageService, canvas_layout, safe_svg
+from app import arduino_cad_artwork, fritzing_artwork
 from app.main import create_app
-from app.models import CandidateRecord
+from app.models import CandidateRecord, ImagePresentation
 from app.storage import Store
 
 KEY = 'image-owner-test-key-123456789'
 OTHER = 'image-other-test-key-123456789'
+
+
+def test_physical_layout_uses_actual_pin_coordinates(client):
+    component = client.app.state.images.store.components()['virtual-sensor']
+    presentation = ImagePresentation(physical_layout={
+        'reference_url': 'https://example.com/official-pinout.pdf', 'width': 150, 'height': 100,
+        'pins': {pin.id: {'x': 20 + i * 20, 'y': 18, 'side': 'top'} for i, pin in enumerate(component.pins)},
+    })
+    layout = canvas_layout(component, presentation)
+    assert layout['physical']
+    assert [(p['x'], p['y']) for p in layout['pins']] == [(20, 18), (40, 18), (60, 18)]
+    assert 'class="hole"' not in safe_svg(drawing(layout), layout, presentation)
+    presentation.physical_layout.pins.pop(component.pins[0].id)
+    with pytest.raises(ImageError, match='PHYSICAL_LAYOUT_PIN_MISMATCH'):
+        canvas_layout(component, presentation)
+
+
+def test_physical_board_svg_must_align_visible_pads_with_wiring_pins():
+    layout = {'width': 150, 'height': 100, 'physical': True, 'is_board': True,
+              'pins': [{'x': 20, 'y': 18}, {'x': 40, 'y': 18}]}
+    pads = '<circle class="pad" cx="20" cy="18" r="2"/><rect class="pad" x="38" y="16" width="4" height="4"/>'
+    assert 'class="pad"' in safe_svg(drawing(layout, pads), layout)
+    with pytest.raises(ImageError, match='PHYSICAL_SVG_PAD_COORDINATES_MISMATCH'):
+        safe_svg(drawing(layout, pads.replace('cx="20"', 'cx="0"')), layout)
+    with pytest.raises(ImageError, match='PHYSICAL_SVG_PAD_GEOMETRY_INVALID'):
+        safe_svg(drawing(layout, f'<g transform="translate(10,0)">{pads}</g>'), layout)
+
+    presentation = ImagePresentation(color='#1b6b3a')
+    outline = '<rect class="module-pcb" width="150" height="100"/>'
+    module = '<rect class="module-pcb" x="50" y="50" width="20" height="20"/>'
+    result = ET.fromstring(safe_svg(drawing(layout, outline + module + pads), layout, presentation))
+    fills = {element.get('class'): element.get('fill') for element in result.iter()}
+    assert fills['pcb-body'] == presentation.color
+    assert fills['module-pcb'] == '#232B36'
+    explicit = '<path class="pcb-body" fill="#000000" d="M0 0 H150 V100 Z"/>'
+    result = ET.fromstring(safe_svg(drawing(layout, explicit + pads), layout, presentation))
+    assert next(element for element in result.iter() if element.get('class') == 'pcb-body').get('fill') == presentation.color
 
 
 def drawing(layout, body='<rect x="12" y="30" width="50" height="24" fill="#219c8f"/>'):
@@ -78,6 +118,10 @@ def test_native_svg_without_provider_key_and_apply_owner_isolation(client, monke
     assert client.post('/component-images/svg', json={**body, 'appearance': '요청 식별자는 같지만 다른 이미지 설명'}).status_code == 409
     path = '/components/virtual-sensor/image'
     assert client.get(path).status_code == 404
+    empty = client.get(path + '?optional=true')
+    assert empty.status_code == 200 and empty.json() == {'image_data': None}
+    assert empty.headers['Cache-Control'] == 'no-store'
+    assert client.get('/components/unknown-test-component/image').status_code == 404
     assert client.put(path, json={'asset_id': asset_id}).json()['applied']
     content = client.get(path).json()
     svg = base64.b64decode(content['image_data'].split(',')[1])
@@ -87,10 +131,100 @@ def test_native_svg_without_provider_key_and_apply_owner_isolation(client, monke
     assert content['design_version'] == 'v2' and content['art_nodes']
     assert client.get('/components/virtual-sensor').json() == before
     assert client.put('/components/virtual-supply/image', json={'asset_id': asset_id}).status_code == 409
-    for endpoint in [path, '/component-images/' + asset_id, '/component-images/' + asset_id + '/content', '/jobs/' + job['id']]:
+    assert client.get(path + '?optional=true', headers={'X-API-Key': OTHER}).json() == {'image_data': None}
+    for endpoint in ['/component-images/' + asset_id, '/component-images/' + asset_id + '/content', '/jobs/' + job['id']]:
         assert client.get(endpoint, headers={'X-API-Key': OTHER}).status_code == 404
     assert client.get('/component-images', headers={'X-API-Key': OTHER}).json() == []
     assert client.app.state.images.test_calls == []
+
+
+def test_fritzing_import_applies_source_svg_and_pin_positions(client, monkeypatch):
+    page = 'https://docs.arduino.cc/hardware/test-board/'
+    bundle = 'https://docs.arduino.cc/static/test/ABX00099-fritzing.fzpz'
+    source = BytesIO()
+    with ZipFile(source, 'w') as archive:
+        archive.writestr('part.test.fzp', '''
+          <module><title>Arduino Test Board</title><author>Test author</author>
+          <views><breadboardView><layers image="breadboard/test.svg"/></breadboardView></views>
+          <connectors><connector id="connector1" name="D2"><views><breadboardView>
+          <p svgId="connector1pin"/></breadboardView></views></connector>
+          <connector id="connector2" name="GND"><views><breadboardView><p svgId="connector2pin"/></breadboardView></views></connector>
+          <connector id="connector3" name="GND"><views><breadboardView><p svgId="connector3pin"/></breadboardView></views></connector>
+          </connectors></module>''')
+        archive.writestr('svg.breadboard.test.svg', '''
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">
+          <g transform="translate(10, 3)"><circle id="connector1pin" cx="10" cy="4" r="2"/></g>
+          <circle id="connector2pin" cx="80" cy="6" r="2"/>
+          <circle id="connector3pin" cx="80" cy="44" r="2"/></svg>''')
+    reads = []
+    def fetch(url, **kwargs):
+        reads.append(url)
+        assert kwargs['allowed_hosts'] == {'docs.arduino.cc'}
+        return {'body': f'<a href="{bundle}">Fritzing</a>'.encode() if url == page else source.getvalue()}
+    monkeypatch.setattr(fritzing_artwork, 'fetch_public', fetch)
+    create = {'model': 'ABX00099', 'manufacturer': 'Arduino', 'category': 'board',
+              'request_id': 'new-fritzing-board', 'pins': [
+                  {'id': 'D2', 'label': 'D2', 'direction': 'bidirectional', 'signal_type': 'digital'},
+                  {'id': 'GND_2', 'label': 'GND', 'direction': 'ground', 'signal_type': 'ground'}]}
+    component = client.post('/components', json=create).json()
+    body = {'component_id': component['id'], 'source_url': page, 'request_id': 'fritzing-image-test'}
+    route = '/component-images/fritzing'
+    assert client.post(route, json=body, headers={'X-API-Key': OTHER}).status_code == 404
+    ambiguous = client.post(route, json=body)
+    assert ambiguous.status_code == 422
+    assert ambiguous.json()['detail']['pins']['GND_2'] == ['connector2', 'connector3']
+    body['pin_map'] = {'GND_2': 'connector3'}
+    saved = client.post(route, json=body)
+    assert saved.status_code == 201, saved.text
+    job = saved.json()
+    assert job['result']['source_url'] == bundle
+    assert client.post(route, json=body).json()['id'] == job['id']
+    assert reads == [page, bundle, page, bundle]
+    path = '/components/' + component['id'] + '/image'
+    assert client.put(path, json={'asset_id': job['result']['asset_id']}).status_code == 200
+    image = client.get(path).json()
+    assert [(pin['id'], pin['x'], pin['y']) for pin in image['layout']['pins']] == [
+        ('D2', 80, 28), ('GND_2', 320, 176)]
+    assert image['art_nodes'] is None
+
+
+def test_uno_q_cad_artwork_preserves_wiring_pin_ids(client, monkeypatch):
+    page = 'https://docs.arduino.cc/hardware/uno-q/'
+    bundle = 'https://docs.arduino.cc/static/test/ABX00162-cad-files.zip'
+    source = BytesIO()
+    with ZipFile(source, 'w') as archive:
+        ipc = 'P  UNITS CUST 1\nC  IPC-D-356 Output File\n'
+        for ref, pad, x, y in [('JDIGIT', 3, 50800, 10160), ('JANALO', 6, 2540, 27940)]:
+            ipc += f"317{'NET':17}{ref:6}-{pad:<4} D1050PA00X{x:+07d}Y{y:+07d}X1800Y1800 S3\n"
+        archive.writestr('board.ipc', ipc)
+        archive.writestr('ASST.art', 'G04 BOARD GEOMETRY/DESIGN_OUTLINE*\n%FSLAX44Y44*MOMM*%\n%LPD*%\n'
+                         'G01X0Y0D02*X533400Y0D01*X533400Y685800D01*X0Y685800D01*X0Y0D01*')
+    def download(url, host, limit, **kwargs):
+        assert host == 'docs.arduino.cc'
+        return f'<a href="{bundle}">CAD Files</a>'.encode() if url == page else source.getvalue()
+    monkeypatch.setattr(arduino_cad_artwork, 'download', download)
+    create = {'model': 'ABX00162', 'manufacturer': 'Arduino', 'category': 'board',
+              'request_id': 'uno-q-cad-board-test', 'pins': [
+                  {'id': 'D2', 'label': 'D2', 'direction': 'bidirectional', 'signal_type': 'digital'},
+                  {'id': 'GND_2', 'label': 'GND', 'direction': 'ground', 'signal_type': 'ground'}]}
+    component = client.post('/components', json=create).json()
+    route = '/component-images/arduino-cad'
+    body = {'component_id': component['id'], 'source_url': page, 'request_id': 'uno-q-cad-image-test'}
+    assert client.get('/components/' + component['id'] + '/image-spec').json()['physical_layout_required']
+    assert client.post(route, json={**body, 'pin_map': {'D2': 'JANALO-6'}}).status_code == 422
+    saved = client.post(route, json=body)
+    assert saved.status_code == 201, saved.text
+    job = saved.json()
+    assert job['result']['source_url'] == bundle
+    path = '/components/' + component['id'] + '/image'
+    assert client.put(path, json={'asset_id': job['result']['asset_id']}).status_code == 200
+    image = client.get(path).json()
+    assert [(p['id'], p['x'], p['y']) for p in image['layout']['pins']] == [
+        ('D2', 517, 593.2), ('GND_2', 34.4, 415.4)]
+    assert image['art_nodes'] is None
+    drawing_xml = ET.fromstring(base64.b64decode(image['image_data'].split(',', 1)[1]))
+    assert len(drawing_xml.findall('{http://www.w3.org/2000/svg}path')) == 1
+    assert len(drawing_xml.findall('{http://www.w3.org/2000/svg}circle[@class="pad"]')) == 2
 
 
 def test_provider_generation_job_deduplication_and_persistence(client):

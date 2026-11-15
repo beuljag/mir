@@ -1,10 +1,15 @@
 import asyncio
+from io import BytesIO
 import json
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
+from pypdf import PdfWriter
 
+from app import directline_chat
+from app.chat_reference_images import ReferenceImage, first_reference_url, resolve_reference_images
 from app.directline_chat import ChatError, DirectLineChat, settings
 from app.main import create_app
 
@@ -16,7 +21,7 @@ TOKEN = 'mock-conversation-token-do-not-return'
 
 @pytest.fixture
 def chat(tmp_path, monkeypatch):
-    for key in ('COPILOT_DIRECT_LINE_SECRET', 'COPILOT_DIRECT_LINE_DOMAIN', 'COPILOT_CHAT_MODE'):
+    for key in ('COPILOT_DIRECT_LINE_SECRET', 'COPILOT_DIRECT_LINE_DOMAIN', 'COPILOT_CHAT_MODE', 'COPILOT_REPLY_TIMEOUT_SECONDS'):
         monkeypatch.delenv(key, raising=False)
     env = tmp_path / '.env'
     env.write_text('COPILOT_DIRECT_LINE_SECRET=' + SECRET + '\n', encoding='utf-8')
@@ -81,6 +86,211 @@ def test_secret_and_tokens_stay_on_server_chat_roundtrip(chat):
     assert client.delete(f'/chat/sessions/{sid}').json() == {'ok': True}
 
 
+def test_progress_can_arrive_after_five_minutes_from_shared_mcp_connection(chat):
+    client, service, _, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages', json={'message': '새 센서 배선'}).json()['request_id']
+    session = service.sessions[sid]
+    session.sent_at -= 600
+    assert session.deadline is None
+    assert f'request_id={rid}' in json.loads(calls[-1].content)['text']
+    refreshed = 'refreshed-test-token'
+
+    def handle(request):
+        if request.url.path.endswith('/tokens/refresh'):
+            assert request.headers['Authorization'] == 'Bearer ' + TOKEN
+            return httpx.Response(200, json={'conversationId': session.conversation, 'token': refreshed, 'expires_in': 1800})
+        assert request.headers['Authorization'] == 'Bearer ' + refreshed
+        return httpx.Response(200, json={'activities': []})
+
+    service.transport = httpx.MockTransport(handle)
+    session.refresh_token_at = 0
+    headers = {'X-API-Key': OTHER, 'Accept': 'application/json, text/event-stream'}
+
+    def report(request_id, stage='research'):
+        response = client.post('/mcp', headers=headers, json={
+            'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+            'params': {'name': 'ReportChatProgress', 'arguments': {'request_id': request_id, 'stage': stage}},
+        })
+        assert response.status_code == 200
+        return json.loads(response.json()['result']['content'][0]['text'])
+
+    assert report('unrelated-request') == {'accepted': False}
+    assert report(rid) == report(rid) == {'accepted': True}
+    assert report(rid, 'wiring') == {'accepted': True}
+    result = client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status'] == 'waiting'
+    assert result['progress'] == [
+        {'seq': 1, 'message': directline_chat.PROGRESS_STAGES['research']},
+        {'seq': 2, 'message': directline_chat.PROGRESS_STAGES['wiring']},
+    ]
+    assert session.refresh_token_at > 0
+
+
+def test_product_url_followup_attaches_reference_files_to_the_same_conversation(chat, monkeypatch):
+    client, _, _, calls = chat
+    product = 'https://example.com/boards/demo'
+    page = b'''
+        <img src="/logo.png" alt="Company logo">
+        <img src="data:image/png;base64,placeholder" data-src="/front.png" alt="Demo board front">
+        <img src="/pin-definition.jpg" alt="Pin definition">
+        <img src="/outline.png" alt="Mechanical dimensions">
+    '''
+    buffer = BytesIO()
+    Image.new('RGB', (100, 100), '#005fb0').save(buffer, 'PNG')
+    fetched_urls = []
+
+    def fetch(url, **kwargs):
+        fetched_urls.append(url)
+        return {'url': url, 'content_type': 'text/html' if url == product else 'image/png',
+                'body': page if url == product else buffer.getvalue()}
+
+    monkeypatch.setattr(directline_chat, 'resolve_reference_images',
+                        lambda url: resolve_reference_images(url, fetcher=fetch))
+    sid = client.post('/chat/sessions').json()['session_id']
+    first = client.post(f'/chat/sessions/{sid}/messages', json={'message': 'LED를 깜빡이게 해줘'})
+    assert first.status_code == 202
+    assert client.get(f'/chat/sessions/{sid}/messages/{first.json()["request_id"]}').json()['status'] == 'completed'
+
+    second = client.post(f'/chat/sessions/{sid}/messages', json={'message': product})
+    assert second.status_code == 202
+    assert second.json()['reply_timeout_seconds'] is None
+    upload = next(request for request in calls if request.url.path.endswith('/upload'))
+    first_message = next(request for request in calls if request.method == 'POST' and request.url.path.endswith('/activities'))
+    assert upload.url.path.rsplit('/', 1)[0] == first_message.url.path.rsplit('/', 1)[0]
+    assert upload.url.params['userId'] == json.loads(first_message.content)['from']['id']
+    for name in ('board-photo.jpg', 'pin-definition.png', 'board-dimensions.png'):
+        assert f'filename="{name}"'.encode() in upload.content
+    assert '직전의 부품·회로 요청'.encode() in upload.content
+    assert 'https://example.com/pin-definition.jpg'.encode() in upload.content
+    assert 'https://example.com/logo.png' not in fetched_urls
+
+
+def test_known_board_name_resolves_official_page_without_reusing_sibling_layout():
+    root = directline_chat.ROOT
+    assert first_reference_url('ESP32-P4-NANO로 LED 켜기', root) == 'https://docs.waveshare.com/ESP32-P4-NANO'
+    assert first_reference_url('ESP32-P4-NANO-WIFI6-DB로 LED 켜기', root) is None
+    assert first_reference_url('ESP32-P4-NANO https://example.com/pinout', root) == 'https://example.com/pinout'
+
+
+def test_linked_pdf_drawing_attaches_the_selected_page():
+    pdf = PdfWriter()
+    pdf.add_blank_page(600, 300)
+    pdf.add_blank_page(300, 600)
+    content = BytesIO()
+    pdf.write(content)
+    page = 'https://example.com/boards/example'
+    drawing = 'https://example.com/mechanical-drawing.pdf#page=2'
+
+    def fetch(url, **kwargs):
+        if url == page:
+            return {'url': url, 'content_type': 'text/html',
+                    'body': b'<a href="/mechanical-drawing.pdf#page=2">Drawing</a>'}
+        assert url == drawing
+        return {'url': url, 'content_type': 'application/pdf', 'body': content.getvalue()}
+
+    (image,) = resolve_reference_images(page, fetcher=fetch)
+    assert image.role == 'board-dimensions' and image.url == drawing
+    with Image.open(BytesIO(image.content)) as rendered:
+        assert rendered.format == 'PNG' and rendered.height == 2 * rendered.width
+
+
+@pytest.mark.parametrize('first_source_unavailable', [False, True])
+def test_discovered_board_link_continues_original_request_with_attachments(chat, monkeypatch, first_source_unavailable):
+    client, service, _, _ = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    url = 'https://manufacturer.example/unknown-board'
+    alternate = 'https://distributor.example/mechanical-drawing.pdf'
+    posts = []
+    uploads = []
+
+    def upstream(request):
+        if request.method == 'POST':
+            posts.append(request)
+            if request.url.path.endswith('/upload'):
+                uploads.append(request)
+            return httpx.Response(200, json={'id': f'posted-{len(posts)}'})
+        if not request.url.params.get('watermark'):
+            return httpx.Response(200, json={'watermark': 'before'})
+        if not uploads:
+            source = alternate if len(posts) == 2 else url
+            reply = json.dumps({'type': 'mir_board_references', 'urls': [source]}, indent=2)
+        else:
+            reply = '{"type":"circuit","circuit_id":"new-board-circuit","version":1}'
+        return httpx.Response(200, json={'watermark': 'after', 'activities': [
+            {'id': f'reply-{len(posts)}', 'type': 'message', 'from': {'role': 'bot'}, 'text': reply},
+            {'id': f'end-{len(posts)}', 'type': 'event', 'name': 'turn.complete', 'from': {'role': 'bot'}},
+        ]})
+
+    service.transport = httpx.MockTransport(upstream)
+
+    def resolve(found):
+        if first_source_unavailable and found == url:
+            return []
+        return [ReferenceImage('pin-definition', found, 'image/png', 'png', b'fixture')]
+
+    monkeypatch.setattr(directline_chat, 'resolve_reference_images',
+                        resolve)
+    sent = client.post(f'/chat/sessions/{sid}/messages', json={'message': '처음 보는 보드로 LED 켜줘'}).json()
+    path = f'/chat/sessions/{sid}/messages/{sent["request_id"]}'
+    handoff = client.get(path).json()
+    assert handoff['status'] == 'waiting' and handoff['reply_timeout_seconds'] is None
+    if first_source_unavailable:
+        assert not uploads
+        assert '다른 호스트' in json.loads(posts[1].content)['text']
+        assert client.get(path).json()['status'] == 'waiting'
+    assert len(uploads) == 1 and (alternate if first_source_unavailable else url).encode() in uploads[0].content
+    result = client.get(path).json()
+    assert result['status'] == 'completed' and 'new-board-circuit' in result['reply']
+    assert 'mir_board_references' not in result['reply'] and len(uploads) == 1
+
+
+@pytest.mark.parametrize('rendered', [True, False])
+def test_missing_artwork_pdf_in_final_answer_retries_the_saved_circuit(chat, monkeypatch, rendered):
+    client, service, _, _ = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    url = 'https://manufacturer.example/board-mechanical-drawing.pdf'
+    posts = []
+
+    def upstream(request):
+        if request.method == 'POST':
+            posts.append(request)
+            return httpx.Response(200, json={'id': f'posted-{len(posts)}'})
+        if not request.url.params.get('watermark'):
+            return httpx.Response(200, json={'watermark': 'before'})
+        reply = (f'보드 그림은 미적용입니다. 기구 도면 ({url})을 첨부해 주세요.\n'
+                 '```json\n{"type":"circuit_reference","circuit_id":"existing-board-circuit","version":1}\n```'
+                 if len(posts) == 1 else '같은 보드에 그림을 적용했습니다.')
+        return httpx.Response(200, json={'watermark': 'after', 'activities': [
+            {'id': f'reply-{len(posts)}', 'type': 'message', 'from': {'role': 'bot'}, 'text': reply},
+            {'id': f'end-{len(posts)}', 'type': 'event', 'name': 'turn.complete', 'from': {'role': 'bot'}},
+        ]})
+
+    service.transport = httpx.MockTransport(upstream)
+    fetched = []
+
+    def resolve(found):
+        fetched.append(found)
+        return [ReferenceImage('board-dimensions', found, 'image/png', 'png', b'fixture')] if rendered else []
+
+    monkeypatch.setattr(directline_chat, 'resolve_reference_images', resolve)
+    sent = client.post(f'/chat/sessions/{sid}/messages', json={'message': '보드로 LED 켜줘'}).json()
+    path = f'/chat/sessions/{sid}/messages/{sent["request_id"]}'
+    result = client.get(path).json()
+    assert fetched == [url]
+    if rendered:
+        assert result['status'] == 'waiting'
+        assert posts[1].url.path.endswith('/upload')
+        assert b'board-dimensions.png' in posts[1].content
+        assert b'existing-board-circuit' in posts[1].content
+        result = client.get(path).json()
+        assert '그림을 적용했습니다' in result['reply']
+    else:
+        assert len(posts) == 1
+        assert '그림은 미적용입니다' in result['reply']
+    assert result['status'] == 'completed' and 'existing-board-circuit' in result['reply']
+
+
 def test_chat_auth_owner_isolation_and_limits(chat):
     client, service, env, calls = chat
     assert client.post('/chat/sessions', headers={'X-API-Key': 'bad'}).status_code == 401
@@ -133,9 +343,9 @@ def test_secret_cannot_be_sent_to_arbitrary_domain(chat):
 def test_response_timeout_requires_reset_no_duplicate_send(chat):
     client, service, env, calls = chat
     service.quiet_seconds = 100
-    service.reply_timeout = 0
     sid = client.post('/chat/sessions').json()['session_id']
     rid = client.post(f'/chat/sessions/{sid}/messages', json={'message': 'one'}).json()['request_id']
+    service.sessions[sid].deadline = service.sessions[sid].sent_at
     result = client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
     assert result['status'] == 'failed' and result['error'] == 'DIRECT_LINE_REPLY_TIMEOUT'
     assert client.post(f'/chat/sessions/{sid}/messages', json={'message': 'two'}).status_code == 409
@@ -177,7 +387,7 @@ def test_card_only_reply_is_not_lost(chat):
 
 def test_long_work_timeout_is_configurable_and_bounded(chat):
     client, service, env, calls = chat
-    assert client.get('/chat/config').json()['reply_timeout_seconds'] == 300
+    assert client.get('/chat/config').json()['reply_timeout_seconds'] is None
     env.write_text('COPILOT_DIRECT_LINE_SECRET=' + SECRET + '\nCOPILOT_REPLY_TIMEOUT_SECONDS=600\n', encoding='utf-8')
     assert client.get('/chat/config').json()['reply_timeout_seconds'] == 600
     opened = client.post('/chat/sessions').json()
@@ -186,7 +396,9 @@ def test_long_work_timeout_is_configurable_and_bounded(chat):
     client.post(f'/chat/sessions/{sid}/messages',json={'message':'research'})
     session = service.sessions[sid]
     assert 599 < session.deadline - session.sent_at <= 600
-    for invalid in ['0','901','NaN']:
+    env.write_text('COPILOT_DIRECT_LINE_SECRET=' + SECRET + '\nCOPILOT_REPLY_TIMEOUT_SECONDS=0\n', encoding='utf-8')
+    assert client.get('/chat/config').json()['reply_timeout_seconds'] is None
+    for invalid in ['29','901','NaN']:
         env.write_text('COPILOT_DIRECT_LINE_SECRET=' + SECRET + '\nCOPILOT_REPLY_TIMEOUT_SECONDS=' + invalid + '\n', encoding='utf-8')
         assert client.post('/chat/sessions').json()['detail']['code'] == 'INVALID_REPLY_TIMEOUT'
 
@@ -223,10 +435,48 @@ def test_progress_message_does_not_end_turn_before_final_answer(chat):
         [],
         [{'id':'final','type':'message','from':{'role':'bot'},'text':'저장했습니다. component_id: pico'}]])
     service.transport = httpx.MockTransport(lambda request: httpx.Response(200,json={'activities':next(batches),'watermark':'x'}))
-    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
+    waiting = client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert waiting['status'] == 'waiting'
+    assert waiting['progress'] == [{'seq': 1, 'message': 'DB에 부품이 없습니다. 공식 자료를 조사합니다.'}]
     assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status']=='waiting'
     final=client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
     assert final['status']=='completed' and 'component_id: pico' in final['reply']
+    assert '공식 자료를 조사합니다.' not in final['reply']
+
+
+def test_turn_complete_delivers_plain_design_reply_without_marker(chat):
+    client, service, env, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages', json={
+        'message': '[요청 종류: 배선 추천] 사용할 모터를 확인해 주세요.'
+    }).json()['request_id']
+    session = service.sessions[sid]
+    def activities(request):
+        return httpx.Response(200, json={'activities': [
+            {'id': 'answer', 'type': 'message', 'from': {'id': 'copilot'},
+             'replyToId': session.sent_activity_id, 'text': '모터의 종류와 모델명을 알려주세요.'},
+            {'id': 'complete', 'type': 'event', 'name': 'turn.complete',
+             'from': {'id': 'copilot'}, 'replyToId': session.sent_activity_id}
+        ]})
+    service.transport = httpx.MockTransport(activities)
+    result = client.get(f'/chat/sessions/{sid}/messages/{rid}').json()
+    assert result['status'] == 'completed'
+    assert result['reply'] == '모터의 종류와 모델명을 알려주세요.'
+    client.post(f'/chat/sessions/{sid}/messages', json={'message': '후속 요청'})
+    assert not session.turn_complete_seen
+
+
+def test_unrelated_event_keeps_design_progress_waiting(chat):
+    client, service, env, calls = chat
+    sid = client.post('/chat/sessions').json()['session_id']
+    rid = client.post(f'/chat/sessions/{sid}/messages', json={
+        'message': '[요청 종류: 배선 추천] 모터'
+    }).json()['request_id']
+    service.transport = httpx.MockTransport(lambda request: httpx.Response(200, json={'activities': [
+        {'id': 'progress', 'type': 'message', 'from': {'role': 'bot'}, 'text': '자료를 조사합니다.'},
+        {'id': 'event', 'type': 'event', 'name': 'progress', 'from': {'role': 'bot'}}
+    ]}))
+    assert client.get(f'/chat/sessions/{sid}/messages/{rid}').json()['status'] == 'waiting'
 
 
 def test_input_hint_marks_intermediate_reply():

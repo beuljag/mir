@@ -107,13 +107,57 @@ class MinHeap {
   }
 }
 
+function distanceToEdge(pin, box) {
+  if (pin.side === 'left') return pin.x - box.left;
+  if (pin.side === 'right') return box.right - pin.x;
+  if (pin.side === 'top') return pin.y - box.top;
+  return box.bottom - pin.y;
+}
+
+// Only the lead between an inset pin and its own board edge is drawn over the artwork.
+export function pinBoardExit(pin, obstacle) {
+  if (!obstacle || !DIR[pin.side]) return null;
+  const box = { left: obstacle.x, right: obstacle.x + obstacle.width,
+    top: obstacle.y, bottom: obstacle.y + obstacle.height };
+  if (!inside(pin, box)) return null;
+  const distance = distanceToEdge(pin, box);
+  const [dx, dy] = DIR[pin.side];
+  return { x: pin.x + dx * distance, y: pin.y + dy * distance };
+}
+
+export function pinBoardLead(pin, obstacle, neighboringPins) {
+  const edge = pinBoardExit(pin, obstacle);
+  if (!edge) return null;
+  const clear = (a, b) => neighboringPins.every((other) => {
+    const dx = Math.max(Math.min(a.x, b.x) - other.x, other.x - Math.max(a.x, b.x), 0);
+    const dy = Math.max(Math.min(a.y, b.y) - other.y, other.y - Math.max(a.y, b.y), 0);
+    return Math.hypot(dx, dy) >= 7;
+  });
+  if (clear(pin, edge)) return [pin, edge];
+
+  // A pad in an outer row can sit directly between the connected pad and the edge.
+  const axis = pin.x === edge.x ? 'x' : 'y';
+  const span = axis === 'x' ? obstacle.width : obstacle.height;
+  for (const offset of [8, -8, 12, -12, 16, -16]) {
+    const coordinate = pin[axis] + offset;
+    if (coordinate <= obstacle[axis] || coordinate >= obstacle[axis] + span) continue;
+    const turn = { x: pin.x, y: pin.y, [axis]: coordinate };
+    const exit = { ...edge, [axis]: coordinate };
+    if (clear(pin, turn) && clear(turn, exit)) return [pin, turn, exit];
+  }
+  return [pin, edge];
+}
+
 function escapePin(pin, boxes, options) {
   const dir = DIR[pin.side] || [0, 0];
   if (!dir[0] && !dir[1]) return { point: { x: pin.x, y: pin.y }, dir };
-  let length = options.stub;
+  const owner = pin.owner == null ? null : boxes.find((b) => b.id === pin.owner);
+  const depth = owner && inside(pin, owner) ? Math.max(0, distanceToEdge(pin, owner) - options.clearance) : 0;
+  const preferred = depth + options.stub;
+  let length = preferred;
   for (const box of boxes) {
-    if (pin.owner != null && box.id === pin.owner) continue;
-    if (inside(pin, box)) return null;
+    if (box === owner) continue;
+    if (inside(pin, box)) { length = 0; break; }
     let gap = Infinity;
     if (dir[0] && pin.y > box.top + EPS && pin.y < box.bottom - EPS) {
       if (dir[0] > 0 && box.left >= pin.x) gap = box.left - pin.x;
@@ -125,8 +169,9 @@ function escapePin(pin, boxes, options) {
     }
     length = Math.min(length, gap - 1);
   }
-  if (length <= options.clearance + EPS) return null;
-  return { point: { x: pin.x + dir[0] * length, y: pin.y + dir[1] * length }, dir };
+  const blocked = length <= depth + options.clearance + EPS;
+  const stub = blocked ? preferred : length;
+  return { point: { x: pin.x + dir[0] * stub, y: pin.y + dir[1] * stub }, dir, blocked };
 }
 
 function search(start, end, boxes, previous, options, lane) {
@@ -209,13 +254,12 @@ export function routeWire(start, end, obstacles = [], previous = [], settings = 
     return { points: [{ x: start.x, y: start.y }, { x: end.x, y: end.y }], blocked: false };
   }
   const a = escapePin(start, boxes, options), b = escapePin(end, boxes, options);
-  if (a && b) {
+  if (!a.blocked && !b.blocked) {
     const found = search(a, b, boxes, occupied, options, (settings.lane || 0) * options.laneGap);
     if (found) return { points: simplifyPoints([start, ...found, end]), blocked: false };
   }
   // 부품 겹침 등으로 길이 없으면 연결 자체는 유지하고, 호출자가 경고를 표시한다.
-  const p = a?.point || { x: start.x + da[0] * options.stub, y: start.y + da[1] * options.stub };
-  const q = b?.point || { x: end.x + db[0] * options.stub, y: end.y + db[1] * options.stub };
+  const p = a.point, q = b.point;
   const candidates = [[start, p, { x: q.x, y: p.y }, q, end], [start, p, { x: p.x, y: q.y }, q, end]].map(simplifyPoints);
   const score = points => points.slice(1).reduce((sum, next, i) => sum + distance(points[i], next)
     + (segmentBlocked(points[i], next, directBoxes) ? 1000000 : 0), 0);

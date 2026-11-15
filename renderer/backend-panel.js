@@ -1,9 +1,10 @@
 import { confirmAction } from './confirm-dialog.js';
-import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js';
-import { runtimeApi } from './web-api.js';
+import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js?v=v95-integration-1';
+import { runtimeApi } from './web-api.js?v=v95-integration-1';
 
 export function initBackendPanel({ getState, getProjectGeneration = () => 0, canReplace = () => true,
-  getCatalog = () => getState().defs, registerParts = (parts) => { for (const [id, def] of parts) getState().defs.set(id, def); }, replace, renderParts, message }) {
+  getCatalog = () => getState().defs, registerParts = (parts) => { for (const [id, def] of parts) getState().defs.set(id, def); },
+  replace, merge, updateProjectParts, renderParts, message }) {
   const $ = (id) => document.getElementById(id);
   const dialog = $('backendModal');
   let client = null, current = null, busy = false, saved = '', editorWires = false;
@@ -23,6 +24,10 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
   });
   const status = (text) => { $('dbStatus').textContent = text; };
   const draft = () => toCircuitDraft(getState(), current, { editorWires });
+  function detachCircuit() {
+    current = null; saved = ''; $('dbCircuitId').value = '';
+    status('캔버스 배선 · 새 회로로 저장 가능');
+  }
   function reset() { client = null; current = null; saved = ''; $('dbCircuitId').value = ''; status('새 회로 · DB 저장 전'); }
   async function run(action, loading = 'DB 작업을 처리하고 있어요…') {
     if (busy) return;
@@ -43,8 +48,8 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
   }
   async function connect() {
     const readiness = await runtimeApi.getAutoAuthStatus();
-    if (!readiness.ready) throw new Error('연결 확인을 눌러 배선 DB에 연결해 주세요.');
-    editorWires = readiness.editorWires;
+    if (!readiness.ready) throw new Error('서버 연결이 준비되지 않았습니다. 공유 서버 주소나 로컬 서버 실행 상태를 확인하세요.');
+    editorWires = Boolean(readiness.editorWires);
     updateSaveScope();
     const next = new CircuitApi(runtimeApi.requestCircuit, '');
     const parts = await loadComponentCatalog(next);
@@ -52,13 +57,7 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     const catalog = getCatalog();
     const loaded = new Map();
     for (const def of parts) {
-      const old = catalog.get(def.id);
-      const converted = definitionToPart(def);
-      const samePins = old && JSON.stringify(old.pins.map((p) => p.id).sort()) === JSON.stringify(def.pins.map((p) => p.id).sort());
-      const base = samePins ? { ...old, ...converted,
-        pins: converted.pins.map((p) => ({ ...p, side: old.pins.find((x) => x.id === p.id).side })) } : converted;
-      delete base._layout;
-      loaded.set(def.id, await loadComponentImage(next, base));
+      loaded.set(def.id, await loadComponentImage(next, definitionToPart(def, catalog.get(def.id))));
     }
     registerParts(loaded);
     renderParts();
@@ -70,24 +69,32 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     const api = client || new CircuitApi(runtimeApi.requestCircuit, '');
     try {
       const def = await api.call(`/components/${encodeURIComponent(id)}`);
-      return await loadComponentImage(api, definitionToPart(def));
+      return await loadComponentImage(api, definitionToPart(def, getCatalog().get(id)));
     } catch (e) {
       if (e.status === 404) return null;
       throw e;
     }
   }
-  async function load(id = $('dbCircuitId').value.trim(), { automatic = false, guardDialog = true } = {}) {
+  async function load(id = $('dbCircuitId').value.trim(), {
+    automatic = false, agent = false, guardDialog = !agent && !automatic, isCurrent = () => true
+  } = {}) {
     const generation = getProjectGeneration();
     const view = dialogGeneration;
-    const canLoad = () => generation === getProjectGeneration() && canReplace() &&
-      (automatic ? !getState().instances.length : !guardDialog || (dialog.open && view === dialogGeneration));
+    const canLoad = () => generation === getProjectGeneration() && canReplace() && isCurrent()
+      && (!automatic || !getState().instances.length) && (!agent || !getState().pendingProposal)
+      && (!guardDialog || (dialog.open && view === dialogGeneration));
     if (!canLoad()) return false;
     if (!id) throw new Error('에이전트가 반환한 회로 ID를 입력하세요.');
     await requireClient();
     if (!canLoad()) return false;
     const circuitClient = client;
     const record = await circuitClient.call(`/circuits/${encodeURIComponent(id)}`);
+    if (!canLoad()) return false;
+    const onCanvas = () => getState().instances.filter((i) => i.circuitSource?.id === record.id);
     const next = fromCircuit(record);
+    for (const instance of next.instances) {
+      instance.circuitSource = { id: record.id, version: record.version, ref: instance.ref, name: record.name };
+    }
     const defs = new Map(getCatalog());
     const projectParts = new Map();
     const missing = [];
@@ -95,13 +102,7 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
       try {
         const def = await circuitClient.call(`/components/${encodeURIComponent(partId)}`);
         // API 핀 정의를 우선한다. 같은 id의 그림은 핀 집합이 같을 때만 재사용한다.
-        const old = defs.get(partId);
-        const samePins = old && JSON.stringify(old.pins.map((p) => p.id).sort()) === JSON.stringify(def.pins.map((p) => p.id).sort());
-        const converted = definitionToPart(def);
-        const base = samePins ? { ...old, ...converted,
-          pins: converted.pins.map((p) => ({ ...p, side: old.pins.find((x) => x.id === p.id).side })) } : converted;
-        delete base._layout;
-        projectParts.set(partId, await loadComponentImage(circuitClient, base));
+        projectParts.set(partId, await loadComponentImage(circuitClient, definitionToPart(def, defs.get(partId))));
       } catch (e) {
         if (e.status !== 404) throw e;
         if (!defs.has(partId)) {
@@ -115,6 +116,24 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     }
     const loadedDraft = JSON.stringify(toCircuitDraft(next, record, { editorWires }));
     if (!canLoad()) return false;
+    if (agent && getState().instances.length) {
+      const existing = onCanvas();
+      if (existing.some((i) => i.circuitSource.version >= record.version)) {
+        updateProjectParts(projectParts);
+        renderParts();
+        return 'circuit-present';
+      }
+      const singleCircuit = current?.id === record.id && existing.length === getState().instances.length;
+      merge(next, projectParts, record.id);
+      if (singleCircuit) {
+        current = record; saved = loadedDraft;
+        status(`${record.id} · v${record.version} · ${record.status}`);
+      } else detachCircuit();
+      renderParts();
+      for (const partId of missing) message(`부품 DB 미등록: ${partId}. 화면 표시는 가능하며 사양 검증이 필요합니다.`);
+      message(existing.length ? `회로 수정 반영: ${record.name} (v${record.version})` : `캔버스 아래에 회로 추가: ${record.name}`);
+      return existing.length ? 'circuit-updated' : 'circuit-appended';
+    }
     if (getState().instances.length && !await confirmAction('현재 화면을 이 DB 회로로 바꿀까요? 저장하지 않은 변경은 사라집니다.')) return false;
     if (!canLoad()) return false;
     getState().defs = new Map([...defs, ...projectParts]);
@@ -124,7 +143,7 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     $('dbCircuitId').value = record.id;
     status(`${record.id} · v${record.version} · ${record.status}`);
     message(`DB 회로 불러옴: ${record.name} (v${record.version})`);
-    return true;
+    return agent ? 'circuit-loaded' : true;
   }
 
   $('btnBackend').onclick = openDialog;
@@ -164,15 +183,29 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
   });
   const linked = new URLSearchParams(location.search).get('circuit');
   if (linked) { $('dbCircuitId').value = linked; openDialog(); }
-  return { reset, fetchPart, connectionChanged(sameServer) {
+  return { reset, detachCircuit, fetchPart, openLinkedCircuit: async () => {
+    if (!linked || !client) return;
+    const loaded = await run(() => load(linked, { automatic: true, guardDialog: true }));
+    if (loaded && dialog.open) dialog.close();
+  }, connectionChanged(sameServer) {
     client = null;
-    if (!sameServer) {
-      current = null;
-      saved = '';
-    }
+    if (!sameServer) detachCircuit();
   }, isBusy: () => busy, connectAutomatically: async () => {
     if ((await runtimeApi.getAutoAuthStatus?.())?.ready) await run(connect);
   }, refreshAfterAgent: () => client ? run(connect) : Promise.resolve(),
+    refreshDiagnosedParts: async (ids, isCurrent) => {
+      const updated = new Map();
+      for (const id of new Set(ids)) {
+        if (!isCurrent()) return;
+        const part = await fetchPart(id);
+        if (part) updated.set(id, part);
+      }
+      if (!isCurrent() || !updated.size) return;
+      registerParts(updated);
+      updateProjectParts(updated);
+      renderParts();
+    },
+    applyAgentCircuit: (id, { isCurrent } = {}) => run(() => load(id, { agent: true, isCurrent })),
     openCircuit: (id, { showPanel = true, automatic = false } = {}) => {
       if (showPanel) $('dbCircuitId').value = id;
       if (showPanel) openDialog();

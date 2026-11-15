@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: http://127.0.0.1:8002 http://localhost:8002; frame-src 'self' https://copilotstudio.microsoft.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'">
   <title>미르</title>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="workspace-frame.css">
+  <link rel="stylesheet" href="styles.css?v=v95-integration-1">
+  <link rel="stylesheet" href="workspace-frame.css?v=v95-integration-1">
 </head>
 <body>
   <header class="topbar">
@@ -73,6 +73,10 @@
           <div id="gpioPanel" class="gpio-panel hidden">
             <div class="gpio-head label">보드 핀 출력 (코드 대신 직접 설정)</div>
             <div id="gpioList"></div>
+            <div id="powerDiagnostics" hidden>
+              <details><summary id="powerIssuesSummary"></summary><ul id="powerIssues"></ul></details>
+              <button id="btnPowerDiagnose">배선 진단 요청</button>
+            </div>
           </div>
         </div>
         <button id="btnPaletteToggle" class="palette-toggle" aria-label="부품함 열기" aria-controls="partsPalette" aria-expanded="false" title="부품함 열기">
@@ -194,7 +198,7 @@
         <div id="remoteServerFields">
           <label for="inServerUrl">공유 서버 주소</label>
           <input id="inServerUrl" type="url" placeholder="https://터널주소.devtunnels.ms">
-          <label for="inServerKey">배선 API 키 (Direct Line 키 아님)</label>
+          <label for="inServerKey">배선 API 키 (비공개 서버에서만 필요)</label>
           <input id="inServerKey" type="password" autocomplete="off" placeholder="서버 관리자가 전달한 키">
           <small>앱에서는 Windows 암호화로 저장합니다. 브라우저에서는 이 탭을 닫으면 키가 지워집니다. 공유 서버 PC가 켜져 있어야 합니다.</small>
         </div>
@@ -283,8 +287,8 @@
     <header><h2 id="manualTitle">미르 사용 설명서</h2><button id="btnCloseManual" aria-label="설명서 닫기" autofocus>×</button></header>
     <iframe title="그림으로 배우는 미르" src="manual.html?v=91"></iframe>
   </dialog>
-  <script type="module" src="app.js?v=91"></script>
-  <script type="module" src="workspace-frame.js"></script>
-  <script type="module" src="titlebar.js"></script>
+  <script type="module" src="app.js?v=v95-integration-1"></script>
+  <script type="module" src="workspace-frame.js?v=v95-integration-1"></script>
+  <script type="module" src="titlebar.js?v=v95-integration-1"></script>
 </body>
 </html>

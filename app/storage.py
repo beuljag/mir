@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .models import CandidateRecord, CircuitRecord, ComponentDefinition, JobRecord, ComponentImage
 from .seed import sample_components
+from .builtin_catalog import normalized_name, read_builtin_parts
 
 
 class VersionConflict(Exception):
@@ -13,6 +14,7 @@ class VersionConflict(Exception):
 class Store:
     def __init__(self, path: str):
         self.path = path
+        self.builtin_parts, self.builtin_names, self.builtin_artwork = read_builtin_parts()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS components (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
@@ -38,10 +40,46 @@ class Store:
 
     def components(self, owner=None):
         with self.connect() as db:
-            result = {row[0]: ComponentDefinition.model_validate_json(row[1]) for row in db.execute("SELECT id,payload FROM components ORDER BY id")}
+            result = dict(self.builtin_parts)
+            result.update({row[0]: ComponentDefinition.model_validate_json(row[1]) for row in db.execute("SELECT id,payload FROM components ORDER BY id")})
             if owner is not None:
                 result.update({row[0]: ComponentDefinition.model_validate_json(row[1]) for row in db.execute("SELECT id,payload FROM component_drafts WHERE owner=? ORDER BY id", (owner,))})
             return result
+
+    def matching_builtin(self, request):
+        requested_name = normalized_name(request.model)
+        for part_id, names in self.builtin_names.items():
+            part = self.builtin_parts[part_id]
+            if part.category != request.category or not any(normalized_name(name) == requested_name for name in names):
+                continue
+            pins = {pin.id: pin.direction for pin in part.pins}
+            if all(pins.get(pin.id) == pin.direction for pin in request.pins):
+                return part
+        return None
+
+    def resolve_artwork(self, component):
+        if component.id in self.builtin_artwork:
+            path, presentation, _ = self.builtin_artwork[component.id]
+            return component.id, path, presentation
+        if component.category != 'board' or not component.pins:
+            return None
+        model = normalized_name(component.model)
+        manufacturer = normalized_name(component.manufacturer).removesuffix(' ltd')
+        for part_id, (path, presentation, aliases) in self.builtin_artwork.items():
+            builtin = self.builtin_parts[part_id]
+            if (manufacturer != normalized_name(builtin.manufacturer).removesuffix(' ltd')
+                    or not any(model == normalized_name(name) for name in self.builtin_names[part_id])):
+                continue
+            physical = presentation.physical_layout
+            pins = {pin.id: aliases.get(pin.id, pin.id) for pin in component.pins}
+            pin_ids = set(pins.values())
+            if len(pin_ids) != len(pins) or not pin_ids <= physical.pins.keys():
+                continue
+            # A draft may expose only some pins or name a header differently.
+            # Preserve its IDs and use only the known positions on the artwork.
+            mapped = physical.model_copy(update={'pins': {old: physical.pins[new] for old, new in pins.items()}})
+            return part_id, path, presentation.model_copy(update={'physical_layout': mapped})
+        return None
 
     def component_request(self, owner, request_id):
         with self.connect() as db:
@@ -51,6 +89,19 @@ class Store:
     def create_component(self, component, owner, request_id, fingerprint):
         with self.connect() as db:
             db.execute("INSERT INTO component_drafts VALUES (?,?,?,?,?)", (component.id, owner, request_id, fingerprint, component.model_dump_json()))
+
+    def update_draft_component(self, component_id, owner, update):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM component_drafts WHERE id=? AND owner=?", (component_id, owner)).fetchone()
+            if row is None:
+                return None
+            original = ComponentDefinition.model_validate_json(row[0])
+            component = update(original)
+            if component != original:
+                db.execute("UPDATE component_drafts SET payload=? WHERE id=? AND owner=?",
+                           (component.model_dump_json(), component_id, owner))
+            return component
 
     def get(self, circuit_id, owner):
         with self.connect() as db:

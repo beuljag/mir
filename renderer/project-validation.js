@@ -49,6 +49,12 @@
       if(i.mirrored!=null&&typeof i.mirrored!=='boolean')fail(i.ref+'의 반전 상태가 올바르지 않습니다.');
       if(i.props!=null&&!obj(i.props))fail(i.ref+'의 속성 형식이 올바르지 않습니다.');
       if(i.label!=null&&typeof i.label!=='string')fail(i.ref+'의 이름 형식이 올바르지 않습니다.');
+      if(i.circuitSource!=null){
+        const source=i.circuitSource;
+        if(!obj(source)||typeof source.id!=='string'||!source.id||typeof source.ref!=='string'||!source.ref||
+            source.ref.includes('.')||!Number.isInteger(source.version)||source.version<1||typeof source.name!=='string')
+          fail(i.ref+'의 저장 회로 정보가 올바르지 않습니다.');
+      }
       if(defs&&!defs.has(i.part))fail(i.part+' 부품 JSON을 먼저 부품함에 추가해 주세요.');
       refs.set(i.ref,i);
     }

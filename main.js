@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { DirectLineClient } = require('./src/directline');
 const { validateWebChatUrl, readWebChatDefaults } = require('./renderer/web-chat');
+const { initializeDistribution, distributionId } = require('./src/distribution');
 
 const builtinPartsDir = app.isPackaged
   ? path.join(process.resourcesPath, 'parts')
@@ -75,7 +76,6 @@ ipcMain.handle('circuit:getConnection', () => {
 });
 ipcMain.handle('circuit:refreshConnection', async () => {
   const config = readConnection();
-  if (config.mode === 'remote' && !config.key) return;
   const revision = ++connectionRevision;
   let status;
   try { status = await checkServer(config); }
@@ -109,7 +109,8 @@ ipcMain.handle('circuit:request', async (_event, { path: route, options = {} }) 
   }
   try {
     const result = await request(route, options);
-    const authError = [401, 403].includes(result.status);
+    const authError = result.status === 401 || (result.status === 403
+      && result.body?.detail?.code !== 'MIR_PUBLIC_ROUTE_NOT_ALLOWED');
     if (authError || result.status >= 500) lost(authError || !chat);
     return result;
   } catch (error) {
@@ -165,7 +166,8 @@ function loadSettings(withEnv = true) {
 }
 
 function saveSettings(s) {
-  const out = { mode: s.mode, tokenEndpoint: s.tokenEndpoint || '' };
+  const out = { mode: s.mode, tokenEndpoint: s.tokenEndpoint || '',
+    distributionId: distributionId(settingsFile()) };
   if (s.mode === 'web') out.webChatUrl = validateWebChatUrl(s.webChatUrl);
   if (s.secret) {
     if (safeStorage.isEncryptionAvailable()) {
@@ -453,7 +455,20 @@ ipcMain.handle('docs:open', (_e, name) => {
   return shell.openPath(path.join(base, path.basename(name)));
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  if (app.isPackaged) initializeDistribution({
+    resourcesPath: process.resourcesPath,
+    userDataPath: app.getPath('userData'),
+    encryptKey: (key) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows 키 암호화를 사용할 수 없습니다.');
+      return safeStorage.encryptString(key);
+    }
+  });
+  createWindow();
+}).catch(() => {
+  dialog.showErrorBox('공유 서버 연결 설정 실패', '배포 연결 설정을 적용하지 못했습니다. 배포 담당자에게 문의해 주세요.');
+  app.quit();
+});
 ipcMain.handle('agent:openWebsite', (_e, url) => shell.openExternal(validateWebChatUrl(url)));
 app.on('window-all-closed', () => app.quit());
 

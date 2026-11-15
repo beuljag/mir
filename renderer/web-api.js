@@ -1,6 +1,6 @@
 import './web-chat.js';
-import './server-connection.js';
-import { createServerChatApi } from './server-chat.js?v=research-evidence-7';
+import './server-connection.js?v=v95-integration-1';
+import { createServerChatApi } from './server-chat.js?v=v95-integration-1';
 // Electron의 기존 연결은 유지하고, 일반 브라우저에서만 대체 연결을 만든다.
 if (!window.api) {
   const localPage = ['127.0.0.1', 'localhost'].includes(location.hostname);
@@ -13,6 +13,17 @@ if (!window.api) {
   } catch { /* 로컬 설정이 없으면 데모를 사용한다. */ }
   let connection = { mode: localPage ? 'local' : 'remote', url: localPage ? '' : location.origin, key: '' };
   const requestCircuit = window.MirServerConnection.createTransport({ read: () => connection });
+  async function checkServer(read) {
+    const request = window.MirServerConnection.createTransport({ read: () => read });
+    const [db, ai, capabilities] = await Promise.all([
+      request('/components/search?limit=100'),
+      request('/chat/config').catch(() => null),
+      request('/circuits/capabilities').catch(() => null),
+    ]);
+    return { ready: db.status === 200 && Array.isArray(db.body),
+      aiReady: ai?.status === 200 && ai.body?.mode === 'directline' && ai.body.configured === true,
+      editorWires: capabilities?.status === 200 && capabilities.body?.editor_wires === true };
+  }
   let client = null;
   let catalogSentFor = null;
   const userParts = new Map();
@@ -106,17 +117,18 @@ if (!window.api) {
     openDoc: async (name) => window.open(`./docs/${encodeURIComponent(name)}`, '_blank', 'noopener'),
     getAppIcon: async () => null,
     getServerConnection: async () => ({ mode: connection.mode, url: connection.url, hasKey: !!connection.key }),
-    setServerConnection: async (input) => { connection = window.MirServerConnection.updateConnection(connection, input); return true; },
+    setServerConnection: async (input) => {
+      const next = window.MirServerConnection.updateConnection(connection, input);
+      const status = await checkServer(next);
+      if (!status.ready) throw new Error('배선 DB에 연결할 수 없어요. 공유 서버 주소와 공개 접속 설정을 확인해 주세요.');
+      const sameServer = next.mode === connection.mode && next.url === connection.url && next.key === connection.key;
+      connection = next;
+      return { ...status, sameServer };
+    },
     getAutoAuthStatus: async () => {
-      if (connection.mode === 'remote') {
-        try { return { ready: (await requestCircuit('/chat/config')).status === 200, remote: true }; }
-        catch { return { ready: false, remote: true }; }
-      }
-      if (!localBase) return { ready: false };
-      try {
-        const response = await fetch(localBase + '/local-connection/status', { cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(4000) });
-        return response.ok ? await response.json() : { ready: false };
-      } catch { return { ready: false }; }
+      if (connection.mode === 'local' && !localBase) return { ready: false };
+      try { return await checkServer(connection); }
+      catch { return { ready: false }; }
     },
     openAgentWebsite: async (url) => window.open(window.MirWebChat.validateWebChatUrl(url), '_blank', 'noopener'),
     requestCircuit
@@ -125,12 +137,5 @@ if (!window.api) {
 export const runtimeApi = createServerChatApi(window.api);
 
 if (window.api.refreshServerConnection) {
-  runtimeApi.getSettings = async () => {
-    const previous = await window.api.getSettings();
-    const { ready, aiReady } = await window.api.getAutoAuthStatus();
-    const mode = previous.mode === 'demo' && !previous.modeExplicit && ready && aiReady
-      ? 'server' : previous.mode;
-    return { ...previous, mode, serverSecretConfigured: Boolean(aiReady), apiKeyReady: ready };
-  };
   window.api.onServerStatusChanged(() => window.dispatchEvent(new Event('mir-connection-status')));
 }

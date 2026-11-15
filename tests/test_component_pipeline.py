@@ -111,13 +111,14 @@ def test_unknown_pinout_still_creates_reusable_body_and_validation_stays_unknown
 
 
 def test_catalog_paginates_new_parts_beyond_first_100(client):
+    base_count = len(client.get('/components/search?limit=100').json())
     for i in range(103):
         result = client.post('/components', json={**body(f'catalog-{i:04}'), 'model': f'CATALOG PUMP {i}'})
         assert result.status_code == 201
     first = client.get('/components/search?limit=100&offset=0').json()
     second = client.get('/components/search?limit=100&offset=100').json()
-    assert len(first) == 100 and len(second) == 6
-    assert len({c['id'] for c in first + second}) == 106
+    assert len(first) == 100 and len(second) == base_count + 103 - 100
+    assert len({c['id'] for c in first + second}) == base_count + 103
 
 
 def test_candidate_ownership_and_model_match_required(client):

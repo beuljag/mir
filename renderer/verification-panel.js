@@ -1,4 +1,4 @@
-import { runtimeApi } from './web-api.js';
+import { runtimeApi } from './web-api.js?v=v95-integration-1';
 
 // KiCad 파일은 기존 키 자동 연결을 통해 서버로 보낸다. 원본 파일을 수정하지 않는다.
 export function initVerificationPanel({ message }) {
@@ -36,6 +36,11 @@ export function initVerificationPanel({ message }) {
         return;
       }
       const config = await call('/verification/config');
+      if (config.authentication_required) {
+        dbReady = false;
+        $('verificationConfig').textContent = config.message;
+        return;
+      }
       kicadReady = Boolean(config.kicad_available);
       $('verificationSpice').disabled = !config.ngspice_available;
       if (!config.ngspice_available) $('verificationSpice').checked = false;

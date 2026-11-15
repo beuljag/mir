@@ -5,7 +5,7 @@
     "description": "회로 API와 공식 자료 조사·문서 분석·사람 검토. 기본 샘플은 가상 테스트 전용입니다.",
     "version": "0.2.0"
   },
-  "host": "YOUR-API-HOST.example.com",
+  "host": "rqc76xf3-8000.jpe1.devtunnels.ms",
   "basePath": "/",
   "schemes": [
     "https"

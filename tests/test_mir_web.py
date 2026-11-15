@@ -6,10 +6,15 @@ def test_mir_assets_and_no_private_files(tmp_path):
     with TestClient(create_app(str(tmp_path / 'mir.db'), {'mir-test-key-long-enough-123456': 'a'})) as client:
         page = client.get('/mir/')
         assert page.status_code == 200 and 'btnBackend' in page.text
+        assert page.headers['Cache-Control'] == 'no-cache'
+        assert client.get('/mir/index.html').headers['Cache-Control'] == 'no-cache'
+        cached = client.get('/mir/?circuit=saved', headers={'If-None-Match': page.headers['ETag']})
+        assert cached.status_code == 304 and cached.headers['Cache-Control'] == 'no-cache'
         assert client.get('/mir/app.js').status_code == 200
         assert client.get('/mir/web-api.js').status_code == 200
         assert client.get('/mir/directline.js').status_code == 200
-        assert len(client.get('/mir/parts').json()['parts']) == 13
+        parts = client.get('/mir/parts').json()['parts']
+        assert {'esp32-devkitc', 'raspberry-pi-4'} <= {part['id'] for part in parts}
         assert client.get('/mir/docs/Copilot-Studio-지침.md').status_code == 200
         for path in ['/mir/.git/config', '/mir/main.js', '/mir/config/local-api-keys.json', '/mir/../config/local-api-keys.json']:
             assert client.get(path).status_code in (401, 404)
