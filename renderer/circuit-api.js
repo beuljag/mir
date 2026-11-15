@@ -9,7 +9,7 @@ function parsePin(key, instances) {
   return ref;
 }
 
-export function toCircuitDraft(state, original = null) {
+export function toCircuitDraft(state, original = null, { editorWires = false } = {}) {
   if (!state.instances.length) throw new Error('먼저 부품을 배치하세요.');
   const instances = new Set();
   for (const i of state.instances) {
@@ -52,6 +52,8 @@ export function toCircuitDraft(state, original = null) {
     component_instances: state.instances.map((i) => ({ instance_id: i.ref, component_definition_id: i.part,
       ...(i.props ? { props: i.props } : {}), ...(i.label ? { label: i.label } : {}) })),
     nets,
+    ...(editorWires ? { editor_wires: state.wires.map(({ id, from, to, kind, note, origin }) =>
+      ({ id, from, to, kind, note, origin })) } : {}),
     layout: state.instances.map((i) => ({ instance_id: i.ref, x: i.x ?? 0, y: i.y ?? 0, rotation: i.rotation ?? 0, ...(i.mirrored ? { mirrored: true } : {}) }))
   };
 }
@@ -73,6 +75,22 @@ export function fromCircuit(circuit) {
       seen.add(key);
     }
     keys.slice(1).forEach((key) => wires.push({ id: `db-${wires.length}`, from: keys[0], to: key, origin: 'api', note: net.net_id }));
+  }
+  const editor = circuit.editor_wires;
+  if (Array.isArray(editor)) {
+    const ids = new Set(editor.map(wire => wire?.id));
+    if (ids.size === editor.length && editor.every(wire => typeof wire?.id === 'string' && wire.id)) {
+      try {
+        const savedNets = circuit.nets.map(net => signature(net.connected_pin_refs)).sort();
+        const editorNets = toCircuitDraft({ instances, wires: editor }).nets
+          .map(net => signature(net.connected_pin_refs)).sort();
+        if (JSON.stringify(savedNets) === JSON.stringify(editorNets)) {
+          return { instances, wires: editor.map(({ id, from, to, kind, note, origin }) =>
+            ({ id, from, to, ...(kind ? { kind } : {}), ...(note != null ? { note } : {}), ...(origin ? { origin } : {}) })),
+            title: circuit.name, requirements: circuit.requirements };
+        }
+      } catch { /* 연결 정보가 바뀐 기록은 DB 연결 그룹을 기준으로 연다. */ }
+    }
   }
   return { instances, wires, title: circuit.name, requirements: circuit.requirements };
 }
@@ -143,8 +161,11 @@ export async function loadComponentImage(client, part) {
   if (part.physicalLayout) return part;
   try {
     const result = await client.call(`/components/${encodeURIComponent(part.id)}/image?optional=true`);
-    if (result.image_data === null) return result.artwork_status === 'unavailable' ? { ...part, artworkUnavailable: true } : part;
-    if (!result.image_data?.startsWith('data:image/svg+xml;base64,') || !result.layout) throw new Error('이미지 데이터 형식이 올바르지 않습니다.');
+    if (result && (result.image_data == null ||
+      (typeof result.image_data === 'string' && !result.image_data.trim()))) {
+      return result.artwork_status === 'unavailable' ? { ...part, artworkUnavailable: true } : part;
+    }
+    if (typeof result?.image_data !== 'string' || !result.image_data.startsWith('data:image/svg+xml;base64,') || !result.layout) throw new Error('이미지 데이터 형식이 올바르지 않습니다.');
     const positions = new Map(result.layout.pins.map((p) => [p.id, p]));
     // 서버의 연결 좌표를 사용해 그림 크기와 핀 위치를 일치시킨다.
     if (part.pins.length !== positions.size || part.pins.some((p) => !positions.has(p.id))) throw new Error('이미지와 핀 목록이 일치하지 않습니다.');

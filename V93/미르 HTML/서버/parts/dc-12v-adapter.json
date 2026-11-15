@@ -1,0 +1,29 @@
+{
+  "id": "dc-12v-adapter",
+  "name": "DC 12V 어댑터 (2A)",
+  "category": "power",
+  "color": "#212529",
+  "description": "외부 전원. 출력 12V 2A.",
+  "behavior": {
+    "kind": "supply"
+  },
+  "pins": [
+    {
+      "id": "V+",
+      "label": "+12V",
+      "side": "left",
+      "type": "power_out",
+      "voltage": 12,
+      "maxCurrent": 2000,
+      "functions": [
+        "12V 출력"
+      ]
+    },
+    {
+      "id": "GND",
+      "label": "GND",
+      "side": "left",
+      "type": "gnd"
+    }
+  ]
+}

@@ -26,5 +26,8 @@ contextBridge.exposeInMainWorld('api', {
   requestCircuit: (path, options) => ipcRenderer.invoke('circuit:request', { path, options }),
   getServerConnection: () => ipcRenderer.invoke('circuit:getConnection'),
   setServerConnection: (input) => ipcRenderer.invoke('circuit:setConnection', input),
+  onServerStatusChanged: callback => ipcRenderer.on('circuit:statusChanged', () => callback()),
+  refreshServerConnection: () => ipcRenderer.invoke('circuit:refreshConnection'),
+  cancelServerConnection: () => ipcRenderer.invoke('circuit:cancelConnection'),
   getAutoAuthStatus: () => ipcRenderer.invoke('circuit:autoStatus')
 });

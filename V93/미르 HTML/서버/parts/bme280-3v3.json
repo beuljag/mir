@@ -1,0 +1,58 @@
+{
+  "id": "bme280-3v3",
+  "name": "BME280 온습도·기압 센서 (3.3V 전용)",
+  "category": "sensor",
+  "color": "#5b2a86",
+  "description": "레귤레이터가 없는 3.3V 전용 BME280 모듈. I2C 주소 0x76.",
+  "behavior": {
+    "kind": "i2c-device",
+    "vcc": "VCC",
+    "gnd": "GND",
+    "sda": "SDA",
+    "scl": "SCL",
+    "address": "0x76"
+  },
+  "pins": [
+    {
+      "id": "VCC",
+      "label": "VCC",
+      "side": "left",
+      "type": "power_in",
+      "minVoltage": 1.71,
+      "maxVoltage": 3.6,
+      "functions": [
+        "전원"
+      ]
+    },
+    {
+      "id": "GND",
+      "label": "GND",
+      "side": "left",
+      "type": "gnd"
+    },
+    {
+      "id": "SCL",
+      "label": "SCL",
+      "side": "left",
+      "type": "input",
+      "maxVoltage": 3.6,
+      "functions": [
+        "I2C SCL"
+      ]
+    },
+    {
+      "id": "SDA",
+      "label": "SDA",
+      "side": "left",
+      "type": "gpio",
+      "voltage": 3.3,
+      "maxVoltage": 3.6,
+      "functions": [
+        "I2C SDA"
+      ]
+    }
+  ],
+  "sources": [
+    "Bosch BME280 datasheet"
+  ]
+}

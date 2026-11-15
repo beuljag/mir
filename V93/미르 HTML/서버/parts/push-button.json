@@ -1,0 +1,26 @@
+{
+  "id": "push-button",
+  "name": "택트 스위치",
+  "category": "input",
+  "color": "#555b6e",
+  "description": "누르는 동안 1-2가 연결되는 버튼. 가상 전원 ON 상태에서 클릭하면 눌림.",
+  "behavior": {
+    "kind": "button",
+    "a": "P1",
+    "b": "P2"
+  },
+  "pins": [
+    {
+      "id": "P1",
+      "label": "1",
+      "side": "left",
+      "type": "passive"
+    },
+    {
+      "id": "P2",
+      "label": "2",
+      "side": "right",
+      "type": "passive"
+    }
+  ]
+}

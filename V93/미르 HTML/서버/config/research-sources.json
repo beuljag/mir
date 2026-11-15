@@ -1,0 +1,10 @@
+{
+  "TEMT6000": {
+    "urls": [
+      "https://learn.sparkfun.com/tutorials/temt6000-ambient-light-sensor-hookup-guide/all",
+      "https://wiki.dfrobot.com/sen0043/"
+    ],
+    "scope": "related_module_reference",
+    "note": "SparkFun 및 DFRobot의 TEMT6000 모듈 공식 자료다. YWRobot 모듈의 정격이나 물리 핀 순서가 같다고 확정하지 않는다."
+  }
+}

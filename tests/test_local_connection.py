@@ -48,7 +48,8 @@ def test_standalone_html_can_use_key_authenticated_editor_api(app):
         capabilities = client.get('/circuits/capabilities', headers=authenticated)
         assert capabilities.status_code == 200
         assert capabilities.headers['access-control-allow-origin'] == 'null'
-        assert capabilities.json() == client.get('/verification/config', headers=authenticated).json()
+        verification = client.get('/verification/config', headers=authenticated).json()
+        assert capabilities.json() == {**verification, 'editor_wires': True}
         assert client.get('/circuits/capabilities', headers=headers).status_code == 401
 
         assert 'access-control-allow-origin' not in client.options('/mcp', headers=preflight).headers
@@ -145,13 +146,23 @@ def test_public_mir_uses_server_owner_for_chat_and_circuits(tmp_path, monkeypatc
         found = call('/components/search?limit=100')
         assert found.headers['access-control-allow-origin'] == 'null'
         assert found.json()['status'] == 200
+        capability = call('/circuits/capabilities').json()['body']
+        assert capability['editor_wires'] is True
+        assert capability['authentication_required'] is True
         circuit = call('/circuits', 'POST', {
             'name': '공개 미르 회로',
-            'component_instances': [{'instance_id': 'P', 'component_definition_id': 'virtual-supply'}],
+            'component_instances': [
+                {'instance_id': 'P', 'component_definition_id': 'virtual-supply'},
+                {'instance_id': 'L', 'component_definition_id': 'led-red'},
+            ],
+            'editor_wires': [{'id': 'wire-1', 'from': 'P.V+', 'to': 'L.A', 'kind': 'power', 'note': '전원선'}],
         }).json()
         assert circuit['status'] == 201
         path = '/circuits/' + circuit['body']['id']
-        assert call(path).json()['body']['name'] == '공개 미르 회로'
+        saved = call(path).json()['body']
+        assert saved['name'] == '공개 미르 회로'
+        assert saved['editor_wires'][0]['from'] == 'P.V+'
+        assert saved['editor_wires'][0]['note'] == '전원선'
         assert client.get(path, headers={'X-API-Key': KEY}).status_code == 200
         assert client.get(path).status_code == 401
         chat = call('/chat/sessions', 'POST')

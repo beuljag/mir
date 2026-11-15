@@ -1,32 +1,56 @@
 import { confirmAction } from './confirm-dialog.js';
-import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js?v=wiring-diagnosis-1';
-import { runtimeApi } from './web-api.js?v=public-server-1';
+import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js?v=v95-integration-1';
+import { runtimeApi } from './web-api.js?v=v95-integration-1';
 
 export function initBackendPanel({ getState, getProjectGeneration = () => 0, canReplace = () => true,
   getCatalog = () => getState().defs, registerParts = (parts) => { for (const [id, def] of parts) getState().defs.set(id, def); },
   replace, merge, updateProjectParts, renderParts, message }) {
   const $ = (id) => document.getElementById(id);
-  let client = null, current = null, busy = false, saved = '';
+  const dialog = $('backendModal');
+  let client = null, current = null, busy = false, saved = '', editorWires = false;
+  let dialogGeneration = 0;
+  function openDialog() {
+    if (dialog.open) return;
+    dialogGeneration++;
+    dialog.showModal();
+  }
+  function updateSaveScope() {
+    $('dbSaveScope').hidden = editorWires;
+    $('dbSaveScope').textContent = '이 서버는 배선의 핀 연결을 저장해요. 지정한 선 종류와 메모까지 보관하려면 프로젝트 파일로 저장해 주세요.';
+  }
+  window.addEventListener('mir-connection-status', async () => {
+    editorWires = (await runtimeApi.getAutoAuthStatus()).editorWires;
+    updateSaveScope();
+  });
   const status = (text) => { $('dbStatus').textContent = text; };
-  const draft = () => toCircuitDraft(getState(), current);
+  const draft = () => toCircuitDraft(getState(), current, { editorWires });
   function detachCircuit() {
     current = null; saved = ''; $('dbCircuitId').value = '';
     status('캔버스 배선 · 새 회로로 저장 가능');
   }
   function reset() { client = null; current = null; saved = ''; $('dbCircuitId').value = ''; status('새 회로 · DB 저장 전'); }
-  async function run(action) {
+  async function run(action, loading = 'DB 작업을 처리하고 있어요…') {
     if (busy) return;
     busy = true;
-    ['btnDbConnect', 'btnDbLoad', 'btnDbSave', 'btnDbValidate', 'btnDbClose'].forEach((id) => { $(id).disabled = true; });
+    const controls = ['btnDbConnect', 'btnDbLoad', 'btnDbSave', 'btnDbValidate', 'btnFileVerification'].map($);
+    const previous = $('dbStatus').textContent;
+    status(loading);
+    controls.forEach(control => { control.disabled = true; });
     try { return await action(); }
-    catch (e) { status(`실패: ${e.message}`); message(`배선 API: ${e.message}`); }
-    finally {
+    catch (error) {
+      status('실패 · ' + error.message);
+      message('배선 API · ' + error.message);
+    } finally {
+      if ($('dbStatus').textContent === loading) status(previous);
       busy = false;
-      ['btnDbConnect', 'btnDbLoad', 'btnDbSave', 'btnDbValidate', 'btnDbClose'].forEach((id) => { $(id).disabled = false; });
+      controls.forEach(control => { control.disabled = false; });
     }
   }
   async function connect() {
-    if (!(await runtimeApi.getAutoAuthStatus?.())?.ready) throw new Error('서버 연결이 준비되지 않았습니다. 연결 설정의 공유 서버 주소, 공개 연결 설정 또는 로컬 서버 실행 상태를 확인하세요.');
+    const readiness = await runtimeApi.getAutoAuthStatus();
+    if (!readiness.ready) throw new Error('서버 연결이 준비되지 않았습니다. 공유 서버 주소나 로컬 서버 실행 상태를 확인하세요.');
+    editorWires = Boolean(readiness.editorWires);
+    updateSaveScope();
     const next = new CircuitApi(runtimeApi.requestCircuit, '');
     const parts = await loadComponentCatalog(next);
     client = next;
@@ -51,10 +75,14 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
       throw e;
     }
   }
-  async function load(id = $('dbCircuitId').value.trim(), { automatic = false, agent = false, isCurrent = () => true } = {}) {
+  async function load(id = $('dbCircuitId').value.trim(), {
+    automatic = false, agent = false, guardDialog = !agent && !automatic, isCurrent = () => true
+  } = {}) {
     const generation = getProjectGeneration();
+    const view = dialogGeneration;
     const canLoad = () => generation === getProjectGeneration() && canReplace() && isCurrent()
-      && (!automatic || !getState().instances.length) && (!agent || !getState().pendingProposal);
+      && (!automatic || !getState().instances.length) && (!agent || !getState().pendingProposal)
+      && (!guardDialog || (dialog.open && view === dialogGeneration));
     if (!canLoad()) return false;
     if (!id) throw new Error('에이전트가 반환한 회로 ID를 입력하세요.');
     await requireClient();
@@ -86,7 +114,7 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
         missing.push(partId);
       }
     }
-    const loadedDraft = JSON.stringify(toCircuitDraft(next, record));
+    const loadedDraft = JSON.stringify(toCircuitDraft(next, record, { editorWires }));
     if (!canLoad()) return false;
     if (agent && getState().instances.length) {
       const existing = onCanvas();
@@ -118,17 +146,30 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     return agent ? 'circuit-loaded' : true;
   }
 
-  $('btnBackend').onclick = () => $('backendModal').classList.remove('hidden');
-  $('btnDbClose').onclick = () => $('backendModal').classList.add('hidden');
-  $('btnDbConnect').onclick = () => run(connect);
-  $('btnDbLoad').onclick = () => run(load);
+  $('btnBackend').onclick = openDialog;
+  $('btnDbClose').onclick = () => dialog.close();
+  $('btnDbConnect').onclick = async () => {
+    if (!(await runtimeApi.getAutoAuthStatus()).ready) {
+      dialog.close();
+      $('btnSettings').click();
+      return;
+    }
+    await run(connect, '서버 연결과 부품 목록을 확인하고 있어요…');
+  };
+  $('btnDbLoad').onclick = () => run(load, 'DB에서 회로를 불러오고 있어요…');
   $('btnDbSave').onclick = () => run(async () => {
+    const generation = getProjectGeneration();
     await requireClient();
+    if (generation !== getProjectGeneration() || !canReplace()) return;
     if (getState().pendingProposal) throw new Error('수정안을 먼저 적용하거나 취소하세요.');
     const data = draft();
     const record = current
       ? await client.call(`/circuits/${encodeURIComponent(current.id)}`, 'PUT', { ...data, expected_version: current.version })
       : await client.call('/circuits', 'POST', data);
+    if (generation !== getProjectGeneration()) {
+      message('이전 회로 DB 저장 완료 · ' + record.id);
+      return;
+    }
     current = record; saved = JSON.stringify(data); $('dbCircuitId').value = record.id;
     status(`${record.id} · v${record.version} · 저장됨 (재검증 필요)`);
     message(`DB 저장 완료: ${record.id} · v${record.version}`);
@@ -141,12 +182,15 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     message(`서버 검증: ${result.status}\n${result.issues.map((i) => `[${i.severity}] ${i.message}`).join('\n') || '구현된 검사 범위에서 이슈 없음'}\n검사 제외: ${result.excluded_checks.join(', ')}`);
   });
   const linked = new URLSearchParams(location.search).get('circuit');
-  if (linked) { $('dbCircuitId').value = linked; $('backendModal').classList.remove('hidden'); }
+  if (linked) { $('dbCircuitId').value = linked; openDialog(); }
   return { reset, detachCircuit, fetchPart, openLinkedCircuit: async () => {
     if (!linked || !client) return;
-    const loaded = await run(() => load(linked, { automatic: true }));
-    if (loaded) $('backendModal').classList.add('hidden');
-  }, connectAutomatically: async () => {
+    const loaded = await run(() => load(linked, { automatic: true, guardDialog: true }));
+    if (loaded && dialog.open) dialog.close();
+  }, connectionChanged(sameServer) {
+    client = null;
+    if (!sameServer) detachCircuit();
+  }, isBusy: () => busy, connectAutomatically: async () => {
     if ((await runtimeApi.getAutoAuthStatus?.())?.ready) await run(connect);
   }, refreshAfterAgent: () => client ? run(connect) : Promise.resolve(),
     refreshDiagnosedParts: async (ids, isCurrent) => {
@@ -164,7 +208,7 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     applyAgentCircuit: (id, { isCurrent } = {}) => run(() => load(id, { agent: true, isCurrent })),
     openCircuit: (id, { showPanel = true, automatic = false } = {}) => {
       if (showPanel) $('dbCircuitId').value = id;
-      if (showPanel) $('backendModal').classList.remove('hidden');
-      return run(() => load(id, { automatic }));
+      if (showPanel) openDialog();
+      return run(() => load(id, { automatic, guardDialog: showPanel }));
     } };
 }

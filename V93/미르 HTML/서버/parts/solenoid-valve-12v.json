@@ -1,0 +1,39 @@
+{
+  "id": "solenoid-valve-12v",
+  "name": "12V 솔레노이드 밸브",
+  "category": "actuator",
+  "color": "#6c757d",
+  "description": "DC 12V, 약 0.5A. 전원을 넣으면 열림. 코일이라 역기전력 보호 다이오드 권장.",
+  "behavior": {
+    "kind": "load",
+    "plus": "V+",
+    "minus": "V-",
+    "ratedVoltage": 12,
+    "label": "밸브",
+    "onText": "열림",
+    "offText": "닫힘"
+  },
+  "pins": [
+    {
+      "id": "V+",
+      "label": "+",
+      "side": "left",
+      "type": "power_in",
+      "minVoltage": 10.8,
+      "maxVoltage": 13.2,
+      "maxCurrent": 500,
+      "functions": [
+        "코일 +"
+      ]
+    },
+    {
+      "id": "V-",
+      "label": "-",
+      "side": "left",
+      "type": "passive",
+      "functions": [
+        "코일 -"
+      ]
+    }
+  ]
+}

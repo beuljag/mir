@@ -125,6 +125,7 @@ def attach_public_connection(app, api_key):
         if body.method == 'GET' and body.path in ('/circuits/capabilities', '/verification/config'):
             return {'status': 200, 'body': {
                 'kicad_available': False, 'ngspice_available': False, 'analyses': [],
+                'editor_wires': True, 'authentication_required': True,
                 'message': 'KiCad·ngspice 파일 검증에는 배선 API 키가 필요합니다.',
             }}
         if body.method == 'POST' and body.path == '/chat/sessions':

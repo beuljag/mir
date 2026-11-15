@@ -180,7 +180,7 @@ def create_app(db_path=None, api_keys=None):
 
     @app.get("/circuits/capabilities", include_in_schema=False)
     def circuit_capabilities(user: User):
-        return app.state.verification.config()
+        return {**app.state.verification.config(), "editor_wires": True}
 
     @app.get("/circuits/{circuit_id}", response_model=CircuitRecord, operation_id="GetCircuitStatus", tags=["circuits"])
     def get(circuit_id: str, user: User):

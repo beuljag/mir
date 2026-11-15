@@ -77,7 +77,12 @@ body.frame-open .layout { transition-duration:240ms; }
 body.frame-no-motion .layout { transition:none; }
 @media(prefers-reduced-motion:reduce){.layout{transition:none!important;}}
 .topbar { padding-left:88px; }
-#btnMenu, #btnMenu:hover, #btnMenu:focus-visible, #btnMenu:active { color:#000; }
+:root { --menu-icon-color: #000; }
+:root[data-theme="dark"] { --menu-icon-color: #fff; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --menu-icon-color: #fff; }
+}
+#btnMenu, #btnMenu:hover, #btnMenu:focus-visible, #btnMenu:active { color:var(--menu-icon-color); }
 #btnBackend, #btnBackend:hover, #btnBackend:focus-visible, #btnBackend:active { color:#000; }
 #linkConnectGuide, #linkConnectGuide:hover, #linkConnectGuide:visited { color:#000; }
 .mir-confirm { width:400px; max-width:calc(100vw - 48px); padding:24px; border:1px solid var(--border); border-radius:22px; background:var(--surface); color:var(--text); box-shadow:var(--shadow-lg); }
@@ -203,3 +208,20 @@ body.chat-collapsed .desktop-titlebar #connPill { top:10px; right:150px; }
 .workspace-rail #recentProjects .recent-project-more { border-top-left-radius:0; border-bottom-left-radius:0; border-left:0; }
 .project-section-divider { width:100%; margin:0; border:0; border-top:1px solid var(--border); }
 .frame-project .recent-project-heading { margin-top:0; }
+
+.server-dialog {
+  padding: 0;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text);
+}
+.server-dialog::backdrop {
+  background: rgba(13, 43, 72, .4);
+}
+.server-dialog .modal-actions {
+  flex-wrap: wrap;
+}
+
