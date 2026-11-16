@@ -11,7 +11,7 @@
     if (input.mode !== 'remote') return { mode: 'local', url: '', key: '' };
     const url = normalizeServerUrl(input.url.trim());
     const key = input.key?.trim() || (previous.url === url ? previous.key : '');
-    if (!key || key.length < 24 || /[\r\n]/.test(key)) throw new Error('배선 API 키를 입력하세요. 서버 주소를 바꾸면 키도 다시 입력해야 합니다.');
+    if (key && (key.length < 24 || /[\r\n]/.test(key))) throw new Error('배선 API 키 형식을 확인해 주세요.');
     return { mode: 'remote', url, key };
   }
   function createTransport({ read, fetcher = (...args) => fetch(...args) }) {
@@ -19,11 +19,13 @@
       if (!routes.test(route) || !['GET', 'POST', 'PUT', 'DELETE'].includes(options.method || 'GET')) throw new Error('허용되지 않은 API 요청입니다.');
       const config = read();
       const remote = config.mode === 'remote';
-      if (remote && !config.key) throw new Error('연결 설정에서 배선 API 키를 다시 입력하세요.');
-      const direct = remote || options.headers?.['X-API-Key'];
-      const response = await fetcher(direct ? (remote ? normalizeServerUrl(config.url) : 'http://127.0.0.1:8000') + route : 'http://127.0.0.1:8002/local-connection/request', {
+      const url = remote ? normalizeServerUrl(config.url) : 'http://127.0.0.1:8000';
+      const key = remote ? config.key : options.headers?.['X-API-Key'];
+      const direct = Boolean(key);
+      const target = direct ? url + route : remote ? url + '/mir/api' : 'http://127.0.0.1:8002/local-connection/request';
+      const response = await fetcher(target, {
         method: direct ? (options.method || 'GET') : 'POST',
-        headers: { 'Content-Type': 'application/json', ...(direct ? { 'X-API-Key': remote ? config.key : options.headers['X-API-Key'] } : {}) },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...(direct ? { 'X-API-Key': key } : {}) },
         ...(direct ? (options.body ? { body: options.body } : {}) : { body: JSON.stringify({ path: route, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null }) }),
         redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(route.startsWith('/chat/') ? 45000 : 20000)
       });

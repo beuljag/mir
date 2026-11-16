@@ -1,32 +1,6 @@
 import { confirmAction } from './confirm-dialog.js';
-import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog, isRecoverableImageError } from './circuit-api.js';
+import { CircuitApi, toCircuitDraft, fromCircuit, definitionToPart, loadComponentImage, loadComponentCatalog } from './circuit-api.js';
 import { runtimeApi } from './web-api.js';
-
-const IMAGE_CONCURRENCY = 6;
-
-// 그림 하나의 문제로 연결 전체를 멈추지 않는다. 인증·네트워크·서버 오류는 그대로 알린다.
-async function imageOrDefault(api, part) {
-  try { return await loadComponentImage(api, part); }
-  catch (error) {
-    if (!isRecoverableImageError(error)) throw error;
-    console.warn(`부품 그림 대신 기본 그림을 사용합니다: ${part.id}`, error);
-    return part;
-  }
-}
-
-// 순서를 유지하면서 동시에 limit개까지 처리한다.
-async function mapLimit(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index], index);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
 
 export function initBackendPanel({ getState, getProjectGeneration = () => 0, canReplace = () => true,
   getCatalog = () => getState().defs, registerParts = (parts) => { for (const [id, def] of parts) getState().defs.set(id, def); }, replace, renderParts, message }) {
@@ -76,17 +50,16 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     const parts = await loadComponentCatalog(next);
     client = next;
     const catalog = getCatalog();
-    const bases = parts.map((def) => {
+    const loaded = new Map();
+    for (const def of parts) {
       const old = catalog.get(def.id);
       const converted = definitionToPart(def);
       const samePins = old && JSON.stringify(old.pins.map((p) => p.id).sort()) === JSON.stringify(def.pins.map((p) => p.id).sort());
       const base = samePins ? { ...old, ...converted,
         pins: converted.pins.map((p) => ({ ...p, side: old.pins.find((x) => x.id === p.id).side })) } : converted;
       delete base._layout;
-      return base;
-    });
-    const images = await mapLimit(bases, IMAGE_CONCURRENCY, (base) => imageOrDefault(next, base));
-    const loaded = new Map(parts.map((def, index) => [def.id, images[index]]));
+      loaded.set(def.id, await loadComponentImage(next, base));
+    }
     registerParts(loaded);
     renderParts();
     status(`서버 자동 연결됨 · 등록 부품 ${parts.length}개`);
@@ -97,7 +70,7 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
     const api = client || new CircuitApi(runtimeApi.requestCircuit, '');
     try {
       const def = await api.call(`/components/${encodeURIComponent(id)}`);
-      return await imageOrDefault(api, definitionToPart(def));
+      return await loadComponentImage(api, definitionToPart(def));
     } catch (e) {
       if (e.status === 404) return null;
       throw e;
@@ -128,7 +101,7 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
         const base = samePins ? { ...old, ...converted,
           pins: converted.pins.map((p) => ({ ...p, side: old.pins.find((x) => x.id === p.id).side })) } : converted;
         delete base._layout;
-        projectParts.set(partId, await imageOrDefault(circuitClient, base));
+        projectParts.set(partId, await loadComponentImage(circuitClient, base));
       } catch (e) {
         if (e.status !== 404) throw e;
         if (!defs.has(partId)) {
@@ -191,7 +164,11 @@ export function initBackendPanel({ getState, getProjectGeneration = () => 0, can
   });
   const linked = new URLSearchParams(location.search).get('circuit');
   if (linked) { $('dbCircuitId').value = linked; openDialog(); }
-  return { reset, fetchPart, connectionChanged(sameServer) {
+  return { reset, fetchPart, openLinkedCircuit: async () => {
+    if (!linked || !client) return;
+    const loaded = await run(() => load(linked, { automatic: true, guardDialog: true }));
+    if (loaded && dialog.open) dialog.close();
+  }, connectionChanged(sameServer) {
     client = null;
     if (!sameServer) {
       current = null;

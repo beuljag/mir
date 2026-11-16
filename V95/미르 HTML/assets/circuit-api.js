@@ -123,28 +123,15 @@ export async function loadComponentCatalog(client) {
   throw new Error('부품 목록이 조회 한도를 초과했습니다.');
 }
 
-// 그림 응답 자체가 잘못된 경우. 이 오류는 부품 하나만 기본 그림으로 되돌리면 된다.
-function invalidImage(message) {
-  return Object.assign(new Error(message), { imageInvalid: true });
-}
-
-// 기본 그림으로 대신해도 되는 그림 오류인지 판단한다. 인증·네트워크·서버 오류는 그대로 알린다.
-export function isRecoverableImageError(error) {
-  return !!error?.imageInvalid || error?.status === 409;
-}
-
 // 서버가 검사한 SVG를 data URL로 표시한다. SVG 원문을 DOM에 직접 넣지 않는다.
-// optional=true이면 서버는 그림이 없거나 쓸 수 없을 때 404/409 대신 image_data=null을 돌려준다.
 export async function loadComponentImage(client, part) {
   try {
     const result = await client.call(`/components/${encodeURIComponent(part.id)}/image?optional=true`);
-    if (result && (result.image_data == null ||
-      (typeof result.image_data === 'string' && !result.image_data.trim()))) return part;
-    if (typeof result?.image_data !== 'string' || !result.image_data.startsWith('data:image/svg+xml;base64,') ||
-      !result.layout || !Array.isArray(result.layout.pins)) throw invalidImage('이미지 데이터 형식이 올바르지 않습니다.');
+    if (result?.image_data === null) return part;
+    if (!result?.image_data?.startsWith('data:image/svg+xml;base64,') || !result.layout) throw new Error('이미지 데이터 형식이 올바르지 않습니다.');
     const positions = new Map(result.layout.pins.map((p) => [p.id, p]));
     // 서버의 연결 좌표를 사용해 그림 크기와 핀 위치를 일치시킨다.
-    if (part.pins.length !== positions.size || part.pins.some((p) => !positions.has(p.id))) throw invalidImage('이미지와 핀 목록이 일치하지 않습니다.');
+    if (part.pins.length !== positions.size || part.pins.some((p) => !positions.has(p.id))) throw new Error('이미지와 핀 목록이 일치하지 않습니다.');
     const { _layout, ...fresh } = part;
     const pins = part.pins.map((p) => ({ ...p, side: positions.get(p.id).side }));
     const pos = Object.fromEntries(pins.map((p) => [p.id, { ...positions.get(p.id), def: p }]));

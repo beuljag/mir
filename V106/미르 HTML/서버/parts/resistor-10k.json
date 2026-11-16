@@ -1,0 +1,25 @@
+{
+  "id": "resistor-10k",
+  "name": "저항 10kΩ",
+  "category": "passive",
+  "color": "#d9b26f",
+  "description": "풀업/풀다운용 10kΩ 저항.",
+  "behavior": {
+    "kind": "resistor",
+    "ohms": 10000
+  },
+  "pins": [
+    {
+      "id": "P1",
+      "label": "1",
+      "side": "left",
+      "type": "passive"
+    },
+    {
+      "id": "P2",
+      "label": "2",
+      "side": "right",
+      "type": "passive"
+    }
+  ]
+}

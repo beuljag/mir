@@ -1,0 +1,49 @@
+{
+  "name": "mir",
+  "productName": "미르",
+  "version": "0.1.95",
+  "description": "임베디드 입문자를 위한 배선 추천 · 2D 가상 실습 · 오류 진단 (Copilot Studio 에이전트 연동)",
+  "main": "main.js",
+  "author": "PLAYLABS (아산스마트팩토리마이스터고)",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "npm run dist:shared",
+    "dist:shared": "electron-builder --win portable --config scripts/electron-builder.shared.cjs",
+    "test": "node --test tests/*.test.cjs tests/*.test.mjs"
+  },
+  "build": {
+    "appId": "kr.playlabs.mir",
+    "files": [
+      "main.js",
+      "preload.js",
+      "app-config.json",
+      "src/**",
+      "renderer/**",
+      "parts/**",
+      "docs/**",
+      "build/icon.*"
+    ],
+    "extraResources": [
+      {
+        "from": "parts",
+        "to": "parts"
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "directories": {
+      "output": "release-v95"
+    },
+    "artifactName": "mir-V95.exe",
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "33.4.11"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  }
+}
