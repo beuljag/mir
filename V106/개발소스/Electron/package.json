@@ -1,0 +1,42 @@
+{
+  "name": "mir-v106-desktop",
+  "productName": "미르 V106",
+  "version": "0.106.0",
+  "description": "미르 V106 배선 제작대 및 LED 튜토리얼",
+  "author": "PLAYLABS",
+  "license": "MIT",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "kr.playlabs.mir.v106",
+    "asar": true,
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "icon.ico"
+    ],
+    "extraResources": [
+      {
+        "from": "web",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "icon.ico",
+      "signAndEditExecutable": false
+    },
+    "artifactName": "mir-V106.exe",
+    "directories": {
+      "output": "../../EXE"
+    },
+    "electronVersion": "33.4.11"
+  }
+}
