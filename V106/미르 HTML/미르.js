@@ -320,7 +320,8 @@
     const done = state2.gpio[boardPin] === "LOW" && light && !light.lit;
     return { step: done ? 9 : 8, parts, pins: [], seenHigh: true };
   }
-  function initLedTutorial({ getState, reset, openPart, fit, closeParts, getPreview = () => null }) {
+  function initLedTutorial({ getState, reset, openPart, fit, closeParts, getPreview = () => null, layout = () => {
+  } }) {
     let active = false, seenHigh = false, starting = false, lastStep = -1, previousFocus = null;
     const panel = document.createElement("aside");
     panel.id = "ledTutorial";
@@ -371,6 +372,7 @@
       partDemo.hide();
       panel.hidden = true;
       document.body.classList.remove("led-lesson-active");
+      layout();
       clearTargets();
       if (previousFocus?.isConnected && previousFocus.getClientRects().length) previousFocus.focus({ preventScroll: true });
     }
@@ -455,7 +457,10 @@
         lastStep = step;
         panel.scrollTop = 0;
         requestAnimationFrame(() => {
-          if (active) fit();
+          if (active) {
+            fit();
+            layout();
+          }
         });
       }
       $2("ledTutorialStatus").textContent = lesson.extra ? "\uC548\uB0B4\uC640 \uB2E4\uB978 \uC120\uC774\uB098 \uBD80\uD488\uC774 \uC788\uC5B4\uC694. \uBD88\uD544\uC694\uD55C \uC120\xB7\uBD80\uD488\uC744 \uC120\uD0DD\uD558\uACE0 \uC0AD\uC81C\uD574 \uC8FC\uC138\uC694. \uC0AD\uC81C\uB294 \uB418\uB3CC\uB9B4 \uC218 \uC788\uC5B4\uC694." : step < 6 && getState().power ? "\uBC30\uC120\uC744 \uBC14\uAFB8\uAE30 \uC804\uC5D0 \uAC00\uC0C1 \uC804\uC6D0\uC744 OFF\uB85C \uBC14\uAFD4 \uC8FC\uC138\uC694." : "";
@@ -486,7 +491,13 @@
         closeParts();
         fit();
         update2();
+        layout();
         if (step === 6) $2("btnPower").focus({ preventScroll: true });
+        if (step === 7 || step === 8) {
+          const target = document.querySelector("#gpioList .tutorial-target");
+          target?.scrollIntoView({ block: "nearest" });
+          target?.focus({ preventScroll: true });
+        }
       }
     };
     $2("btnTutorialFit").onclick = () => {
@@ -4143,13 +4154,19 @@ ${problems.map((p) => `- ${p}`).join("\n")}`;
     const dock = $("partsDock");
     const panel = $("partsPalette");
     const gpio = $("gpioPanel");
-    const chat = $("agentPanel").getBoundingClientRect();
+    const chatElement = $("agentPanel");
+    const chat = chatElement.getBoundingClientRect();
+    const guide = $("ledTutorial");
+    const lesson = Boolean(ledTutorial?.active);
+    const guideRect = lesson ? guide.getBoundingClientRect() : null;
+    dock.style.bottom = lesson && compactWorkspace.matches && Number(guide.dataset.step) < 3 ? Math.max(100, area.bottom - guideRect.top + 12) + "px" : "";
     const dockStyle = getComputedStyle(dock);
     const left = parseFloat(dockStyle.left);
     const bottom = parseFloat(dockStyle.bottom);
     const gap = parseFloat(dockStyle.getPropertyValue("--parts-gap"));
     const gpioWidth = parseFloat(dockStyle.getPropertyValue("--gpio-width"));
-    const right = Math.min(area.right - 12, compactWorkspace.matches ? area.right : chat.left - 12);
+    const obstacle = lesson && !compactWorkspace.matches ? guideRect.left : chatElement.getClientRects().length && !compactWorkspace.matches ? chat.left : area.right;
+    const right = Math.min(area.right - 12, obstacle - 12);
     const dockWidth = Math.max(1, right - area.left - left);
     const dockHeight = Math.max(1, area.height - bottom - Math.max(
       0,
@@ -6001,7 +6018,8 @@ ${r.errors.join("\n")}`);
     },
     fit: fitLedLesson,
     getPreview: (id) => state.defs.has(id) ? partThumb(state.defs.get(id)) : null,
-    closeParts: () => setPartsOpen(false)
+    closeParts: () => setPartsOpen(false),
+    layout: applyPaletteSize
   });
 
   // assets/workspace-frame.js

@@ -263,13 +263,22 @@ function applyPaletteSize() {
   const dock = $('partsDock');
   const panel = $('partsPalette');
   const gpio = $('gpioPanel');
-  const chat = $('agentPanel').getBoundingClientRect();
+  const chatElement = $('agentPanel');
+  const chat = chatElement.getBoundingClientRect();
+  const guide = $('ledTutorial');
+  const lesson = Boolean(ledTutorial?.active);
+  const guideRect = lesson ? guide.getBoundingClientRect() : null;
+  // 숨긴 채팅창은 크기가 0이다. 그 좌표로 부품함 폭을 계산하지 않는다.
+  dock.style.bottom = lesson && compactWorkspace.matches && Number(guide.dataset.step) < 3
+    ? Math.max(100, area.bottom - guideRect.top + 12) + 'px' : '';
   const dockStyle = getComputedStyle(dock);
   const left = parseFloat(dockStyle.left);
   const bottom = parseFloat(dockStyle.bottom);
   const gap = parseFloat(dockStyle.getPropertyValue('--parts-gap'));
   const gpioWidth = parseFloat(dockStyle.getPropertyValue('--gpio-width'));
-  const right = Math.min(area.right - 12, compactWorkspace.matches ? area.right : chat.left - 12);
+  const obstacle = lesson && !compactWorkspace.matches ? guideRect.left
+    : chatElement.getClientRects().length && !compactWorkspace.matches ? chat.left : area.right;
+  const right = Math.min(area.right - 12, obstacle - 12);
   const dockWidth = Math.max(1, right - area.left - left);
   const dockHeight = Math.max(1, area.height - bottom - Math.max(0,
     document.querySelector('.stage-toolbar').getBoundingClientRect().bottom - area.top) - 10);
@@ -1972,5 +1981,6 @@ ledTutorial = initLedTutorial({
   },
   fit: fitLedLesson,
   getPreview: id => state.defs.has(id) ? partThumb(state.defs.get(id)) : null,
-  closeParts: () => setPartsOpen(false)
+  closeParts: () => setPartsOpen(false),
+  layout: applyPaletteSize
 });

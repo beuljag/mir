@@ -38,7 +38,7 @@ export function ledLessonState(state, seenHigh = false) {
   return { step: done ? 9 : 8, parts, pins: [], seenHigh: true };
 }
 
-export function initLedTutorial({ getState, reset, openPart, fit, closeParts, getPreview = () => null }) {
+export function initLedTutorial({ getState, reset, openPart, fit, closeParts, getPreview = () => null, layout = () => {} }) {
   let active = false, seenHigh = false, starting = false, lastStep = -1, previousFocus = null;
   const panel = document.createElement('aside');
   panel.id = 'ledTutorial';
@@ -94,6 +94,7 @@ export function initLedTutorial({ getState, reset, openPart, fit, closeParts, ge
     partDemo.hide();
     panel.hidden = true;
     document.body.classList.remove('led-lesson-active');
+    layout();
     clearTargets();
     if (previousFocus?.isConnected && previousFocus.getClientRects().length) previousFocus.focus({ preventScroll: true });
   }
@@ -171,7 +172,7 @@ export function initLedTutorial({ getState, reset, openPart, fit, closeParts, ge
       $('tutorialCircuitDemo').dataset.demo = step >= 3 && step <= 5 ? 'connect' : 'power';
       lastStep = step;
       panel.scrollTop = 0;
-      requestAnimationFrame(() => { if (active) fit(); });
+      requestAnimationFrame(() => { if (active) { fit(); layout(); } });
     }
     $('ledTutorialStatus').textContent = lesson.extra
       ? '안내와 다른 선이나 부품이 있어요. 불필요한 선·부품을 선택하고 삭제해 주세요. 삭제는 되돌릴 수 있어요.'
@@ -196,7 +197,14 @@ export function initLedTutorial({ getState, reset, openPart, fit, closeParts, ge
     const step = Number(panel.dataset.step);
     if (step < 3) { openPart(PART_IDS[step]); update(); }
     else if (step === 9) { stop(); }
-    else { closeParts(); fit(); update(); if (step === 6) $('btnPower').focus({ preventScroll: true }); }
+    else {
+      closeParts(); fit(); update(); layout();
+      if (step === 6) $('btnPower').focus({ preventScroll: true });
+      if (step === 7 || step === 8) {
+        const target = document.querySelector('#gpioList .tutorial-target');
+        target?.scrollIntoView({block:'nearest'}); target?.focus({preventScroll:true});
+      }
+    }
   };
   $('btnTutorialFit').onclick = () => { closeParts(); fit(); update(); };
   $('btnTutorialExit').onclick = stop;
