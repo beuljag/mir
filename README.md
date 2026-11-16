@@ -12,6 +12,8 @@
 
 ## 실행
 
+- **Windows 앱:** [V106 EXE 다운로드](V106/EXE/mir-V106.exe) 후 실행합니다.
+
 - **웹에서 사용:** [미르 실행하기](https://mir-production-11d1117d.up.railway.app)
 - **V106 파일:** [V106 사용 안내](V106/README.md) · [HTML 소스](V106/미르%20HTML)
 - **직접 열기:** `V106/미르 HTML` 폴더 전체를 내려받아 `미르 HTML.html`을 브라우저로 엽니다.
@@ -25,7 +27,7 @@ npm start
 
 브라우저에서 `http://127.0.0.1:8791`에 접속합니다. [실행 안내](V106/미르%20HTML/실행%20안내.md)를 참고하세요.
 
-V106은 HTML 버전으로 제공하며 이 폴더에 EXE 빌드 명령은 없습니다.
+Windows EXE 빌드는 [V106 Electron 개발 소스](V106/개발소스/Electron)를 참고하세요. HTML 폴더의 명령과 구분합니다.
 
 ## 처음 사용하는 경우
 

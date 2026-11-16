@@ -1185,6 +1185,7 @@
   }
   window.api = {
     browserMode: true,
+    ...window.mirDesktop || {},
     ...createBrowserProjects(),
     getSettings: async () => ({
       mode: "server",

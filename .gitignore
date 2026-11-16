@@ -23,3 +23,8 @@ logs/
 **/renderer/server-connection.json
 .ux/
 release*/
+
+# Keep only the final V106 Windows portable artifact.
+V106/EXE/*
+!V106/EXE/mir-V106.exe
+!V106/EXE/SHA256.txt

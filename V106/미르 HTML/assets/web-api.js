@@ -195,6 +195,7 @@ function openGuide(name) {
 
 window.api = {
   browserMode: true,
+  ...(window.mirDesktop || {}),
   ...createBrowserProjects(),
   getSettings: async () => ({
     mode: 'server', serverSecretConfigured: availability.ai, apiKeyReady: availability.db
