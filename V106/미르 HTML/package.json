@@ -1,0 +1,19 @@
+{
+  "name": "mir-web",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node serve.cjs",
+    "start:local": "node serve.cjs --open",
+    "build": "node scripts/build-web.cjs",
+    "sync:html": "node scripts/sync-html.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "test:server": "python -m unittest discover -s tests -p \"test_*.py\""
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

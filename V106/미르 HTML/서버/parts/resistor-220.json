@@ -1,0 +1,25 @@
+{
+  "id": "resistor-220",
+  "name": "저항 220Ω",
+  "category": "passive",
+  "color": "#d9b26f",
+  "description": "LED 전류 제한용 220Ω 1/4W 저항.",
+  "behavior": {
+    "kind": "resistor",
+    "ohms": 220
+  },
+  "pins": [
+    {
+      "id": "P1",
+      "label": "1",
+      "side": "left",
+      "type": "passive"
+    },
+    {
+      "id": "P2",
+      "label": "2",
+      "side": "right",
+      "type": "passive"
+    }
+  ]
+}
