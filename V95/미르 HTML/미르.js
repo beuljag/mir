@@ -1129,13 +1129,19 @@
     }
     throw new Error("\uBD80\uD488 \uBAA9\uB85D\uC774 \uC870\uD68C \uD55C\uB3C4\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
   }
+  function invalidImage(message) {
+    return Object.assign(new Error(message), { imageInvalid: true });
+  }
+  function isRecoverableImageError(error) {
+    return !!error?.imageInvalid || error?.status === 409;
+  }
   async function loadComponentImage(client, part) {
     try {
       const result = await client.call(`/components/${encodeURIComponent(part.id)}/image?optional=true`);
-      if (result?.image_data === null) return part;
-      if (!result?.image_data?.startsWith("data:image/svg+xml;base64,") || !result.layout) throw new Error("\uC774\uBBF8\uC9C0 \uB370\uC774\uD130 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      if (result && (result.image_data == null || typeof result.image_data === "string" && !result.image_data.trim())) return part;
+      if (typeof result?.image_data !== "string" || !result.image_data.startsWith("data:image/svg+xml;base64,") || !result.layout || !Array.isArray(result.layout.pins)) throw invalidImage("\uC774\uBBF8\uC9C0 \uB370\uC774\uD130 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
       const positions = new Map(result.layout.pins.map((p) => [p.id, p]));
-      if (part.pins.length !== positions.size || part.pins.some((p) => !positions.has(p.id))) throw new Error("\uC774\uBBF8\uC9C0\uC640 \uD540 \uBAA9\uB85D\uC774 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      if (part.pins.length !== positions.size || part.pins.some((p) => !positions.has(p.id))) throw invalidImage("\uC774\uBBF8\uC9C0\uC640 \uD540 \uBAA9\uB85D\uC774 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
       const { _layout, ...fresh } = part;
       const pins = part.pins.map((p) => ({ ...p, side: positions.get(p.id).side }));
       const pos = Object.fromEntries(pins.map((p) => [p.id, { ...positions.get(p.id), def: p }]));
@@ -1180,6 +1186,28 @@
   };
 
   // assets/backend-panel.js?v=research-evidence-7
+  var IMAGE_CONCURRENCY = 6;
+  async function imageOrDefault(api2, part) {
+    try {
+      return await loadComponentImage(api2, part);
+    } catch (error) {
+      if (!isRecoverableImageError(error)) throw error;
+      console.warn(`\uBD80\uD488 \uADF8\uB9BC \uB300\uC2E0 \uAE30\uBCF8 \uADF8\uB9BC\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4: ${part.id}`, error);
+      return part;
+    }
+  }
+  async function mapLimit(items, limit, fn) {
+    const results = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await fn(items[index], index);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return results;
+  }
   function initBackendPanel({
     getState,
     getProjectGeneration = () => 0,
@@ -1251,8 +1279,7 @@
       const parts = await loadComponentCatalog(next);
       client = next;
       const catalog = getCatalog();
-      const loaded = /* @__PURE__ */ new Map();
-      for (const def2 of parts) {
+      const bases = parts.map((def2) => {
         const old = catalog.get(def2.id);
         const converted = definitionToPart(def2);
         const samePins = old && JSON.stringify(old.pins.map((p) => p.id).sort()) === JSON.stringify(def2.pins.map((p) => p.id).sort());
@@ -1262,8 +1289,10 @@
           pins: converted.pins.map((p) => ({ ...p, side: old.pins.find((x) => x.id === p.id).side }))
         } : converted;
         delete base._layout;
-        loaded.set(def2.id, await loadComponentImage(next, base));
-      }
+        return base;
+      });
+      const images = await mapLimit(bases, IMAGE_CONCURRENCY, (base) => imageOrDefault(next, base));
+      const loaded = new Map(parts.map((def2, index) => [def2.id, images[index]]));
       registerParts(loaded);
       renderParts();
       status(`\uC11C\uBC84 \uC790\uB3D9 \uC5F0\uACB0\uB428 \xB7 \uB4F1\uB85D \uBD80\uD488 ${parts.length}\uAC1C`);
@@ -1276,7 +1305,7 @@
       const api2 = client || new CircuitApi(runtimeApi.requestCircuit, "");
       try {
         const def2 = await api2.call(`/components/${encodeURIComponent(id)}`);
-        return await loadComponentImage(api2, definitionToPart(def2));
+        return await imageOrDefault(api2, definitionToPart(def2));
       } catch (e) {
         if (e.status === 404) return null;
         throw e;
@@ -1308,7 +1337,7 @@
             pins: converted.pins.map((p) => ({ ...p, side: old.pins.find((x) => x.id === p.id).side }))
           } : converted;
           delete base._layout;
-          projectParts2.set(partId, await loadComponentImage(circuitClient, base));
+          projectParts2.set(partId, await imageOrDefault(circuitClient, base));
         } catch (e) {
           if (e.status !== 404) throw e;
           if (!defs.has(partId)) {

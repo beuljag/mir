@@ -504,11 +504,19 @@ def attach_component_images(app, store, owner, root=ROOT):
                 'message': '미르에서 서버 다시 연결 또는 DB 회로 불러오기를 실행하세요.'}
 
     @app.get('/components/{component_id}/image', tags=['images'])
-    def active(component_id: str, user: str = Depends(owner)):
-        image = store.active_image(user, component_id)
-        if not image:
-            raise ImageError('ACTIVE_IMAGE_NOT_FOUND', 404)
+    def active(component_id: str, user: str = Depends(owner), optional: bool = Query(default=False)):
+        # optional=true: 그림이 없거나 쓸 수 없으면 200과 image_data=None을 돌려 앱이 기본 그림을 쓰게 한다.
         component = store.components(user).get(component_id)
-        if not component or image.layout != canvas_layout(component, image.presentation, legacy=image.design_version == 'v1'):
-            raise ImageError('IMAGE_LAYOUT_CHANGED_REGENERATE', 409)
-        return app.state.images.content(image)
+        if optional and not component:
+            raise ImageError('COMPONENT_NOT_FOUND', 404)
+        try:
+            image = store.active_image(user, component_id)
+            if not image:
+                raise ImageError('ACTIVE_IMAGE_NOT_FOUND', 404)
+            if not component or image.layout != canvas_layout(component, image.presentation, legacy=image.design_version == 'v1'):
+                raise ImageError('IMAGE_LAYOUT_CHANGED_REGENERATE', 409)
+            return app.state.images.content(image)
+        except ImageError as exc:
+            if not optional:
+                raise
+            return {'component_id': component_id, 'image_data': None, 'layout': None, 'reason': exc.code}

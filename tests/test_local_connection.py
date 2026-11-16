@@ -81,3 +81,10 @@ def test_chat_starts_without_browser_key_via_local_connection(app, tmp_path, mon
         assert response.status_code == 200 and response.json()['status'] == 201
         assert 'session_id' in response.json()['body']
         assert KEY not in response.text and 'private-token' not in response.text and 'mock-secret-for-local-chat' not in response.text
+
+
+def test_local_routes_allow_optional_image_only():
+    assert local_connection.ROUTES.fullmatch('/components/esp32-devkitc/image')
+    assert local_connection.ROUTES.fullmatch('/components/esp32-devkitc/image?optional=true')
+    assert not local_connection.ROUTES.fullmatch('/components/esp32-devkitc/image?optional=false')
+    assert not local_connection.ROUTES.fullmatch('/components/esp32-devkitc?optional=true')

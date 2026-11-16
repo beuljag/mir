@@ -6,7 +6,7 @@
     if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname))) throw new Error('외부 서버에는 HTTPS 주소가 필요합니다.');
     return url.origin;
   }
-  const routes = /^\/(?:chat\/(?:config|diagnostics|sessions(?:\/[a-f0-9]+(?:\/messages(?:\/[a-f0-9]+)?)?)?)|verification\/(?:config|projects(?:\/[a-f0-9]{32}(?:\/verify)?)?|jobs\/[a-f0-9-]+\/artifacts\/(?:erc\.json|erc\.log|export\.cir|export\.log|run\.cir|ngspice\.log))|jobs\/[a-f0-9-]+|components\/search(?:\?limit=100(?:&offset=[0-9]{1,5})?)?|components\/[a-zA-Z0-9_.%-]+(?:\/image)?|circuits(?:\/[a-zA-Z0-9-]+(?:\/validate)?)?)$/;
+  const routes = /^\/(?:chat\/(?:config|diagnostics|sessions(?:\/[a-f0-9]+(?:\/messages(?:\/[a-f0-9]+)?)?)?)|verification\/(?:config|projects(?:\/[a-f0-9]{32}(?:\/verify)?)?|jobs\/[a-f0-9-]+\/artifacts\/(?:erc\.json|erc\.log|export\.cir|export\.log|run\.cir|ngspice\.log))|jobs\/[a-f0-9-]+|components\/search(?:\?limit=100(?:&offset=[0-9]{1,5})?)?|components\/[a-zA-Z0-9_.%-]+(?:\/image(?:\?optional=true)?)?|circuits(?:\/[a-zA-Z0-9-]+(?:\/validate)?)?)$/;
   function updateConnection(previous, input) {
     if (input.mode !== 'remote') return { mode: 'local', url: '', key: '' };
     const url = normalizeServerUrl(input.url.trim());

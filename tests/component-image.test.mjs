@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../renderer/circuit-api.js', import.meta.url), 'utf8');
-const { loadComponentImage, loadComponentCatalog, definitionToPart } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const { loadComponentImage, loadComponentCatalog, definitionToPart, isRecoverableImageError } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const canvasSource = readFileSync(new URL('../renderer/canvas.js', import.meta.url), 'utf8');
 const layoutSource = canvasSource.slice(canvasSource.indexOf('export function layoutPart'), canvasSource.indexOf('\nconst DIR'));
 const { layoutPart } = await import('data:text/javascript;base64,' + Buffer.from('const PIN_GAP=18, HEADER=30, PAD=10;\n' + layoutSource).toString('base64'));
@@ -121,5 +121,23 @@ test('빈 이미지의 200 응답은 기본 그림과 핀을 유지하고 인증
   for (const status of [401, 403, 409, 500]) {
     const error = Object.assign(new Error('server error'), { status });
     await assert.rejects(() => loadComponentImage({ call: async () => { throw error; } }, part), error);
+  }
+});
+
+test('그림은 optional=true로 요청하고 그림 오류만 기본 그림으로 대신할 수 있게 표시', async () => {
+  const part = { id: 'esp32 devkit', pins: [{ id: 'P', side: 'left' }] };
+  const paths = [];
+  await loadComponentImage({ call: async (path) => { paths.push(path); return { image_data: null, layout: null }; } }, part);
+  assert.deepEqual(paths, ['/components/esp32%20devkit/image?optional=true']);
+  for (const result of [{ image_data: 'data:image/png;base64,AAAA', layout: {} },
+    { image_data: 'data:image/svg+xml;base64,AAA', layout: {} },
+    { image_data: 'data:image/svg+xml;base64,AAA', layout: { pins: [] } }]) {
+    const error = await loadComponentImage({ call: async () => result }, part).catch((e) => e);
+    assert.ok(error instanceof Error && isRecoverableImageError(error), String(error));
+  }
+  assert.equal(isRecoverableImageError(Object.assign(new Error(), { status: 409 })), true);
+  for (const error of [Object.assign(new Error(), { status: 401 }), Object.assign(new Error(), { status: 500 }),
+    new Error('서버가 JSON을 반환하지 않았습니다.'), null]) {
+    assert.equal(isRecoverableImageError(error), false);
   }
 });

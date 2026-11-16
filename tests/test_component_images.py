@@ -268,3 +268,22 @@ def test_legacy_image_binding_survives_v2(client):
     assert client.put('/components/virtual-sensor/image', json={'asset_id': image.id}).status_code == 200
     content = client.get('/components/virtual-sensor/image').json()
     assert content['design_version'] == 'v1' and content['art_nodes'] is None
+
+
+def test_optional_active_image_returns_null_instead_of_404_or_stale_409(client, monkeypatch):
+    path = '/components/virtual-sensor/image'
+    assert client.get(path).status_code == 404
+    empty = client.get(path, params={'optional': 'true'})
+    assert empty.status_code == 200
+    assert empty.json() == {'component_id': 'virtual-sensor', 'image_data': None, 'layout': None,
+                            'reason': 'ACTIVE_IMAGE_NOT_FOUND'}
+    assert client.get('/components/no-such-part/image', params={'optional': 'true'}).status_code == 404
+    job = client.post('/component-images/svg', json=native_body(client, 'optional-image-01')).json()
+    assert client.put(path, json={'asset_id': job['result']['asset_id']}).status_code == 200
+    assert client.get(path, params={'optional': 'true'}).json()['image_data'].startswith('data:image/svg+xml;base64,')
+    import app.component_images as images
+    monkeypatch.setattr(images, 'canvas_layout', lambda *args, **kwargs: {'changed': True})
+    assert client.get(path).status_code == 409
+    stale = client.get(path, params={'optional': 'true'})
+    assert stale.status_code == 200
+    assert stale.json()['image_data'] is None and stale.json()['reason'] == 'IMAGE_LAYOUT_CHANGED_REGENERATE'
