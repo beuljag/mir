@@ -13,7 +13,7 @@ from .runtime_config import cloud_mode
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_PORT = 8002
 ORIGINS = {'http://127.0.0.1:8000', 'http://localhost:8000'}
-ROUTES = re.compile(r'^/(?:chat/(?:config|diagnostics|sessions(?:/[a-f0-9]+(?:/messages(?:/[a-f0-9]+)?)?)?)|verification/(?:config|projects(?:/[a-f0-9]{32}(?:/verify)?)?|jobs/[a-f0-9-]+/artifacts/(?:erc\.json|erc\.log|export\.cir|export\.log|run\.cir|ngspice\.log))|jobs/[a-f0-9-]+|components/search(?:\?limit=100(?:&offset=[0-9]{1,5})?)?|components/[a-zA-Z0-9_.%-]+(?:/image)?|circuits(?:/[a-zA-Z0-9-]+(?:/validate)?)?)$')
+ROUTES = re.compile(r'^/(?:chat/(?:config|diagnostics|sessions(?:/[a-f0-9]+(?:/messages(?:/[a-f0-9]+)?)?)?)|verification/(?:config|projects(?:/[a-f0-9]{32}(?:/verify)?)?|jobs/[a-f0-9-]+/artifacts/(?:erc\.json|erc\.log|export\.cir|export\.log|run\.cir|ngspice\.log))|jobs/[a-f0-9-]+|components/search(?:\?limit=100(?:&offset=[0-9]{1,5})?)?|components/[a-zA-Z0-9_.%-]+(?:/image(?:\?optional=true)?)?|circuits(?:/[a-zA-Z0-9-]+(?:/validate)?)?)$')
 
 
 def env_settings(root=None):
